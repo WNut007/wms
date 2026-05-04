@@ -124,11 +124,28 @@ static void PrintList(IServiceProvider sp, string tag)
         return;
     }
 
-    Console.WriteLine($"{"Version",-18} {"Description"}");
-    Console.WriteLine(new string('-', 60));
+    // Try to read VersionInfo so we can mark applied vs pending.
+    // If the DB is unreachable / VersionInfo missing, fall back to listing
+    // assembly migrations only.
+    HashSet<long>? applied = null;
+    try
+    {
+        var versionLoader = sp.GetRequiredService<IVersionLoader>();
+        applied = versionLoader.VersionInfo.AppliedMigrations().ToHashSet();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"(applied/pending status unavailable: {ex.Message})");
+    }
+
+    Console.WriteLine($"{"Version",-15} {"Status",-10} {"Description"}");
+    Console.WriteLine(new string('-', 70));
     foreach (var m in migrations!)
     {
-        Console.WriteLine($"{m.Key,-18} {m.Value.Migration.GetType().Name}");
+        var status = applied is null
+            ? "[unknown]"
+            : applied.Contains(m.Key) ? "[applied]" : "[pending]";
+        Console.WriteLine($"{m.Key,-15} {status,-10} {m.Value.Migration.GetType().Name}");
     }
 }
 
