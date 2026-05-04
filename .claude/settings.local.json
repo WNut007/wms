@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C C:/dev/wms add .gitignore src/WMS.sln src/WMS.Web src/WMS.BLL src/WMS.DAL src/WMS.Domain src/WMS.Plugins src/WMS.Jobs src/WMS.Common)",
+      "Bash(git -C C:/dev/wms commit -m ' *)",
+      "Bash(git -C C:/dev/wms log --oneline -5)",
+      "Bash(git -C C:/dev/wms status)",
+      "PowerShell(Write-Host \"=== DAL ===\"; dotnet list src/WMS.DAL/WMS.DAL.csproj reference; Write-Host \"`n=== BLL ===\"; dotnet list src/WMS.BLL/WMS.BLL.csproj reference; Write-Host \"`n=== Plugins ===\"; dotnet list src/WMS.Plugins/WMS.Plugins.csproj reference; Write-Host \"`n=== Jobs ===\"; dotnet list src/WMS.Jobs/WMS.Jobs.csproj reference; Write-Host \"`n=== Web ===\"; dotnet list src/WMS.Web/WMS.Web.csproj reference; Write-Host \"`n=== Domain \\(should be empty\\) ===\"; dotnet list src/WMS.Domain/WMS.Domain.csproj reference; Write-Host \"`n=== Common \\(should be empty\\) ===\"; dotnet list src/WMS.Common/WMS.Common.csproj reference; Write-Host \"`n=== BUILD ===\"; dotnet build src/WMS.sln --nologo -v q)",
+      "Bash(git -C C:/dev/wms add src/WMS.BLL/WMS.BLL.csproj src/WMS.DAL/WMS.DAL.csproj src/WMS.Jobs/WMS.Jobs.csproj src/WMS.Plugins/WMS.Plugins.csproj src/WMS.Web/WMS.Web.csproj)",
+      "Bash(git -C C:/dev/wms add src/WMS.sln tests/WMS.UnitTests tests/WMS.IntegrationTests)",
+      "PowerShell(dotnet build *)",
+      "Bash(curl -sf -w \"\\\\nHTTP_STATUS:%{http_code}\\\\n\" http://localhost:5044/ -o /tmp/wms-home.html)",
+      "Read(//tmp/**)"
+    ]
+  }
+}
