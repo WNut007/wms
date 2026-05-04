@@ -21,6 +21,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WMS.UnitTests", "..\tests\W
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WMS.IntegrationTests", "..\tests\WMS.IntegrationTests\WMS.IntegrationTests.csproj", "{E1DE6B46-069C-4279-81AB-83D63D8F0F5B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WMS.Migrate", "..\tools\WMS.Migrate\WMS.Migrate.csproj", "{B85A8B81-B8BB-4573-B366-50808C9F4FEA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -139,6 +141,18 @@ Global
 		{E1DE6B46-069C-4279-81AB-83D63D8F0F5B}.Release|x64.Build.0 = Release|Any CPU
 		{E1DE6B46-069C-4279-81AB-83D63D8F0F5B}.Release|x86.ActiveCfg = Release|Any CPU
 		{E1DE6B46-069C-4279-81AB-83D63D8F0F5B}.Release|x86.Build.0 = Release|Any CPU
+		{B85A8B81-B8BB-4573-B366-50808C9F4FEA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B85A8B81-B8BB-4573-B366-50808C9F4FEA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B85A8B81-B8BB-4573-B366-50808C9F4FEA}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B85A8B81-B8BB-4573-B366-50808C9F4FEA}.Debug|x64.Build.0 = Debug|Any CPU
+		{B85A8B81-B8BB-4573-B366-50808C9F4FEA}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B85A8B81-B8BB-4573-B366-50808C9F4FEA}.Debug|x86.Build.0 = Debug|Any CPU
+		{B85A8B81-B8BB-4573-B366-50808C9F4FEA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B85A8B81-B8BB-4573-B366-50808C9F4FEA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B85A8B81-B8BB-4573-B366-50808C9F4FEA}.Release|x64.ActiveCfg = Release|Any CPU
+		{B85A8B81-B8BB-4573-B366-50808C9F4FEA}.Release|x64.Build.0 = Release|Any CPU
+		{B85A8B81-B8BB-4573-B366-50808C9F4FEA}.Release|x86.ActiveCfg = Release|Any CPU
+		{B85A8B81-B8BB-4573-B366-50808C9F4FEA}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
