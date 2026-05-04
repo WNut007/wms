@@ -268,7 +268,8 @@ dotnet run --project tools/WMS.SeedData
 - ❌ DO NOT skip activity logging in operational flows
 - ❌ DO NOT modify schema without migration script
 - ❌ DO NOT commit secrets (use User Secrets / Azure Key Vault)
-- ❌ DO NOT add EntityFramework, Newtonsoft.Json (use System.Text.Json)
+- ❌ DO NOT add EntityFramework
+- ❌ DO NOT use Newtonsoft.Json as a direct dependency — use System.Text.Json. (Newtonsoft.Json may appear transitively via Telerik UI 2023.3.x; project code must still use System.Text.Json.)
 - ❌ DO NOT change architectural patterns without ADR
 - ❌ DO NOT install Three.js or 3D libraries (Phase 4 only)
 - ❌ DO NOT skip filling X/Y/Z coords (needed even if 3D not yet built)
