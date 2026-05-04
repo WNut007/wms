@@ -18,4 +18,10 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\WMS.BLL\WMS.BLL.csproj" />
+    <ProjectReference Include="..\..\src\WMS.Domain\WMS.Domain.csproj" />
+    <ProjectReference Include="..\..\src\WMS.Common\WMS.Common.csproj" />
+  </ItemGroup>
+
 </Project>
