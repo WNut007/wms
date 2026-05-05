@@ -76,6 +76,11 @@ builder.Services.AddSingleton<IMasterConnectionFactory>(sp =>
 
 builder.Services.AddScoped<IUserRepositoryFactory, UserRepositoryFactory>();
 
+// Tenant active-status reader — singleton so its IMemoryCache reference
+// is shared. TenantValidationMiddleware reads through this on every
+// authenticated request.
+builder.Services.AddSingleton<ITenantStatusReader, TenantStatusReader>();
+
 // AuthService BCrypt cost factor: 12 in prod (~250ms/hash), 4 in
 // Development (~5ms) so dev seed scripts and local testing don't crawl.
 // Test suite already uses 4 directly via AuthServiceTests.
@@ -99,6 +104,7 @@ app.UseSerilogRequestLogging();
 app.UseRouting();
 
 app.UseAuthentication();
+app.UseTenantValidation();
 app.UseAuthorization();
 
 app.MapGet("/health", () => "Healthy");
