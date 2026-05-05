@@ -118,3 +118,33 @@ body.wms-auth {
     min-height: 100vh;
     background: #f3f4f6;
 }
+
+/* === WMS Mobile layout ============================================ */
+/* PWA workflows (Receive today; Pick / Pack later). Full-width,
+   sticky topbar, content capped to a comfortable mobile reading width
+   so it also looks reasonable on a desktop browser. No sidebar — the
+   workflows are linear. */
+
+body.wms-mobile {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: #f9fafb;
+}
+
+.wms-mobile-topbar {
+    background: #1f2937;
+    padding: 0.65rem 1rem;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.wms-mobile-content {
+    flex-grow: 1;
+    padding: 1rem;
+    max-width: 600px;
+    margin: 0 auto;
+    width: 100%;
+}
