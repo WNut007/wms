@@ -5,6 +5,7 @@ using WMS.BLL.Services.Auth;
 using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
 using WMS.DAL.Multitenancy;
+using WMS.DAL.Repositories.Master;
 using WMS.DAL.Repositories.Security;
 using WMS.Web.Auth;
 using WMS.Web.Multitenancy;
@@ -75,6 +76,7 @@ builder.Services.AddSingleton<IMasterConnectionFactory>(sp =>
 });
 
 builder.Services.AddScoped<IUserRepositoryFactory, UserRepositoryFactory>();
+builder.Services.AddScoped<IUserTenantMapRepository, UserTenantMapRepository>();
 
 // Tenant active-status reader — singleton so its IMemoryCache reference
 // is shared. TenantValidationMiddleware reads through this on every
@@ -86,6 +88,7 @@ builder.Services.AddSingleton<ITenantStatusReader, TenantStatusReader>();
 // Test suite already uses 4 directly via AuthServiceTests.
 builder.Services.AddScoped<IAuthService>(sp => new AuthService(
     sp.GetRequiredService<IUserRepositoryFactory>(),
+    sp.GetRequiredService<IUserTenantMapRepository>(),
     sp.GetRequiredService<IMasterConnectionFactory>(),
     sp.GetRequiredService<ILogger<AuthService>>(),
     bcryptCostFactor: builder.Environment.IsDevelopment() ? 4 : 12));
