@@ -25,7 +25,7 @@ closed when fixed.
 
 | ID | Title | Priority | Discovered | Plan | Notes |
 |----|-------|----------|------------|------|-------|
-| TD-002 | FK_Customers_Carrier orphan | Medium | 2026-05-04 | Add FK in Carriers chunk | Customers.PreferredCarrierId references Carriers table (not yet created) |
+| _(none)_ | | | | | |
 
 ---
 
@@ -34,6 +34,7 @@ closed when fixed.
 | ID | Title | Priority | Discovered | Resolved | Commit | Notes |
 |----|-------|----------|------------|----------|--------|-------|
 | TD-001 | Audit field standardization | Medium | 2026-05-04 | 2026-05-04 | cf01fc3, 0c65fe3 | 10 tables (3 Master + 7 Tenant), 24 columns added, idempotent + roundtrip-tested |
+| TD-002 | FK_Customers_Carrier orphan | Medium | 2026-05-04 | 2026-05-04 | d562cd3 | FK added by migration 027 with ON DELETE SET NULL after Carriers (021) landed |
 
 ---
 
