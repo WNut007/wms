@@ -29,4 +29,16 @@ public interface IPurchaseOrderRepository
     // PoNumber. Convenience for scan-driven lookups (operator types
     // a PO number from a delivery note).
     Task<PurchaseOrderDetail?> GetByNumberAsync(string poNumber, CancellationToken ct = default);
+
+    // Atomic ReceivedQuantity bump on a single line. Called per
+    // receiving line that's linked to a PO line. The CHECK
+    // CK_PurchaseOrderLines_ReceivedQty_NonNegative enforces the
+    // invariant; the service is expected to pass a positive delta.
+    // No version check today — receipts are append-only and serialise
+    // naturally on the row's UPDATE lock.
+    Task IncrementLineReceivedQuantityAsync(
+        Guid poLineId,
+        decimal delta,
+        Guid? userId,
+        CancellationToken ct = default);
 }

@@ -133,4 +133,24 @@ internal sealed class PurchaseOrderRepository : IPurchaseOrderRepository
         var lines = (await multi.ReadAsync<PurchaseOrderLine>()).AsList();
         return new PurchaseOrderDetail(header, lines);
     }
+
+    public Task IncrementLineReceivedQuantityAsync(
+        Guid poLineId,
+        decimal delta,
+        Guid? userId,
+        CancellationToken ct = default) =>
+        _connection.ExecuteAsync(new CommandDefinition(
+            @"UPDATE inbound.PurchaseOrderLines
+              SET ReceivedQuantity = ReceivedQuantity + @Delta,
+                  UpdatedAt        = SYSUTCDATETIME(),
+                  UpdatedBy        = @UserId,
+                  Version          = Version + 1
+              WHERE Id = @PoLineId;",
+            new
+            {
+                PoLineId = poLineId,
+                Delta = delta,
+                UserId = userId,
+            },
+            cancellationToken: ct));
 }
