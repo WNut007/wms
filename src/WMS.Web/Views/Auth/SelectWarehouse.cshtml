@@ -1,0 +1,23 @@
+@{
+    ViewData["Title"] = "Select warehouse";
+}
+
+<div class="row justify-content-center">
+    <div class="col-md-7">
+        <div class="alert alert-success mt-5" role="alert">
+            <h4 class="alert-heading">Login complete (Step 2 ✓)</h4>
+            <p>
+                Tenant claim is set on the session cookie. Warehouse selection
+                (Step 3) lands in the next chunk — it'll smart-skip when the
+                user has a single warehouse and otherwise show a picker
+                analogous to the tenant one.
+            </p>
+            <hr />
+            <p class="mb-0">
+                <a asp-action="Logout" class="btn btn-outline-secondary btn-sm">
+                    Sign out
+                </a>
+            </p>
+        </div>
+    </div>
+</div>
