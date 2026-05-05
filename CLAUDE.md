@@ -294,6 +294,50 @@ Update this section weekly during standups.
 
 ---
 
+## 🔑 Auth Architecture (Day 3 decisions)
+
+These choices govern the 3-step login flow + every tenant-scoped service.
+Change them only via a new ADR.
+
+### Session: Cookie Authentication (not JWT)
+
+- MPA + Razor — cookies are the natural fit
+- `HttpOnly` + `SameSite=Lax` + `SecurePolicy=SameAsRequest`
+- 8-hour sliding expiration so a shift doesn't get bounced
+- Server-side invalidation on logout (cookie scheme)
+- JWT can be layered later for 3rd-party APIs without disturbing this
+
+### Password Hashing: BCrypt (`BCrypt.Net-Next`)
+
+- Cost factor **12** in Production, **4** in Dev/Test (faster suite)
+- Built-in salt — no separate column
+
+### Tenant DB Connection: IMemoryCache (5-min sliding)
+
+- Cache key: `tenant:{tenantId:N}:conn`
+- Resolved string lives in `IMemoryCache` with 5-minute sliding TTL
+- Master DB hit at most once per tenant per 5 min — picks up
+  `master.Tenants.DatabaseName` changes within minutes without restart
+- Underlying `SqlConnection` pool handles per-connection reuse below
+
+### 3-Step Login Flow (ADR-008)
+
+1. **Step 1**: Email + Password → issue PreAuthToken (`master.PreAuthTokens`, 5-min TTL)
+2. **Step 2**: Choose Tenant → exchange PreAuthToken for session cookie with `wms.tid` claim (skip if user has 1 tenant)
+3. **Step 3**: Choose Warehouse → set `wms.wid` claim (skip if user has 1 warehouse in selected tenant)
+
+### Service Interfaces
+
+| Interface | Purpose | Status |
+|-----------|---------|--------|
+| `ICurrentUser` | UserId / TenantId / WarehouseId / Roles from cookie claims | ✅ A1 |
+| `ITenantContext` | Wraps TenantId claim for tenant-scoped services | ✅ A1 |
+| `ITenantConnectionFactory` | `IDbConnection` for tenant DB (cached) | ✅ A1 |
+| `IAuthService` | login, password verify, issue tokens | A3 |
+| `IPermissionService` | `HasPermission(function, crud)` resolution + cache | A7 |
+
+---
+
 ## 📚 Important Decisions (See ADRs)
 
 - ADR-001: Multi-tenant DB per tenant
@@ -378,5 +422,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-05 (added Audit Field FK Rules)
-**Version**: 1.1
+**Last updated**: 2026-05-05 (added Auth Architecture decisions)
+**Version**: 1.2
