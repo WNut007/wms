@@ -26,9 +26,6 @@ public class Migration_20260504_012_CreateProductCategoriesTable : MigrationBase
             // Denormalized hierarchy path (e.g. '/Electronics/Mobile/Smartphones').
             // Maintained by BLL on insert/move; supports fast prefix-match queries
             // (LIKE '/Electronics/%'). No DB trigger — Phase 2 may add one.
-            // TODO(TD-003): Path is VARCHAR but Name is NVARCHAR — unicode (Thai)
-            // category names are lossy when the path trigger concats them. Plan:
-            // ALTER to NVARCHAR(500).
             .WithColumn("Path").AsAnsiString(500).Nullable()
 
             .WithColumn("Description").AsString(500).Nullable()
