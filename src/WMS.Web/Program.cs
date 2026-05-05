@@ -4,6 +4,7 @@ using Serilog;
 using WMS.BLL.Services.Auth;
 using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
+using WMS.BLL.Services.Inbound;
 using WMS.BLL.Services.Inventory;
 using WMS.DAL.Multitenancy;
 using WMS.DAL.Repositories.Inventory;
@@ -83,6 +84,7 @@ builder.Services.AddScoped<IWarehouseRepositoryFactory, WarehouseRepositoryFacto
 builder.Services.AddScoped<IPermissionRepositoryFactory, PermissionRepositoryFactory>();
 builder.Services.AddScoped<IStockRepositoryFactory, StockRepositoryFactory>();
 builder.Services.AddScoped<IStockService, StockService>();
+builder.Services.AddScoped<IReceivingService, ReceivingService>();
 
 // PermissionService — Scoped to match the (Scoped) factory dep. The
 // cache itself lives on IMemoryCache (Singleton), so per-request
