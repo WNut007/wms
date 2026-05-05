@@ -90,6 +90,8 @@ builder.Services.AddScoped<IStockService, StockService>();
 builder.Services.AddScoped<IReceivingService, ReceivingService>();
 builder.Services.AddScoped<IPurchaseOrderRepositoryFactory, PurchaseOrderRepositoryFactory>();
 builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
+builder.Services.AddScoped<IReceivingHeaderRepositoryFactory, ReceivingHeaderRepositoryFactory>();
+builder.Services.AddScoped<IReceivingHeaderService, ReceivingHeaderService>();
 
 // PermissionService — Scoped to match the (Scoped) factory dep. The
 // cache itself lives on IMemoryCache (Singleton), so per-request
