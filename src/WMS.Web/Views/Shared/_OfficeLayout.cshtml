@@ -1,0 +1,64 @@
+@using WMS.Common.Auth
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - WMS</title>
+
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+
+    @*
+        TODO: localise via libman/npm to drop the runtime CDN dependency.
+        OK for Phase 1 internal dev; not production-friendly long-term.
+    *@
+    <script defer src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+</head>
+<body class="wms-office">
+    @if (User.Identity?.IsAuthenticated == true)
+    {
+        <aside class="wms-sidebar">
+            <div class="wms-brand">
+                <a asp-controller="Home" asp-action="Index">WMS</a>
+            </div>
+            @await Component.InvokeAsync("SidebarMenu")
+        </aside>
+    }
+
+    <main class="wms-main">
+        @if (User.Identity?.IsAuthenticated == true)
+        {
+            <header class="wms-topbar">
+                <div class="wms-context">
+                    <code>@User.FindFirst(WmsClaimTypes.TenantCode)?.Value</code>
+                    <span class="wms-context-sep">/</span>
+                    <code>@User.FindFirst(WmsClaimTypes.WarehouseCode)?.Value</code>
+                </div>
+                <div class="ms-auto">
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-link text-decoration-none dropdown-toggle"
+                                type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            @User.Identity!.Name
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li>
+                                <a class="dropdown-item" asp-controller="Auth" asp-action="Logout">
+                                    Sign out
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+        }
+        <div class="wms-content">
+            @RenderBody()
+        </div>
+    </main>
+
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>
