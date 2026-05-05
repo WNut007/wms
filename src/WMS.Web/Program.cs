@@ -77,6 +77,7 @@ builder.Services.AddSingleton<IMasterConnectionFactory>(sp =>
 
 builder.Services.AddScoped<IUserRepositoryFactory, UserRepositoryFactory>();
 builder.Services.AddScoped<IUserTenantMapRepository, UserTenantMapRepository>();
+builder.Services.AddScoped<IWarehouseRepositoryFactory, WarehouseRepositoryFactory>();
 
 // Tenant active-status reader — singleton so its IMemoryCache reference
 // is shared. TenantValidationMiddleware reads through this on every
