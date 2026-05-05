@@ -25,7 +25,7 @@ closed when fixed.
 
 | ID | Title | Priority | Discovered | Plan | Notes |
 |----|-------|----------|------------|------|-------|
-| _(none)_ | | | | | |
+| TD-003 | ProductCategories.Path / Name type mismatch | Low | 2026-05-05 | ALTER Path to NVARCHAR(500) | Path is VARCHAR(500) but Name is NVARCHAR(100) — unicode (Thai) category names lose chars when the path trigger concats them into Path |
 
 ---
 
