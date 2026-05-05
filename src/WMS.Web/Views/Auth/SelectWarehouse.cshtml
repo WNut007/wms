@@ -1,23 +1,44 @@
+@model WMS.Web.Models.Auth.WarehouseSelectViewModel
 @{
     ViewData["Title"] = "Select warehouse";
 }
 
 <div class="row justify-content-center">
-    <div class="col-md-7">
-        <div class="alert alert-success mt-5" role="alert">
-            <h4 class="alert-heading">Login complete (Step 2 ✓)</h4>
-            <p>
-                Tenant claim is set on the session cookie. Warehouse selection
-                (Step 3) lands in the next chunk — it'll smart-skip when the
-                user has a single warehouse and otherwise show a picker
-                analogous to the tenant one.
-            </p>
-            <hr />
-            <p class="mb-0">
-                <a asp-action="Logout" class="btn btn-outline-secondary btn-sm">
-                    Sign out
-                </a>
-            </p>
+    <div class="col-md-6">
+        <div class="card shadow-sm mt-5">
+            <div class="card-body p-4">
+                <h3 class="card-title text-center mb-4">Select warehouse</h3>
+                <p class="text-muted text-center small mb-4">
+                    Choose the warehouse you'll be working from.
+                </p>
+
+                @if (!ViewData.ModelState.IsValid && ViewData.ModelState[""]?.Errors.Count > 0)
+                {
+                    <div class="alert alert-danger" role="alert">
+                        @foreach (var err in ViewData.ModelState[""]!.Errors)
+                        {
+                            <div>@err.ErrorMessage</div>
+                        }
+                    </div>
+                }
+
+                <form asp-action="SelectWarehouse" method="post">
+                    <div class="list-group mb-3">
+                        @foreach (var w in Model.Warehouses)
+                        {
+                            <label class="list-group-item d-flex align-items-center">
+                                <input type="radio" name="SelectedWarehouseId"
+                                       value="@w.Id" class="form-check-input me-3" required />
+                                <div>
+                                    <div><strong>@w.Code</strong></div>
+                                    <div class="text-muted small">@w.Name</div>
+                                </div>
+                            </label>
+                        }
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Continue</button>
+                </form>
+            </div>
         </div>
     </div>
 </div>
