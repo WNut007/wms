@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using WMS.BLL.Services.Auth;
 using WMS.Common.Multitenancy;
+using WMS.DAL.Repositories.Master;
 using WMS.DAL.Repositories.Security;
 
 namespace WMS.UnitTests.Services.Auth;
@@ -19,6 +20,7 @@ public class AuthServiceTests
 
     private static AuthService NewService() => new(
         Mock.Of<IUserRepositoryFactory>(),
+        Mock.Of<IUserTenantMapRepository>(),
         Mock.Of<IMasterConnectionFactory>(),
         NullLogger<AuthService>.Instance,
         bcryptCostFactor: TestCostFactor);
@@ -64,12 +66,14 @@ public class AuthServiceTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new AuthService(
             Mock.Of<IUserRepositoryFactory>(),
+            Mock.Of<IUserTenantMapRepository>(),
             Mock.Of<IMasterConnectionFactory>(),
             NullLogger<AuthService>.Instance,
             bcryptCostFactor: 3));
 
         Assert.Throws<ArgumentOutOfRangeException>(() => new AuthService(
             Mock.Of<IUserRepositoryFactory>(),
+            Mock.Of<IUserTenantMapRepository>(),
             Mock.Of<IMasterConnectionFactory>(),
             NullLogger<AuthService>.Instance,
             bcryptCostFactor: 15));

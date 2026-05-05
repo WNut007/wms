@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Dapper;
 using Microsoft.Extensions.Logging;
 using WMS.Common.Multitenancy;
+using WMS.DAL.Repositories.Master;
 using WMS.DAL.Repositories.Security;
 using WMS.Domain.Entities.Security;
 
@@ -23,12 +24,14 @@ public sealed class AuthService : IAuthService
     private const int PreAuthTokenByteLength = 32;
 
     private readonly IUserRepositoryFactory _userRepoFactory;
+    private readonly IUserTenantMapRepository _userTenantMapRepo;
     private readonly IMasterConnectionFactory _masterFactory;
     private readonly ILogger<AuthService> _logger;
     private readonly int _bcryptCostFactor;
 
     public AuthService(
         IUserRepositoryFactory userRepoFactory,
+        IUserTenantMapRepository userTenantMapRepo,
         IMasterConnectionFactory masterFactory,
         ILogger<AuthService> logger,
         int bcryptCostFactor = 12)
@@ -39,9 +42,43 @@ public sealed class AuthService : IAuthService
                 "BCrypt cost factor must be between 4 (test) and 14 (prod ceiling).");
 
         _userRepoFactory = userRepoFactory;
+        _userTenantMapRepo = userTenantMapRepo;
         _masterFactory = masterFactory;
         _logger = logger;
         _bcryptCostFactor = bcryptCostFactor;
+    }
+
+    public async Task<LoginResult> AuthenticateAsync(
+        string email,
+        string password,
+        string? ipAddress,
+        string? userAgent,
+        CancellationToken ct = default)
+    {
+        var tenants = await _userTenantMapRepo.GetByEmailAsync(email, ct);
+        if (tenants.Count == 0)
+        {
+            await LogLoginAttemptAsync(email, success: false, "UnknownEmail",
+                ipAddress, userAgent, ct);
+            return LoginResult.Failed("UnknownEmail");
+        }
+
+        // Primary tenant = first row from the repo (IsDefault DESC, Code ASC).
+        // Password is assumed to be in sync across the user's tenants —
+        // verifying once is sufficient for Step 1.
+        var primary = tenants[0];
+        var user = await VerifyPasswordAsync(primary.TenantId, email, password, ct);
+        if (user is null)
+        {
+            await LogLoginAttemptAsync(email, success: false, "InvalidPassword",
+                ipAddress, userAgent, ct);
+            return LoginResult.Failed("InvalidPassword");
+        }
+
+        var token = await CreatePreAuthTokenAsync(email, ipAddress, ct);
+        await LogLoginAttemptAsync(email, success: true, null,
+            ipAddress, userAgent, ct);
+        return LoginResult.Succeeded(token, tenants);
     }
 
     public async Task<User?> VerifyPasswordAsync(
