@@ -347,9 +347,9 @@ Change them only via a new ADR.
 - ADR-005: Strategy pattern for configurable behaviors
 - ADR-006: Activity-based billing
 - ADR-007: Owner concept for VMI/3PL
-- ADR-008: 3-step login flow
+- ADR-008: 3-step login flow — cookie auth, smart-skip, pre-auth tokens, BCrypt cost split, tenant validation middleware
 - ADR-009: Pack video (browser MediaRecorder)
-- ADR-010: Function-CRUD permission matrix
+- ADR-010: Function-CRUD permission matrix — 5 action flags, MAX-aggregate across roles, IMemoryCache 15-min sliding, [RequirePermission] filter
 - ADR-011: 3D Warehouse Monitor — schema in Phase 1, implementation deferred to Phase 4 (post-launch)
 - ADR-012: Inter-warehouse Transfer — 9-state workflow, header+lines, status history, owner-aware
 - ADR-013: General Stock Adjustment — separate from cycle count, reason-driven, approval workflow, billing hooks
@@ -422,5 +422,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-05 (added Auth Architecture decisions)
-**Version**: 1.2
+**Last updated**: 2026-05-06 (formalised ADR-008 + ADR-010 as files)
+**Version**: 1.3
