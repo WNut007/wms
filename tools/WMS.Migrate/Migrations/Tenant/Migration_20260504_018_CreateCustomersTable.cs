@@ -49,6 +49,7 @@ public class Migration_20260504_018_CreateCustomersTable : MigrationBase
             // Logical FK to Carriers — Carriers table doesn't exist yet, so
             // no FK constraint here. A follow-up migration will add the FK
             // when Carriers lands.
+            // TODO(TD-002): add FK_Customers_Carrier once master.Carriers exists.
             .WithColumn("PreferredCarrierId").AsGuid().Nullable()
             .WithColumn("DefaultPaymentTerms").AsAnsiString(50).Nullable()
 
