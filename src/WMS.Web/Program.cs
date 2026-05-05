@@ -83,6 +83,8 @@ builder.Services.AddScoped<IUserTenantMapRepository, UserTenantMapRepository>();
 builder.Services.AddScoped<IWarehouseRepositoryFactory, WarehouseRepositoryFactory>();
 builder.Services.AddScoped<IPermissionRepositoryFactory, PermissionRepositoryFactory>();
 builder.Services.AddScoped<IStockRepositoryFactory, StockRepositoryFactory>();
+builder.Services.AddScoped<ILotRepositoryFactory, LotRepositoryFactory>();
+builder.Services.AddScoped<IPalletRepositoryFactory, PalletRepositoryFactory>();
 builder.Services.AddScoped<IStockService, StockService>();
 builder.Services.AddScoped<IReceivingService, ReceivingService>();
 
