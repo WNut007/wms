@@ -1,0 +1,8 @@
+@model IReadOnlyList<WMS.Web.ViewComponents.ModuleItem>
+
+<nav class="wms-sidebar-nav">
+    @foreach (var module in Model)
+    {
+        <a class="wms-sidebar-link" href="@module.Url">@module.DisplayName</a>
+    }
+</nav>
