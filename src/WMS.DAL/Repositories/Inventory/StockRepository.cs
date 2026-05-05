@@ -129,4 +129,129 @@ internal sealed class StockRepository : IStockRepository
                 UserId = userId,
             },
             cancellationToken: ct));
+
+    // Putaway / move primitive. The whole batch runs inside one
+    // BEGIN...COMMIT TRAN with XACT_ABORT ON so a THROW (or any other
+    // failure) rolls everything back automatically.
+    //
+    // The leading SELECT takes UPDLOCK + HOLDLOCK on the source row so
+    // concurrent transfers from the same row serialise — the second
+    // caller's SELECT waits for the first's COMMIT before reading
+    // OnHand. The WHERE-checked UPDATE then provides a safety net even
+    // for callers that bypass this method.
+    public async Task<(Stock Source, Stock Destination)> TransferStockAsync(
+        Guid fromStockId,
+        Guid toLocationId,
+        decimal quantity,
+        Guid? userId,
+        CancellationToken ct = default)
+    {
+        if (_connection.State != ConnectionState.Open)
+            (_connection as Microsoft.Data.SqlClient.SqlConnection)?.Open();
+
+        const string sql = @"
+SET XACT_ABORT ON;
+BEGIN TRAN;
+
+DECLARE @prodId    UNIQUEIDENTIFIER,
+        @lotId     UNIQUEIDENTIFIER,
+        @palletId  UNIQUEIDENTIFIER,
+        @ownerId   UNIQUEIDENTIFIER,
+        @uomId     UNIQUEIDENTIFIER,
+        @currentQty DECIMAL(18, 4),
+        @currentLoc UNIQUEIDENTIFIER;
+
+SELECT @prodId   = ProductId,
+       @lotId    = LotId,
+       @palletId = PalletId,
+       @ownerId  = OwnerId,
+       @uomId    = UomId,
+       @currentQty = QuantityOnHand,
+       @currentLoc = LocationId
+FROM inventory.Stock WITH (UPDLOCK, HOLDLOCK)
+WHERE Id = @FromStockId;
+
+IF @prodId IS NULL
+    THROW 50001, 'Source stock row not found.', 1;
+
+IF @currentLoc = @ToLocationId
+    THROW 50003, 'Destination location must differ from source.', 1;
+
+IF @currentQty < @Quantity
+    THROW 50002, 'Insufficient quantity at source.', 1;
+
+UPDATE inventory.Stock
+SET QuantityOnHand = QuantityOnHand - @Quantity,
+    LastMovementAt = SYSUTCDATETIME(),
+    UpdatedAt      = SYSUTCDATETIME(),
+    UpdatedBy      = @UserId,
+    Version        = Version + 1
+WHERE Id = @FromStockId;
+
+MERGE inventory.Stock WITH (HOLDLOCK) AS target
+USING (SELECT @ToLocationId AS LocationId,
+              @prodId       AS ProductId,
+              @lotId        AS LotId,
+              @palletId     AS PalletId,
+              @ownerId      AS OwnerId,
+              @uomId        AS UomId) AS src
+ON  target.LocationId = src.LocationId
+AND target.ProductId  = src.ProductId
+AND ((src.LotId    IS NULL AND target.LotId    IS NULL) OR target.LotId    = src.LotId)
+AND ((src.PalletId IS NULL AND target.PalletId IS NULL) OR target.PalletId = src.PalletId)
+AND target.OwnerId    = src.OwnerId
+AND target.UomId      = src.UomId
+WHEN MATCHED THEN
+    UPDATE SET
+        QuantityOnHand = target.QuantityOnHand + @Quantity,
+        LastMovementAt = SYSUTCDATETIME(),
+        UpdatedAt      = SYSUTCDATETIME(),
+        UpdatedBy      = @UserId,
+        Version        = target.Version + 1
+WHEN NOT MATCHED THEN
+    INSERT (LocationId, ProductId, LotId, PalletId, OwnerId, UomId,
+            QuantityOnHand, QuantityAllocated, LastMovementAt,
+            CreatedAt, CreatedBy)
+    VALUES (src.LocationId, src.ProductId, src.LotId, src.PalletId,
+            src.OwnerId, src.UomId,
+            @Quantity, 0, SYSUTCDATETIME(),
+            SYSUTCDATETIME(), @UserId);
+
+COMMIT TRAN;
+
+-- Source after the transfer.
+SELECT Id, LocationId, ProductId, LotId, PalletId, OwnerId, UomId,
+       QuantityOnHand, QuantityAllocated, LastMovementAt,
+       CreatedAt, UpdatedAt, CreatedBy, UpdatedBy, Version
+FROM inventory.Stock
+WHERE Id = @FromStockId;
+
+-- Destination after the transfer (matched on the captured 6-tuple).
+SELECT Id, LocationId, ProductId, LotId, PalletId, OwnerId, UomId,
+       QuantityOnHand, QuantityAllocated, LastMovementAt,
+       CreatedAt, UpdatedAt, CreatedBy, UpdatedBy, Version
+FROM inventory.Stock
+WHERE LocationId = @ToLocationId
+  AND ProductId  = @prodId
+  AND ((LotId    IS NULL AND @lotId    IS NULL) OR LotId    = @lotId)
+  AND ((PalletId IS NULL AND @palletId IS NULL) OR PalletId = @palletId)
+  AND OwnerId    = @ownerId
+  AND UomId      = @uomId;
+";
+
+        using var multi = await _connection.QueryMultipleAsync(new CommandDefinition(
+            sql,
+            new
+            {
+                FromStockId = fromStockId,
+                ToLocationId = toLocationId,
+                Quantity = quantity,
+                UserId = userId,
+            },
+            cancellationToken: ct));
+
+        var source = await multi.ReadSingleAsync<Stock>();
+        var destination = await multi.ReadSingleAsync<Stock>();
+        return (source, destination);
+    }
 }

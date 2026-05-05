@@ -27,4 +27,22 @@ public interface IStockRepository
         decimal quantityDelta,
         Guid? userId,
         CancellationToken ct = default);
+
+    // Atomic put-away primitive. Decrements OnHand at the source stock
+    // row and adds the same quantity onto the row at (toLocationId,
+    // sourceProduct, sourceLot, sourcePallet, sourceOwner, sourceUom),
+    // creating the destination row if it doesn't yet exist.
+    //
+    // SQL Server raises (THROW 50001..50003) if:
+    //   * source row is missing
+    //   * destination location matches source (no-op refused)
+    //   * source has insufficient quantity
+    //
+    // Returns the source + destination rows after the operation.
+    Task<(Stock Source, Stock Destination)> TransferStockAsync(
+        Guid fromStockId,
+        Guid toLocationId,
+        decimal quantity,
+        Guid? userId,
+        CancellationToken ct = default);
 }
