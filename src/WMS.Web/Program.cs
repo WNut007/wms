@@ -7,6 +7,7 @@ using WMS.Common.Multitenancy;
 using WMS.BLL.Services.Inbound;
 using WMS.BLL.Services.Inventory;
 using WMS.DAL.Multitenancy;
+using WMS.DAL.Repositories.Inbound;
 using WMS.DAL.Repositories.Inventory;
 using WMS.DAL.Repositories.Master;
 using WMS.DAL.Repositories.Security;
@@ -87,6 +88,8 @@ builder.Services.AddScoped<ILotRepositoryFactory, LotRepositoryFactory>();
 builder.Services.AddScoped<IPalletRepositoryFactory, PalletRepositoryFactory>();
 builder.Services.AddScoped<IStockService, StockService>();
 builder.Services.AddScoped<IReceivingService, ReceivingService>();
+builder.Services.AddScoped<IPurchaseOrderRepositoryFactory, PurchaseOrderRepositoryFactory>();
+builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
 
 // PermissionService — Scoped to match the (Scoped) factory dep. The
 // cache itself lives on IMemoryCache (Singleton), so per-request
