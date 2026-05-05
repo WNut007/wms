@@ -1,0 +1,12 @@
+{
+  "name": "WMS Receiver",
+  "short_name": "Receiver",
+  "description": "Warehouse goods-receipt entry",
+  "start_url": "/receive",
+  "scope": "/receive/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f9fafb",
+  "theme_color": "#1f2937",
+  "icons": []
+}

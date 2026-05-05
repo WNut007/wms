@@ -1,0 +1,105 @@
+@model WMS.Web.Models.Inbound.ReceiveFormModel
+@{
+    ViewData["Title"] = "Receive";
+}
+
+<form asp-controller="Receive" asp-action="Post" method="post" autocomplete="off">
+    @if (!ViewData.ModelState.IsValid && ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div class="alert alert-danger" role="alert">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">Receipt</h6>
+            <div class="mb-3">
+                <label asp-for="ReceivingNumber" class="form-label"></label>
+                <input asp-for="ReceivingNumber" class="form-control"
+                       autocomplete="off" autofocus />
+                <span asp-validation-for="ReceivingNumber" class="text-danger small"></span>
+            </div>
+            <div>
+                <label asp-for="Notes" class="form-label"></label>
+                <textarea asp-for="Notes" class="form-control" rows="2"></textarea>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">Item</h6>
+            <div class="mb-3">
+                <label asp-for="ProductCode" class="form-label"></label>
+                <input asp-for="ProductCode" class="form-control" />
+                <span asp-validation-for="ProductCode" class="text-danger small"></span>
+            </div>
+            <div class="row g-2 mb-3">
+                <div class="col-6">
+                    <label asp-for="Quantity" class="form-label"></label>
+                    <input asp-for="Quantity" class="form-control"
+                           inputmode="decimal" step="0.0001" />
+                    <span asp-validation-for="Quantity" class="text-danger small"></span>
+                </div>
+                <div class="col-6">
+                    <label asp-for="OwnerCode" class="form-label"></label>
+                    <input asp-for="OwnerCode" class="form-control" />
+                    <span asp-validation-for="OwnerCode" class="text-danger small"></span>
+                </div>
+            </div>
+            <div>
+                <label asp-for="LocationCode" class="form-label"></label>
+                <input asp-for="LocationCode" class="form-control" />
+                <span asp-validation-for="LocationCode" class="text-danger small"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title text-muted">Lot / Pallet (optional)</h6>
+            <div class="row g-2 mb-3">
+                <div class="col-7">
+                    <label asp-for="LotNumber" class="form-label"></label>
+                    <input asp-for="LotNumber" class="form-control" />
+                </div>
+                <div class="col-5">
+                    <label asp-for="ExpiryDate" class="form-label"></label>
+                    <input asp-for="ExpiryDate" class="form-control" type="date" />
+                </div>
+            </div>
+            <div>
+                <label asp-for="PalletNumber" class="form-label"></label>
+                <input asp-for="PalletNumber" class="form-control" />
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title text-muted">Purchase Order (optional)</h6>
+            <div class="row g-2">
+                <div class="col-7">
+                    <label asp-for="PoNumber" class="form-label"></label>
+                    <input asp-for="PoNumber" class="form-control" />
+                    <span asp-validation-for="PoNumber" class="text-danger small"></span>
+                </div>
+                <div class="col-5">
+                    <label asp-for="PoLineNumber" class="form-label"></label>
+                    <input asp-for="PoLineNumber" class="form-control" inputmode="numeric" />
+                    <span asp-validation-for="PoLineNumber" class="text-danger small"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-lg w-100 mb-3">Receive</button>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
