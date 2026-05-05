@@ -1,0 +1,23 @@
+@{
+    ViewData["Title"] = "Select tenant";
+}
+
+<div class="row justify-content-center">
+    <div class="col-md-7">
+        <div class="alert alert-info mt-5" role="alert">
+            <h4 class="alert-heading">Step 1 OK — pre-auth token issued</h4>
+            <p class="mb-2">
+                Tenant selection (Step 2) lands in the next chunk. The
+                <code>wms.preauth</code> cookie has been set; the upcoming
+                controller will validate it and either auto-select (single
+                tenant) or render a picker.
+            </p>
+            <hr />
+            <p class="mb-0">
+                <a asp-action="Logout" class="btn btn-outline-secondary btn-sm">
+                    Sign out
+                </a>
+            </p>
+        </div>
+    </div>
+</div>
