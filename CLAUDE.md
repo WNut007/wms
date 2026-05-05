@@ -237,6 +237,14 @@ Update this section weekly during standups.
 
 ---
 
+## 🔧 Tech Debt Management
+
+Tech debt items are tracked in `docs/TECH_DEBT.md` — log when discovered,
+close with commit hash. Reference in code via `// TODO(TD-XXX): ...`.
+See the file's "Process" section for workflow.
+
+---
+
 ## 🛠️ Useful Commands
 
 ```bash
