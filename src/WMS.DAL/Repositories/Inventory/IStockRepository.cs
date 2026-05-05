@@ -3,10 +3,9 @@ using WMS.Domain.Entities.Inventory;
 
 namespace WMS.DAL.Repositories.Inventory;
 
-// Tenant-scoped read API for inventory.Stock. Mutation primitives
-// (receive / putaway / adjust / reserve / pick) live in their own
-// repos / services per ADR — the read methods here exist independent
-// of any of those flows.
+// Tenant-scoped API for inventory.Stock. Reads are split-clean from the
+// upsert primitive below; richer mutation primitives (putaway, pick,
+// adjust, reserve) live in their own repos / services per ADR.
 public interface IStockRepository
 {
     Task<Stock?> GetByIdAsync(Guid id, CancellationToken ct = default);
@@ -16,4 +15,16 @@ public interface IStockRepository
     // NULL-safe lookup on the 6-tuple key — see implementation for
     // the SQL pattern that handles nullable LotId / PalletId.
     Task<Stock?> GetByKeyAsync(StockKey key, CancellationToken ct = default);
+
+    // Atomic receive primitive. Adds quantityDelta to the stock row at
+    // the 6-tuple key, creating it on first arrival. Implemented as a
+    // single MERGE WITH (HOLDLOCK) so concurrent receives at the same
+    // key serialize safely without app-level locking. quantityDelta is
+    // expected to be positive (receiving deposits stock, never removes
+    // it); the service layer enforces that.
+    Task<Stock> UpsertOnHandAsync(
+        StockKey key,
+        decimal quantityDelta,
+        Guid? userId,
+        CancellationToken ct = default);
 }
