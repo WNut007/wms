@@ -230,6 +230,8 @@ Update this section weekly during standups.
 - ADR-009: Pack video (browser MediaRecorder)
 - ADR-010: Function-CRUD permission matrix
 - ADR-011: 3D Warehouse Monitor — schema in Phase 1, implementation deferred to Phase 4 (post-launch)
+- ADR-012: Inter-warehouse Transfer — 9-state workflow, header+lines, status history, owner-aware
+- ADR-013: General Stock Adjustment — separate from cycle count, reason-driven, approval workflow, billing hooks
 
 (Add ADRs in `docs/decisions/` when making architectural decisions)
 
@@ -268,11 +270,13 @@ dotnet run --project tools/WMS.SeedData
 - ❌ DO NOT skip activity logging in operational flows
 - ❌ DO NOT modify schema without migration script
 - ❌ DO NOT commit secrets (use User Secrets / Azure Key Vault)
-- ❌ DO NOT add EntityFramework
-- ❌ DO NOT use Newtonsoft.Json as a direct dependency — use System.Text.Json. (Newtonsoft.Json may appear transitively via Telerik UI 2023.3.x; project code must still use System.Text.Json.)
+- ❌ DO NOT add EntityFramework, Newtonsoft.Json (use System.Text.Json)
 - ❌ DO NOT change architectural patterns without ADR
 - ❌ DO NOT install Three.js or 3D libraries (Phase 4 only)
 - ❌ DO NOT skip filling X/Y/Z coords (needed even if 3D not yet built)
+- ❌ DO NOT use Adjustment for Cycle Count results (use counts.CountAdjustments)
+- ❌ DO NOT skip OwnerId in Transfer lines (preserve owner identity)
+- ❌ DO NOT auto-apply Adjustments without approval workflow
 
 ---
 

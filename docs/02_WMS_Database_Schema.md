@@ -857,7 +857,7 @@ CREATE TABLE inventory.DemandPipeline (
     INDEX IX_Demand (ProductId, NeededByDate, Status)
 );
 
--- ⭐ Transfer Orders (inter-warehouse)
+-- ⭐ Transfer Orders (inter-warehouse) — Header
 CREATE TABLE inventory.TransferOrders (
     Id              UNIQUEIDENTIFIER PRIMARY KEY,
     TransferNumber  VARCHAR(30) UNIQUE,
@@ -865,14 +865,177 @@ CREATE TABLE inventory.TransferOrders (
     FromWarehouseId UNIQUEIDENTIFIER,
     ToWarehouseId   UNIQUEIDENTIFIER,
     
-    Reason          VARCHAR(50),
+    Reason          VARCHAR(50),  -- Rebalance/Replenish/CustomerOrder/Return
     RelatedOrderId  UNIQUEIDENTIFIER NULL,
+    Priority        VARCHAR(20),  -- Normal/Urgent/Express
     
+    -- Workflow status (9-state)
     Status          VARCHAR(20),
+    -- Draft/Submitted/Approved/Picking/Dispatched/InTransit/Receiving/Received/Closed
+    -- Side: Cancelled/Lost
+    
+    -- Timestamps
     RequestedAt     DATETIME2,
+    ApprovedAt      DATETIME2 NULL,
     DispatchedAt    DATETIME2 NULL,
     ReceivedAt      DATETIME2 NULL,
-    EstimatedTransitDays INT
+    ClosedAt        DATETIME2 NULL,
+    
+    -- People
+    RequestedBy     UNIQUEIDENTIFIER,
+    ApprovedBy      UNIQUEIDENTIFIER NULL,
+    DispatchedBy    UNIQUEIDENTIFIER NULL,
+    ReceivedBy      UNIQUEIDENTIFIER NULL,
+    
+    -- Logistics
+    EstimatedTransitDays INT,
+    CarrierId       UNIQUEIDENTIFIER NULL,
+    TrackingNumber  VARCHAR(100),
+    
+    Notes           NVARCHAR(1000),
+    
+    INDEX IX_Transfer_Status (Status, RequestedAt DESC),
+    INDEX IX_Transfer_Wh (FromWarehouseId, ToWarehouseId, Status)
+);
+
+-- ⭐ Transfer Order Lines (item details)
+CREATE TABLE inventory.TransferOrderLines (
+    Id              UNIQUEIDENTIFIER PRIMARY KEY,
+    TransferId      UNIQUEIDENTIFIER NOT NULL,
+    LineNumber      INT NOT NULL,
+    
+    ProductId       UNIQUEIDENTIFIER NOT NULL,
+    OwnerId         UNIQUEIDENTIFIER NOT NULL,  -- preserve owner
+    LotId           UNIQUEIDENTIFIER NULL,      -- preserve lot
+    
+    -- Source (FROM warehouse)
+    FromLocationId  UNIQUEIDENTIFIER NULL,  -- specific or NULL=any
+    
+    -- Destination (TO warehouse)  
+    ToLocationId    UNIQUEIDENTIFIER NULL,  -- specific or NULL=putaway
+    
+    -- Quantities
+    UomId           UNIQUEIDENTIFIER,
+    QtyRequested    DECIMAL(18,4),
+    QtyDispatched   DECIMAL(18,4) NULL,  -- actually picked
+    QtyReceived     DECIMAL(18,4) NULL,  -- actually arrived
+    QtyLossInTransit AS (ISNULL(QtyDispatched,0) - ISNULL(QtyReceived,0)) PERSISTED,
+    
+    -- Status per line
+    Status          VARCHAR(20),  -- Pending/Picked/InTransit/Received/Discrepancy
+    
+    -- Linkage
+    PickTaskId      UNIQUEIDENTIFIER NULL,
+    AdjustmentId   UNIQUEIDENTIFIER NULL,  -- if loss in transit
+    
+    INDEX IX_TransferLine_Header (TransferId, LineNumber),
+    INDEX IX_TransferLine_Product (ProductId, Status)
+);
+
+-- ⭐ Transfer Status History (audit trail)
+CREATE TABLE inventory.TransferStatusHistory (
+    Id              UNIQUEIDENTIFIER PRIMARY KEY,
+    TransferId      UNIQUEIDENTIFIER NOT NULL,
+    
+    FromStatus      VARCHAR(20),
+    ToStatus        VARCHAR(20),
+    Reason          NVARCHAR(500),
+    
+    PerformedBy     UNIQUEIDENTIFIER,
+    PerformedAt     DATETIME2,
+    
+    INDEX IX_TransferHist (TransferId, PerformedAt DESC)
+);
+
+-- ⭐ Adjustment Reasons (master data)
+CREATE TABLE master.AdjustmentReasons (
+    Id              UNIQUEIDENTIFIER PRIMARY KEY,
+    Code            VARCHAR(20) UNIQUE,
+    -- Examples: DAMAGE-WAREHOUSE, LOSS-PICK, FOUND-LOC, QC-REJECT, MANUAL-FIX
+    Name            NVARCHAR(100),
+    Category        VARCHAR(20),  
+    -- Damage/Loss/Found/QC/Manual/Reclassify
+    
+    Direction       VARCHAR(10),  -- 'Decrease' or 'Increase' or 'Both'
+    
+    -- Approval requirements
+    RequireApproval BIT NOT NULL DEFAULT 1,
+    RequirePhoto    BIT NOT NULL DEFAULT 0,
+    AuthorityLevel  VARCHAR(20),  -- 'Supervisor', 'Manager', 'GM'
+    AuthorityValueLimit DECIMAL(18,2) NULL,  -- override at certain threshold
+    
+    -- Billing impact (3PL)
+    IsChargeable    BIT NOT NULL DEFAULT 0,
+    ChargeAccount   VARCHAR(50),
+    
+    -- Display
+    DisplayColor    VARCHAR(20),  -- for UI badges
+    DisplayOrder    INT,
+    
+    IsActive        BIT NOT NULL DEFAULT 1,
+    
+    INDEX IX_AdjReason_Active (IsActive, Category, DisplayOrder)
+);
+
+-- ⭐ Stock Adjustments (general purpose)
+CREATE TABLE inventory.StockAdjustments (
+    Id              UNIQUEIDENTIFIER PRIMARY KEY,
+    AdjustmentNumber VARCHAR(30) UNIQUE,  -- ADJ-YYYYMMDD-NNNN
+    
+    -- What stock affected
+    StockId         UNIQUEIDENTIFIER NULL,  -- existing stock (Decrease)
+    ProductId       UNIQUEIDENTIFIER NOT NULL,
+    LocationId      UNIQUEIDENTIFIER NOT NULL,
+    LotId           UNIQUEIDENTIFIER NULL,
+    PalletId        UNIQUEIDENTIFIER NULL,
+    OwnerId         UNIQUEIDENTIFIER NOT NULL,
+    
+    -- Quantities
+    UomId           UNIQUEIDENTIFIER,
+    QtyBefore       DECIMAL(18,4),
+    QtyAfter        DECIMAL(18,4),
+    QtyDelta        AS (QtyAfter - QtyBefore) PERSISTED,
+    
+    -- Why
+    ReasonId        UNIQUEIDENTIFIER NOT NULL,  -- FK to AdjustmentReasons
+    Notes           NVARCHAR(1000),
+    PhotoUrls       NVARCHAR(MAX),  -- JSON array of photo URLs
+    
+    -- Source / context
+    SourceType      VARCHAR(30) NULL,  
+    -- 'CycleCount'/'Picking'/'Receiving'/'Manual'/'Transfer'
+    SourceReferenceId UNIQUEIDENTIFIER NULL,
+    
+    -- Workflow
+    Status          VARCHAR(20),  -- Pending/Approved/Rejected/Applied
+    
+    -- Submission
+    SubmittedBy     UNIQUEIDENTIFIER NOT NULL,
+    SubmittedAt     DATETIME2 NOT NULL,
+    
+    -- Approval
+    ApprovedBy      UNIQUEIDENTIFIER NULL,
+    ApprovedAt      DATETIME2 NULL,
+    ApprovalNotes   NVARCHAR(500),
+    
+    -- Rejection
+    RejectedBy      UNIQUEIDENTIFIER NULL,
+    RejectedAt      DATETIME2 NULL,
+    RejectionReason NVARCHAR(500),
+    
+    -- Application (when actually changed stock)
+    AppliedAt       DATETIME2 NULL,
+    StockMovementId UNIQUEIDENTIFIER NULL,  -- linked movement
+    
+    -- Billing (3PL)
+    IsChargeable    BIT NOT NULL DEFAULT 0,
+    ChargedAmount   DECIMAL(18,2) NULL,
+    BillableActivityId UNIQUEIDENTIFIER NULL,
+    
+    INDEX IX_Adj_Status (Status, SubmittedAt DESC),
+    INDEX IX_Adj_Stock (StockId, AppliedAt DESC),
+    INDEX IX_Adj_Reason (ReasonId, SubmittedAt DESC),
+    INDEX IX_Adj_Owner (OwnerId, AppliedAt DESC)
 );
 
 -- ⭐ Reslotting tasks
@@ -1009,6 +1172,7 @@ CREATE TABLE analytics.PickerPositions (
 (Similar detailed schemas for:)
 
 - **inbound**: PurchaseOrders, Lines, ReceivingHeaders, ReceivingLines, PutawayTasks, ContainerOperations
+- **inventory** (additional): **TransferOrders, TransferOrderLines, TransferStatusHistory, StockAdjustments**
 - **outbound**: Orders, OrderLines, SalesOrderDetails, OrderStatusHistory, Shipments, Waves, PickTasks, WaveContainers, PickAllocations, PickScans, PackTasks, PackVerifications, Packages, Manifests, CarrierShipments, TrackingEvents, PackVideos, PackVideoAccessLog, OrderConsolidation
 - **marketplace**: WebhookEvents, ReviewQueue
 - **returns**: RmaHeaders, RmaLines, Inspections, RmaStatusHistory
@@ -1018,10 +1182,11 @@ CREATE TABLE analytics.PickerPositions (
 - **billing**: RateCards, RateCardLines, RateCardTiers, **AgingBrackets**, **RateCardCategoryRates**, **RateCardCategoryTiers**, PricingConditions, BillableActivities, StorageSnapshots, Invoices, InvoiceLines, Payments, ErpExportLog, CalculationPolicies
 - **forecast**: DemandForecasts
 - **analytics**: SalesVelocity, DailyOrderSummary, PickerPerformance, WaveCompletionStats, StockAging (view), **LocationActivity**, **PickerPositions**
+- **master** (additional): **AdjustmentReasons**
 
 ---
 
-**Total tables: ~83+ across all schemas** (added 3 for 3D Monitor)
+**Total tables: ~88+ across all schemas** (added 4 for Transfer + Adjustment)
 
 For complete schema details of these schemas, refer to the detailed conversation history.
 

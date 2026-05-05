@@ -213,6 +213,43 @@
 - **Why deferred**: Not critical for B2B/B2C/3PL launch — differentiator for sales demos and advanced operations
 - **Data foundation**: X/Y/Z coordinates added to Locations master (Phase 1 schema)
 
+### 17. Inter-warehouse Transfer [PHASE 1 - Required]
+- **Status**: Required for Phase 1 (B2B with multi-location)
+- 9-state workflow: Draft → Submitted → Approved → Picking → Dispatched → InTransit → Receiving → Received → Closed
+- Side paths: Cancelled (before InTransit), Lost (after Dispatched without Received)
+- Header + Lines pattern (TransferOrders + TransferOrderLines)
+- Status history table for audit trail
+- In-transit stock = pseudo-location (between warehouses)
+- Owner-aware (preserve OwnerId across transfer)
+- Lot-aware (preserve LotId)
+- Pick task generation from Transfer (uses normal picker workflow)
+- Receiving on arrival (uses normal receiving workflow)
+- Loss in transit handling: auto-create Adjustment if QtyDispatched ≠ QtyReceived
+- Used for: rebalancing stock, satellite warehouses, returns to main, B2B contract fulfillment
+
+### 18. General Stock Adjustment [PHASE 1 - Required]
+- **Status**: Required for Phase 1 (real-world ops support)
+- Distinct from Cycle Count adjustments (counts.CountAdjustments stays for that)
+- Generic AdjustmentReasons master with categories: Damage/Loss/Found/QC/Manual/Reclassify
+- Reason codes drive workflow:
+  - RequireApproval (yes/no per reason)
+  - RequirePhoto (mandatory evidence?)
+  - AuthorityLevel (Supervisor/Manager/GM)
+  - IsChargeable (3PL: bill customer for adjustment?)
+- 4-state workflow: Pending → (Approved/Rejected) → Applied
+- Authority routing by reason + value (similar to Cycle Count adjustments)
+- StockAdjustments table tracks: before qty, after qty, delta, reason, photos, approval
+- Photo evidence for damage claims
+- Billing impact: chargeable adjustments → BillableActivities
+- Use cases:
+  - Damage in warehouse → Decrease + chargeable
+  - Loss during pick → Decrease + investigation
+  - Found stock (wrong location discovered) → Increase
+  - QC rejection → Reclassify to Quarantine
+  - Owner change (Self → VMI) → Reclassify
+  - System bug recovery → Manual correction
+- Why critical: real warehouses adjust daily, not just during cycle counts
+
 ---
 
 ## 🗄️ Database Schemas (12 schemas)
@@ -249,7 +286,7 @@ Tenant DB (per company):
 
 ## 📊 Functions Master List
 
-**~700 functions** across modules:
+**~735 functions** across modules:
 
 | Module | Function Count | Priority |
 |--------|---------------|----------|
@@ -257,6 +294,8 @@ Tenant DB (per company):
 | Master Data | 50 | ⭐⭐⭐⭐⭐ |
 | Receiving + Putaway | 40 | ⭐⭐⭐⭐⭐ |
 | Inventory + Stock | 45 | ⭐⭐⭐⭐⭐ |
+| **Inter-warehouse Transfer** | **15** | **⭐⭐⭐⭐⭐** |
+| **Stock Adjustment** | **18** | **⭐⭐⭐⭐⭐** |
 | Order Management | 50 | ⭐⭐⭐⭐⭐ |
 | Wave Engine | 25 | ⭐⭐⭐⭐⭐ |
 | Picker (Mobile) | 30 | ⭐⭐⭐⭐⭐ |
@@ -270,7 +309,7 @@ Tenant DB (per company):
 | Reports + Dashboards | 40 | ⭐⭐⭐⭐ |
 | ATP + Network Inventory | 25 | ⭐⭐⭐⭐ |
 | VMI / Owner | 20 | ⭐⭐⭐⭐ |
-| **3D Warehouse Monitor** | **~22** | **⭐⭐⭐ (Phase 4)** |
+| 3D Warehouse Monitor | ~22 | ⭐⭐⭐ (Phase 4) |
 | Misc/Support | 60 | ⭐⭐⭐ |
 
 ---
@@ -337,6 +376,8 @@ Every business rule is configurable through admin UI:
 - Master data setup (5-week implementation)
 - Receiving + Putaway (basic)
 - Stock management
+- **Inter-warehouse Transfer** (multi-location support)
+- **General Stock Adjustment** (damage/loss/found)
 - Order Management (B2B)
 - Pick + Pack workflow
 - Basic reports

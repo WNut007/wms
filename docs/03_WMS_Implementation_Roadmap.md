@@ -167,10 +167,27 @@ Deliverables:
 ✅ ATP foundation (SupplyPipeline + DemandPipeline)
 ✅ Multi-location stock view
 
+✅ **Inter-warehouse Transfer** (new)
+   ├── TransferOrders + Lines + StatusHistory
+   ├── 9-state workflow
+   ├── Pick task generation from Transfer
+   ├── Receiving on arrival
+   └── Loss in transit → auto Adjustment
+
+✅ **General Stock Adjustment** (new)
+   ├── AdjustmentReasons master CRUD
+   ├── StockAdjustments table + workflow
+   ├── 4-state: Pending → Approved/Rejected → Applied
+   ├── Photo evidence upload
+   ├── Authority routing by reason + value
+   └── Billing hooks (chargeable adjustments)
+
 Deliverables:
 - Stock state correct after all operations
 - Reservations working B2B + B2C
 - Audit trail complete
+- Transfer end-to-end working
+- Adjustment workflow working
 ```
 
 ### Week 7: Order Management (B2B)
@@ -603,6 +620,8 @@ These cannot be parallelized — must be done in order:
 ### Gate 2: End of Month 2
 **B2B Operational**
 - Receive → Putaway → Pick → Pack → Ship
+- **Transfer between warehouses working**
+- **Adjustment workflow working**
 - Manual carrier OK
 - Stock accurate
 - Reservations working

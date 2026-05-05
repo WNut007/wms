@@ -202,6 +202,8 @@ PHASE 1 (Months 1-3): MVP B2B
 ├── Foundation + Master Data
 ├── Receiving + Putaway
 ├── Stock with Owner
+├── Inter-warehouse Transfer (9-state workflow)
+├── General Stock Adjustment (Damage/Loss/Found)
 ├── Order Management
 ├── Pick + Pack + Ship
 ├── Returns
