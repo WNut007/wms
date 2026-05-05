@@ -1,0 +1,12 @@
+{
+  "name": "WMS Putaway",
+  "short_name": "Putaway",
+  "description": "Move stock from receiving to a storage bin",
+  "start_url": "/putaway",
+  "scope": "/putaway/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f9fafb",
+  "theme_color": "#1f2937",
+  "icons": []
+}

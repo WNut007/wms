@@ -1,0 +1,74 @@
+@model WMS.Web.Models.Inbound.PutawayFormModel
+@{
+    ViewData["Title"] = "Putaway";
+}
+
+<form asp-controller="Putaway" asp-action="Post" method="post" autocomplete="off">
+    @if (!ViewData.ModelState.IsValid && ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div class="alert alert-danger" role="alert">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">Item</h6>
+            <div class="mb-3">
+                <label asp-for="ProductCode" class="form-label"></label>
+                <input asp-for="ProductCode" class="form-control" autofocus />
+                <span asp-validation-for="ProductCode" class="text-danger small"></span>
+            </div>
+            <div class="row g-2 mb-3">
+                <div class="col-7">
+                    <label asp-for="LotNumber" class="form-label"></label>
+                    <input asp-for="LotNumber" class="form-control" />
+                    <span asp-validation-for="LotNumber" class="text-danger small"></span>
+                </div>
+                <div class="col-5">
+                    <label asp-for="OwnerCode" class="form-label"></label>
+                    <input asp-for="OwnerCode" class="form-control" />
+                    <span asp-validation-for="OwnerCode" class="text-danger small"></span>
+                </div>
+            </div>
+            <div>
+                <label asp-for="PalletNumber" class="form-label"></label>
+                <input asp-for="PalletNumber" class="form-control" />
+                <span asp-validation-for="PalletNumber" class="text-danger small"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">Move</h6>
+            <div class="row g-2 mb-3">
+                <div class="col-6">
+                    <label asp-for="FromLocationCode" class="form-label"></label>
+                    <input asp-for="FromLocationCode" class="form-control" />
+                    <span asp-validation-for="FromLocationCode" class="text-danger small"></span>
+                </div>
+                <div class="col-6">
+                    <label asp-for="ToLocationCode" class="form-label"></label>
+                    <input asp-for="ToLocationCode" class="form-control" />
+                    <span asp-validation-for="ToLocationCode" class="text-danger small"></span>
+                </div>
+            </div>
+            <div>
+                <label asp-for="Quantity" class="form-label"></label>
+                <input asp-for="Quantity" class="form-control"
+                       inputmode="decimal" step="0.0001" />
+                <span asp-validation-for="Quantity" class="text-danger small"></span>
+            </div>
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-lg w-100 mb-3">Putaway</button>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

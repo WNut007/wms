@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>@ViewData["Title"] - WMS</title>
 
-    @* PWA manifest is per-workflow (ε today serves /receive only). *@
-    <link rel="manifest" href="/receive/manifest.json" />
+    @* PWA manifest is per-workflow — each folder's _ViewStart sets
+       ViewData["ManifestPath"] (defaults to /receive/ for back-compat). *@
+    <link rel="manifest" href="@(ViewData["ManifestPath"] as string ?? "/receive/manifest.json")" />
     <meta name="theme-color" content="#1f2937" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
 

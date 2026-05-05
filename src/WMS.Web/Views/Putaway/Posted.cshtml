@@ -1,0 +1,28 @@
+@model WMS.Web.Controllers.PutawayPostedViewModel
+@{
+    ViewData["Title"] = "Putaway posted";
+}
+
+<div class="alert alert-success mb-3" role="alert">
+    <h6 class="alert-heading">Putaway posted</h6>
+    <div class="text-muted small">@Model.Source.ProductCode</div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row">
+            <div class="col-6">
+                <div class="text-muted small">From</div>
+                <div><strong>@Model.Source.LocationCode</strong></div>
+                <div>OnHand <code>@Model.Source.QuantityOnHand</code></div>
+            </div>
+            <div class="col-6">
+                <div class="text-muted small">To</div>
+                <div><strong>@Model.Destination.LocationCode</strong></div>
+                <div>OnHand <code>@Model.Destination.QuantityOnHand</code></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<a asp-action="Index" class="btn btn-primary btn-lg w-100">Putaway another</a>
