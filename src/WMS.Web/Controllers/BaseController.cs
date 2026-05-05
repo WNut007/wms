@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using WMS.Common.Auth;
+using WMS.Common.Multitenancy;
 
 namespace WMS.Web.Controllers;
 
@@ -11,11 +13,11 @@ public abstract class BaseController : Controller
             .GetRequiredService<ILoggerFactory>()
             .CreateLogger(GetType());
 
-    // TODO: read from HttpContext.Items["TenantId"] once
-    // TenantResolutionMiddleware is in place.
-    protected virtual Guid GetCurrentTenantId() =>
-        throw new InvalidOperationException(
-            "Tenant resolution not yet wired. Implement TenantResolutionMiddleware first.");
+    protected ICurrentUser CurrentUser =>
+        HttpContext.RequestServices.GetRequiredService<ICurrentUser>();
+
+    protected ITenantContext TenantContext =>
+        HttpContext.RequestServices.GetRequiredService<ITenantContext>();
 
     protected IActionResult JsonError(string message, int statusCode = 400) =>
         new JsonResult(new { error = message }) { StatusCode = statusCode };

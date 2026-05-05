@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\WMS.BLL\WMS.BLL.csproj" />
+    <ProjectReference Include="..\WMS.DAL\WMS.DAL.csproj" />
     <ProjectReference Include="..\WMS.Domain\WMS.Domain.csproj" />
     <ProjectReference Include="..\WMS.Common\WMS.Common.csproj" />
     <ProjectReference Include="..\WMS.Plugins\WMS.Plugins.csproj" />
