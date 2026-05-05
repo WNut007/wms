@@ -28,15 +28,18 @@ public sealed class AuthController : BaseController
     private readonly IAuthService _auth;
     private readonly IUserTenantMapRepository _userTenantMapRepo;
     private readonly IUserRepositoryFactory _userRepoFactory;
+    private readonly IWarehouseRepositoryFactory _warehouseRepoFactory;
 
     public AuthController(
         IAuthService auth,
         IUserTenantMapRepository userTenantMapRepo,
-        IUserRepositoryFactory userRepoFactory)
+        IUserRepositoryFactory userRepoFactory,
+        IWarehouseRepositoryFactory warehouseRepoFactory)
     {
         _auth = auth;
         _userTenantMapRepo = userTenantMapRepo;
         _userRepoFactory = userRepoFactory;
+        _warehouseRepoFactory = warehouseRepoFactory;
     }
 
     [HttpGet]
@@ -118,15 +121,55 @@ public sealed class AuthController : BaseController
     }
 
     [HttpGet]
-    public IActionResult SelectWarehouse()
+    public async Task<IActionResult> SelectWarehouse(CancellationToken ct)
     {
-        // A6 stub. Full session cookie has the TenantId claim by the time
-        // we get here; the next chunk replaces this with the real picker
-        // (with its own smart-skip when the user has one warehouse).
         if (User.Identity?.IsAuthenticated != true)
             return RedirectToAction(nameof(Login));
 
-        return View();
+        if (!TryGetTenantId(out var tenantId))
+            return RedirectToAction(nameof(Login));
+
+        var warehouses = await _warehouseRepoFactory.For(tenantId).GetActiveAsync(ct);
+
+        if (warehouses.Count == 0)
+        {
+            // Defensive: tenant has no active warehouses configured. Sign
+            // the user out so they're not stuck holding a half-good cookie,
+            // and render an explicit "ask your admin" page.
+            await HttpContext.SignOutAsync();
+            return View("NoWarehouseAccess");
+        }
+
+        if (warehouses.Count == 1)
+        {
+            // Smart-skip — single warehouse, no picker.
+            return await CompleteWarehouseSelectionAsync(warehouses[0]);
+        }
+
+        return View(new WarehouseSelectViewModel { Warehouses = warehouses });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> SelectWarehouse(WarehouseSelectViewModel model, CancellationToken ct)
+    {
+        if (User.Identity?.IsAuthenticated != true)
+            return RedirectToAction(nameof(Login));
+
+        if (!TryGetTenantId(out var tenantId))
+            return RedirectToAction(nameof(Login));
+
+        var warehouses = await _warehouseRepoFactory.For(tenantId).GetActiveAsync(ct);
+        var selected = warehouses.FirstOrDefault(w => w.Id == model.SelectedWarehouseId);
+        if (selected is null)
+        {
+            // Authoritative check — re-fetch and confirm. Never trust the
+            // posted Id alone.
+            ModelState.AddModelError(string.Empty, "Please select a warehouse.");
+            return View(new WarehouseSelectViewModel { Warehouses = warehouses });
+        }
+
+        return await CompleteWarehouseSelectionAsync(selected);
     }
 
     [HttpGet]
@@ -139,6 +182,32 @@ public sealed class AuthController : BaseController
 
     [HttpGet]
     public IActionResult Forbidden() => View();
+
+    // Final commit of Step 3 — re-issue the session cookie with all
+    // existing claims plus WmsClaimTypes.WarehouseId. SignInAsync
+    // *replaces* the principal, so existing claims must be carried
+    // forward explicitly; any prior WarehouseId claim is dropped before
+    // the new one is appended.
+    private async Task<IActionResult> CompleteWarehouseSelectionAsync(WarehouseInfo warehouse)
+    {
+        var claims = User.Claims
+            .Where(c => c.Type != WmsClaimTypes.WarehouseId)
+            .ToList();
+        claims.Add(new Claim(WmsClaimTypes.WarehouseId, warehouse.Id.ToString()));
+
+        var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+        await HttpContext.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            new ClaimsPrincipal(identity));
+
+        return Redirect("/");
+    }
+
+    private bool TryGetTenantId(out Guid tenantId)
+    {
+        var raw = User.FindFirstValue(WmsClaimTypes.TenantId);
+        return Guid.TryParse(raw, out tenantId);
+    }
 
     // Final commit of Step 2 — issue the full session cookie with the
     // chosen TenantId, mark the pre-auth token used (one-shot), drop the
