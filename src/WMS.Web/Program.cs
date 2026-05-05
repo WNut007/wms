@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Caching.Memory;
 using Serilog;
+using WMS.BLL.Services.Auth;
 using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
 using WMS.DAL.Multitenancy;
+using WMS.DAL.Repositories.Security;
 using WMS.Web.Auth;
 using WMS.Web.Multitenancy;
 
@@ -61,6 +63,27 @@ builder.Services.AddSingleton<ITenantConnectionFactory>(sp =>
             "Expected a template containing '{0}' for the database name.");
     return new TenantConnectionFactory(master, template, cache);
 });
+
+// Master DB factory — singleton because the connection string is fixed.
+builder.Services.AddSingleton<IMasterConnectionFactory>(sp =>
+{
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    var master = cfg.GetConnectionString("MasterDb")
+        ?? throw new InvalidOperationException(
+            "ConnectionString 'MasterDb' is not configured.");
+    return new MasterConnectionFactory(master);
+});
+
+builder.Services.AddScoped<IUserRepositoryFactory, UserRepositoryFactory>();
+
+// AuthService BCrypt cost factor: 12 in prod (~250ms/hash), 4 in
+// Development (~5ms) so dev seed scripts and local testing don't crawl.
+// Test suite already uses 4 directly via AuthServiceTests.
+builder.Services.AddScoped<IAuthService>(sp => new AuthService(
+    sp.GetRequiredService<IUserRepositoryFactory>(),
+    sp.GetRequiredService<IMasterConnectionFactory>(),
+    sp.GetRequiredService<ILogger<AuthService>>(),
+    bcryptCostFactor: builder.Environment.IsDevelopment() ? 4 : 12));
 
 var app = builder.Build();
 
