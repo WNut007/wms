@@ -190,10 +190,15 @@ public sealed class AuthController : BaseController
     // the new one is appended.
     private async Task<IActionResult> CompleteWarehouseSelectionAsync(WarehouseInfo warehouse)
     {
+        // SignInAsync replaces the principal — carry every existing claim
+        // forward, drop any prior Warehouse* claims (covers re-pick), and
+        // append the freshly chosen Id + Code.
         var claims = User.Claims
-            .Where(c => c.Type != WmsClaimTypes.WarehouseId)
+            .Where(c => c.Type != WmsClaimTypes.WarehouseId
+                     && c.Type != WmsClaimTypes.WarehouseCode)
             .ToList();
         claims.Add(new Claim(WmsClaimTypes.WarehouseId, warehouse.Id.ToString()));
+        claims.Add(new Claim(WmsClaimTypes.WarehouseCode, warehouse.Code));
 
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         await HttpContext.SignInAsync(
@@ -241,6 +246,7 @@ public sealed class AuthController : BaseController
             new(ClaimTypes.Email, user.Email),
             new(ClaimTypes.Name, user.FullName ?? user.Email),
             new(WmsClaimTypes.TenantId, selected.TenantId.ToString()),
+            new(WmsClaimTypes.TenantCode, selected.TenantCode),
         };
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         await HttpContext.SignInAsync(

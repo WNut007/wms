@@ -14,4 +14,15 @@ public static class WmsClaimTypes
     // until warehouse selection completes (or is auto-skipped for users
     // bound to a single warehouse).
     public const string WarehouseId = "wms.wid";
+
+    // Display-friendly tenant code (e.g. "DEMO") set alongside TenantId.
+    // Sourced from master.Tenants.Code at Step 2 so layouts / nav can
+    // render it without a per-request master DB hit. Stale on tenant
+    // rename until next login (acceptable — tenant rename is rare).
+    public const string TenantCode = "wms.tcode";
+
+    // Display-friendly warehouse code (e.g. "WH-MAIN") set alongside
+    // WarehouseId. Sourced from the tenant DB's master.Warehouses.Code
+    // at Step 3.
+    public const string WarehouseCode = "wms.wcode";
 }
