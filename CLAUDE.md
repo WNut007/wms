@@ -91,6 +91,83 @@ Use Bootstrap 5 + Alpine + htmx (NO Kendo on mobile).
 
 ---
 
+## 🔐 Audit Field FK Rules (Important!)
+
+`CreatedBy` / `UpdatedBy` columns on operational tables are FK-constrained:
+
+- **Tenant DB** → `security.Users(Id)` — `ON DELETE NO ACTION`
+- **Master DB** → `master.SuperAdmins(Id)` — `ON DELETE NO ACTION`
+
+Passing a random or non-existent Guid throws an FK violation at INSERT/UPDATE.
+NO ACTION blocks hard-deletion of any user that has audit rows pointing at them.
+
+### When writing Services
+
+**✅ DO — pass a valid User Guid:**
+
+```csharp
+// From ICurrentUser (HttpContext-scoped)
+await _service.SaveAsync(entity, _currentUser.UserId);
+
+// From background-job context (Hangfire)
+await _service.SaveAsync(entity, jobContext.TriggeredByUserId);
+```
+
+**✅ DO — pass NULL for true system actions:**
+
+```csharp
+// Migration seeds, public-API writes, jobs without user context
+await _service.SaveAsync(entity, createdBy: null);
+```
+
+**❌ DON'T — pass a fabricated Guid:**
+
+```csharp
+entity.CreatedBy = Guid.NewGuid();   // orphan — FK violation
+entity.CreatedBy = someRandomGuid;   // FK violation if not in security.Users
+```
+
+**❌ DON'T — hard-delete users with audit history:**
+
+```csharp
+// Will fail: ON DELETE NO ACTION blocks
+await conn.ExecuteAsync("DELETE FROM security.Users WHERE Id = @id", ...);
+
+// Use soft-delete instead
+await conn.ExecuteAsync(
+    "UPDATE security.Users SET IsActive = 0 WHERE Id = @id", ...);
+```
+
+### BaseService Pattern (recommended)
+
+Centralize audit stamping so individual services can't forget — and can't
+accidentally invent a Guid:
+
+```csharp
+public abstract class BaseService<T> where T : BaseEntity
+{
+    protected readonly ICurrentUser _currentUser;
+
+    protected void StampCreate(T entity)
+    {
+        entity.CreatedAt = DateTime.UtcNow;
+        entity.CreatedBy = _currentUser?.UserId;  // null is OK
+    }
+
+    protected void StampUpdate(T entity)
+    {
+        entity.UpdatedAt = DateTime.UtcNow;
+        entity.UpdatedBy = _currentUser?.UserId;
+    }
+}
+```
+
+Skipped tables (no FK — see migration headers for rationale):
+`master.SuperAdmins`, `master.LoginAttempts`, `master.SystemAuditLog`,
+`master.PreAuthTokens`, `master.SystemSettings`, all `security.*` tables.
+
+---
+
 ## 📂 Code Organization
 
 ### Naming Conventions
@@ -285,6 +362,8 @@ dotnet run --project tools/WMS.SeedData
 - ❌ DO NOT use Adjustment for Cycle Count results (use counts.CountAdjustments)
 - ❌ DO NOT skip OwnerId in Transfer lines (preserve owner identity)
 - ❌ DO NOT auto-apply Adjustments without approval workflow
+- ❌ DO NOT pass fabricated Guids to CreatedBy/UpdatedBy (FK violation — use ICurrentUser or NULL)
+- ❌ DO NOT hard-delete users with audit history (use IsActive = 0 instead)
 
 ---
 
@@ -299,5 +378,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: [Update this when modifying CLAUDE.md]
-**Version**: 1.0
+**Last updated**: 2026-05-05 (added Audit Field FK Rules)
+**Version**: 1.1
