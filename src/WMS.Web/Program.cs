@@ -78,6 +78,12 @@ builder.Services.AddSingleton<IMasterConnectionFactory>(sp =>
 builder.Services.AddScoped<IUserRepositoryFactory, UserRepositoryFactory>();
 builder.Services.AddScoped<IUserTenantMapRepository, UserTenantMapRepository>();
 builder.Services.AddScoped<IWarehouseRepositoryFactory, WarehouseRepositoryFactory>();
+builder.Services.AddScoped<IPermissionRepositoryFactory, PermissionRepositoryFactory>();
+
+// PermissionService — Scoped to match the (Scoped) factory dep. The
+// cache itself lives on IMemoryCache (Singleton), so per-request
+// instances cost nothing and survive the captive-dependency check.
+builder.Services.AddScoped<IPermissionService, PermissionService>();
 
 // Tenant active-status reader — singleton so its IMemoryCache reference
 // is shared. TenantValidationMiddleware reads through this on every
