@@ -3,41 +3,50 @@
     ViewData["Title"] = "Sign in";
 }
 
-<div class="row justify-content-center">
-    <div class="col-md-5 col-lg-4">
-        <div class="card shadow-sm mt-5">
-            <div class="card-body p-4">
-                <h3 class="card-title text-center mb-4">Sign in</h3>
+<div class="text-center mb-4">
+    <a href="/" class="navbar-brand navbar-brand-autodark">
+        <span class="display-6 fw-bold text-primary">WMS</span>
+    </a>
+    <div class="text-secondary mt-1">Warehouse Management System</div>
+</div>
 
-                @if (!ViewData.ModelState.IsValid && ViewData.ModelState[""]?.Errors.Count > 0)
+<div class="card card-md">
+    <div class="card-body">
+        <h2 class="h2 text-center mb-4">Sign in to your account</h2>
+
+        @if (!ViewData.ModelState.IsValid && ViewData.ModelState[""]?.Errors.Count > 0)
+        {
+            <div class="alert alert-danger" role="alert">
+                @foreach (var err in ViewData.ModelState[""]!.Errors)
                 {
-                    <div class="alert alert-danger" role="alert">
-                        @foreach (var err in ViewData.ModelState[""]!.Errors)
-                        {
-                            <div>@err.ErrorMessage</div>
-                        }
-                    </div>
+                    <div>@err.ErrorMessage</div>
                 }
-
-                <form asp-action="Login" method="post" novalidate>
-                    <input type="hidden" asp-for="ReturnUrl" />
-
-                    <div class="mb-3">
-                        <label asp-for="Email" class="form-label"></label>
-                        <input asp-for="Email" class="form-control" autocomplete="username" autofocus />
-                        <span asp-validation-for="Email" class="text-danger small"></span>
-                    </div>
-
-                    <div class="mb-3">
-                        <label asp-for="Password" class="form-label"></label>
-                        <input asp-for="Password" class="form-control" autocomplete="current-password" />
-                        <span asp-validation-for="Password" class="text-danger small"></span>
-                    </div>
-
-                    <button type="submit" class="btn btn-primary w-100">Sign in</button>
-                </form>
             </div>
-        </div>
+        }
+
+        <form asp-action="Login" method="post" novalidate>
+            <input type="hidden" asp-for="ReturnUrl" />
+
+            <div class="mb-3">
+                <label asp-for="Email" class="form-label"></label>
+                <input asp-for="Email" class="form-control"
+                       placeholder="you@example.com"
+                       autocomplete="username" autofocus />
+                <span asp-validation-for="Email" class="text-danger small"></span>
+            </div>
+
+            <div class="mb-2">
+                <label asp-for="Password" class="form-label"></label>
+                <input asp-for="Password" class="form-control"
+                       placeholder="Your password"
+                       autocomplete="current-password" />
+                <span asp-validation-for="Password" class="text-danger small"></span>
+            </div>
+
+            <div class="form-footer">
+                <button type="submit" class="btn btn-primary w-100">Sign in</button>
+            </div>
+        </form>
     </div>
 </div>
 

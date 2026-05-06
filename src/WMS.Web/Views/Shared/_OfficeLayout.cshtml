@@ -1,3 +1,4 @@
+@using System.Security.Claims
 @using WMS.Common.Auth
 <!DOCTYPE html>
 <html lang="en">
@@ -25,7 +26,10 @@
             <aside class="navbar navbar-vertical navbar-expand-lg" data-bs-theme="dark">
                 <div class="container-fluid">
                     <h1 class="navbar-brand navbar-brand-autodark">
-                        <a asp-controller="Home" asp-action="Index">WMS</a>
+                        <a asp-controller="Home" asp-action="Index" class="d-flex flex-column lh-sm">
+                            <span class="fs-3 fw-bold">WMS</span>
+                            <span class="small text-secondary fw-normal">Warehouse Management</span>
+                        </a>
                     </h1>
                     @await Component.InvokeAsync("SidebarMenu")
                 </div>
@@ -44,16 +48,22 @@
                         </ol>
                         <div class="navbar-nav flex-row order-md-last ms-auto">
                             <div class="nav-item dropdown">
-                                <a href="#" class="nav-link d-flex lh-1 p-0 px-2"
+                                <a href="#" class="nav-link d-flex lh-1 text-reset p-0 px-2"
                                    data-bs-toggle="dropdown" aria-label="Open user menu">
                                     <span class="avatar avatar-sm">
                                         @(User.Identity!.Name?.Substring(0, 1).ToUpperInvariant() ?? "?")
                                     </span>
                                     <div class="d-none d-xl-block ps-2">
                                         <div>@User.Identity!.Name</div>
+                                        <div class="mt-1 small text-secondary">
+                                            @User.FindFirst(ClaimTypes.Email)?.Value
+                                        </div>
                                     </div>
                                 </a>
-                                <div class="dropdown-menu dropdown-menu-end">
+                                <div class="dropdown-menu dropdown-menu-end dropdown-menu-arrow">
+                                    <a class="dropdown-item" href="#">Profile</a>
+                                    <a class="dropdown-item" href="#">Settings</a>
+                                    <div class="dropdown-divider"></div>
                                     <a class="dropdown-item" asp-controller="Auth" asp-action="Logout">
                                         Sign out
                                     </a>
