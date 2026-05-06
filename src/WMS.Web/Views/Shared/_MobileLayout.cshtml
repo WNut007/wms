@@ -11,15 +11,13 @@
     <meta name="theme-color" content="#1f2937" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
 
-    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@@tabler/core@@latest/dist/css/tabler.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@@tabler/icons-webfont@@latest/dist/tabler-icons.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/wms-custom.css" asp-append-version="true" />
 
-    @*
-        TODO: localise via libman/npm to drop the runtime CDN dependency.
-        Same TODO as _OfficeLayout — OK for Phase 1 internal dev.
-    *@
-    <script defer src="https://unpkg.com/htmx.org@2.0.4"></script>
-    <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+    <script defer src="https://unpkg.com/htmx.org@@2.0.4"></script>
+    <script defer src="https://unpkg.com/alpinejs@@3.14.1/dist/cdn.min.js"></script>
 </head>
 <body class="wms-mobile">
     <header class="wms-mobile-topbar d-flex align-items-center">
@@ -39,7 +37,7 @@
         @RenderBody()
     </main>
 
-    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@@tabler/core@@latest/dist/js/tabler.min.js"></script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

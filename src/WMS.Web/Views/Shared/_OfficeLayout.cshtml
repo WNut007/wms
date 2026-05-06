@@ -6,59 +6,84 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"] - WMS</title>
 
-    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
-    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
-
     @*
-        TODO: localise via libman/npm to drop the runtime CDN dependency.
-        OK for Phase 1 internal dev; not production-friendly long-term.
+        Tabler.io is Bootstrap 5 + design overrides — single CSS source.
+        TODO(TD-XXX): localise CDN assets before production.
     *@
-    <script defer src="https://unpkg.com/htmx.org@2.0.4"></script>
-    <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@@tabler/core@@latest/dist/css/tabler.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@@tabler/icons-webfont@@latest/dist/tabler-icons.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/wms-custom.css" asp-append-version="true" />
+
+    <script defer src="https://unpkg.com/htmx.org@@2.0.4"></script>
+    <script defer src="https://unpkg.com/alpinejs@@3.14.1/dist/cdn.min.js"></script>
 </head>
-<body class="wms-office">
+<body>
     @if (User.Identity?.IsAuthenticated == true)
     {
-        <aside class="wms-sidebar">
-            <div class="wms-brand">
-                <a asp-controller="Home" asp-action="Index">WMS</a>
-            </div>
-            @await Component.InvokeAsync("SidebarMenu")
-        </aside>
-    }
-
-    <main class="wms-main">
-        @if (User.Identity?.IsAuthenticated == true)
-        {
-            <header class="wms-topbar">
-                <div class="wms-context">
-                    <code>@User.FindFirst(WmsClaimTypes.TenantCode)?.Value</code>
-                    <span class="wms-context-sep">/</span>
-                    <code>@User.FindFirst(WmsClaimTypes.WarehouseCode)?.Value</code>
+        <div class="page">
+            <aside class="navbar navbar-vertical navbar-expand-lg" data-bs-theme="dark">
+                <div class="container-fluid">
+                    <h1 class="navbar-brand navbar-brand-autodark">
+                        <a asp-controller="Home" asp-action="Index">WMS</a>
+                    </h1>
+                    @await Component.InvokeAsync("SidebarMenu")
                 </div>
-                <div class="ms-auto">
-                    <div class="dropdown">
-                        <button class="btn btn-sm btn-link text-decoration-none dropdown-toggle"
-                                type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            @User.Identity!.Name
-                        </button>
-                        <ul class="dropdown-menu dropdown-menu-end">
-                            <li>
-                                <a class="dropdown-item" asp-controller="Auth" asp-action="Logout">
-                                    Sign out
-                                </a>
+            </aside>
+
+            <div class="page-wrapper">
+                <header class="navbar navbar-expand-md d-print-none">
+                    <div class="container-xl">
+                        <ol class="breadcrumb breadcrumb-arrows" aria-label="breadcrumbs">
+                            <li class="breadcrumb-item">
+                                @User.FindFirst(WmsClaimTypes.TenantCode)?.Value
                             </li>
-                        </ul>
+                            <li class="breadcrumb-item active">
+                                @User.FindFirst(WmsClaimTypes.WarehouseCode)?.Value
+                            </li>
+                        </ol>
+                        <div class="navbar-nav flex-row order-md-last ms-auto">
+                            <div class="nav-item dropdown">
+                                <a href="#" class="nav-link d-flex lh-1 p-0 px-2"
+                                   data-bs-toggle="dropdown" aria-label="Open user menu">
+                                    <span class="avatar avatar-sm">
+                                        @(User.Identity!.Name?.Substring(0, 1).ToUpperInvariant() ?? "?")
+                                    </span>
+                                    <div class="d-none d-xl-block ps-2">
+                                        <div>@User.Identity!.Name</div>
+                                    </div>
+                                </a>
+                                <div class="dropdown-menu dropdown-menu-end">
+                                    <a class="dropdown-item" asp-controller="Auth" asp-action="Logout">
+                                        Sign out
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </header>
+
+                <div class="page-body">
+                    <div class="container-xl">
+                        @RenderBody()
                     </div>
                 </div>
-            </header>
-        }
-        <div class="wms-content">
-            @RenderBody()
+            </div>
         </div>
-    </main>
+    }
+    else
+    {
+        @* Anonymous fallback (e.g. error page hit pre-login) — no shell. *@
+        <div class="page-wrapper">
+            <div class="page-body">
+                <div class="container-xl">
+                    @RenderBody()
+                </div>
+            </div>
+        </div>
+    }
 
-    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@@tabler/core@@latest/dist/js/tabler.min.js"></script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

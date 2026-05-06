@@ -13,6 +13,16 @@ This is the WMS (Warehouse Management System) rebuild project. This file is your
 **Architecture**: Multi-tenant (DB per tenant), 5-layer architecture
 **Tech stack**: .NET Core MVC + Dapper + SQL Server + Telerik + htmx + SignalR
 
+### UI Stack
+
+- **UI Foundation**: [Tabler.io](https://tabler.io) — Bootstrap 5 + design overrides (MIT license).
+  Single CSS source: do NOT load standalone Bootstrap alongside Tabler.
+- **Icons**: Tabler Icons (webfont) — `<i class="ti ti-{name}"></i>`.
+- **Custom overrides**: `wwwroot/css/wms-custom.css`, loaded AFTER Tabler.
+- **Delivery**: CDN today (Phase 1 internal dev). Move to local files (libman/npm) before production.
+- **Layouts**: `_OfficeLayout` uses Tabler `.page` shell (sidebar + topbar). `_AuthLayout` uses
+  `.page.page-center`. `_MobileLayout` keeps a bespoke compact shell on top of Tabler base CSS.
+
 **Read these documents before starting**:
 - `docs/01_Master_Design.md` — System architecture overview
 - `docs/02_Database_Schema.md` — All tables and relationships

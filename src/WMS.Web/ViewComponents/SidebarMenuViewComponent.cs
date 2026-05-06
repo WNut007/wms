@@ -28,6 +28,20 @@ public sealed class SidebarMenuViewComponent : ViewComponent
         "CONFIG", "REPORTS",
     };
 
+    private static readonly Dictionary<string, string> ModuleIcons = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["INBOUND"]   = "ti-package-import",
+        ["INVENTORY"] = "ti-archive",
+        ["OUTBOUND"]  = "ti-package-export",
+        ["RETURNS"]   = "ti-arrow-back-up",
+        ["COUNTS"]    = "ti-checklist",
+        ["BILLING"]   = "ti-receipt",
+        ["MASTER"]    = "ti-database",
+        ["SECURITY"]  = "ti-shield-lock",
+        ["CONFIG"]    = "ti-settings",
+        ["REPORTS"]   = "ti-chart-bar",
+    };
+
     private readonly ICurrentUser _currentUser;
     private readonly IPermissionService _permService;
 
@@ -59,7 +73,7 @@ public sealed class SidebarMenuViewComponent : ViewComponent
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(OrderIndex)
             .ThenBy(m => m, StringComparer.OrdinalIgnoreCase)
-            .Select(m => new ModuleItem(m, ToTitleCase(m), "#"))
+            .Select(m => new ModuleItem(m, ToTitleCase(m), "#", IconOf(m)))
             .ToArray();
 
         return View(modules);
@@ -77,10 +91,13 @@ public sealed class SidebarMenuViewComponent : ViewComponent
         return idx == -1 ? int.MaxValue : idx;
     }
 
+    private static string IconOf(string moduleCode) =>
+        ModuleIcons.TryGetValue(moduleCode, out var icon) ? icon : "ti-circle";
+
     private static string ToTitleCase(string code) =>
         code.Length == 0
             ? ""
             : char.ToUpperInvariant(code[0]) + code[1..].ToLowerInvariant();
 }
 
-public sealed record ModuleItem(string Code, string DisplayName, string Url);
+public sealed record ModuleItem(string Code, string DisplayName, string Url, string IconClass);
