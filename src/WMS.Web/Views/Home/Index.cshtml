@@ -37,13 +37,13 @@
                         <div class="datagrid-item">
                             <div class="datagrid-title">Tenant</div>
                             <div class="datagrid-content">
-                                <code>@User.FindFirst(WmsClaimTypes.TenantId)?.Value</code>
+                                @User.FindFirst(WmsClaimTypes.TenantCode)?.Value
                             </div>
                         </div>
                         <div class="datagrid-item">
                             <div class="datagrid-title">Warehouse</div>
                             <div class="datagrid-content">
-                                <code>@User.FindFirst(WmsClaimTypes.WarehouseId)?.Value</code>
+                                @User.FindFirst(WmsClaimTypes.WarehouseCode)?.Value
                             </div>
                         </div>
                     </div>

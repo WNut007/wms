@@ -26,10 +26,11 @@
         </h1>
         @if (User.Identity?.IsAuthenticated == true)
         {
-            <a asp-controller="Auth" asp-action="Logout"
-               class="btn btn-sm btn-link text-white text-decoration-none">
-                Sign out
-            </a>
+            <form asp-controller="Auth" asp-action="Logout" method="post" class="m-0">
+                <button type="submit" class="btn btn-sm btn-link text-white text-decoration-none">
+                    Sign out
+                </button>
+            </form>
         }
     </header>
 
