@@ -52,11 +52,39 @@
 
     @foreach (var module in system)
     {
-        <a href="@module.Url"
-           class="wms-sidebar-item @(IsActive(module.Code) ? "active" : "")"
-           title="@module.DisplayName">
-            <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
-            <span class="wms-sidebar-item-text">@module.DisplayName</span>
-        </a>
+        if (string.Equals(module.Code, "MASTER", StringComparison.OrdinalIgnoreCase))
+        {
+            // Master Data — Phase 3 wired the Warehouses sub-page; other
+            // entries are placeholders until their own list pages land.
+            var masterActive = IsActive("MASTER") || IsActive("Warehouses");
+            <a href="@Url.Action("Index", "Warehouses")"
+               class="wms-sidebar-item @(masterActive ? "active" : "")"
+               title="@module.DisplayName">
+                <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
+                <span class="wms-sidebar-item-text">@module.DisplayName</span>
+                <i class="ti ti-chevron-down wms-sidebar-item-chevron"></i>
+            </a>
+            <div class="wms-sidebar-submenu">
+                <a href="@Url.Action("Index", "Warehouses")"
+                   class="wms-sidebar-item @(IsActive("Warehouses") ? "active" : "")">
+                    <span class="wms-sidebar-item-text">Warehouses</span>
+                </a>
+                <a href="#" class="wms-sidebar-item">
+                    <span class="wms-sidebar-item-text">Products</span>
+                </a>
+                <a href="#" class="wms-sidebar-item">
+                    <span class="wms-sidebar-item-text">Customers</span>
+                </a>
+            </div>
+        }
+        else
+        {
+            <a href="@module.Url"
+               class="wms-sidebar-item @(IsActive(module.Code) ? "active" : "")"
+               title="@module.DisplayName">
+                <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
+                <span class="wms-sidebar-item-text">@module.DisplayName</span>
+            </a>
+        }
     }
 }
