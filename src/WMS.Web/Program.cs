@@ -14,6 +14,7 @@ using WMS.DAL.Repositories.Security;
 using WMS.Web.Auth;
 using WMS.Web.Multitenancy;
 using WMS.Web.Services.Mock;
+using WMS.Web.Services.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -103,6 +104,13 @@ builder.Services.AddScoped<IPermissionService, PermissionService>();
 // Phase 3 mock — singleton because the seed is static. Will be retired
 // when the real warehouse repository lands.
 builder.Services.AddSingleton<MockWarehouseDataService>();
+builder.Services.AddSingleton<MockProductDataService>();
+builder.Services.AddSingleton<MockCustomerDataService>();
+
+// Phase 4 storage abstraction — Mock keeps an in-memory store with seed
+// rows for Products / Warehouses / Customers detail pages. Replace with
+// LocalFileStorageService (Phase 5+) without changing controllers.
+builder.Services.AddSingleton<IDocumentStorageService, MockDocumentStorageService>();
 
 // Tenant active-status reader — singleton so its IMemoryCache reference
 // is shared. TenantValidationMiddleware reads through this on every

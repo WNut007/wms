@@ -62,6 +62,9 @@ public class MockWarehouseDataService
         };
     }
 
+    public WarehouseListItem? GetByCode(string code) =>
+        _seed.FirstOrDefault(w => w.Code.Equals(code, StringComparison.OrdinalIgnoreCase));
+
     private static List<WarehouseListItem> GenerateSeed()
     {
         var statuses  = new[] { "active", "active", "active", "active", "maintenance", "inactive" };

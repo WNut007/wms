@@ -359,6 +359,38 @@ Pattern reusable for: Products, Customers, Carriers, Channels, Order Sources, et
 
 Mock data hard-coded. To be replaced with real queries in Phase 4.
 
+### Day 5/6 — UI Phase 4 (Master Detail + Document Pattern)
+
+**Branch**: `feat/master-detail-impl` → merged to `main`
+
+Components:
+- `IDocumentStorageService` interface (storage abstraction — Phase 5+ swaps in real impl)
+- `MockDocumentStorageService` (in-memory store, seeded for Products / Warehouses / Customers)
+- `DetailPageViewModel` (shared, lives under `ViewModels/Detail/`)
+- `Views/Shared/_DetailLayout.cshtml` (universal Detail page layout)
+- 4 tab partials: `_OverviewPanel`, `_ImagesPanel`, `_DocumentsPanel`, `_ActivityPanel`
+- `MockProductDataService` (50 seeded products) + `ProductsController` (list + Detail + SVG placeholder image)
+- `MockCustomerDataService` (40 seeded customers) + `CustomersController` (list + Detail)
+- `WarehousesController.Detail` (re-uses shared layout)
+- Sidebar Master Data: Products + Customers wired to live pages
+- List rows + grid cards on all 3 entities navigate to `/{Entity}/Detail/{id}`
+- `Services/RelativeTime.cs` shared formatter
+
+Storage strategy:
+- Hybrid (Local FS + DB metadata + interface) chosen
+- Mock implementation in Phase 4 — controllers code to `IDocumentStorageService`
+- Real `LocalFileStorageService` planned for Phase 5+
+- Cloud (Azure Blob) optional later via the same interface
+
+Pattern proven:
+- Detail page layout reused across 3 entities (`Views/Shared/_DetailLayout.cshtml`)
+- `ShowImagesTab` flag controls Images-tab visibility (true for Products only)
+- Mock storage seeded; works for upload-UI testing without disk writes
+- Reusable for: Carriers, Channels, Order Sources, etc.
+
+Out of scope (Phase 5+): real file upload endpoint, disk writes, lightbox,
+drag-to-reorder, document download, real activity log, edit forms.
+
 ---
 
 ## 🔑 Auth Architecture (Day 3 decisions)

@@ -485,4 +485,5 @@ $RECYCLE.BIN/
 
 # One-time implementation playbooks (not part of the codebase)
 PILOT_IMPLEMENTATION_BRIEF.md
+PHASE4_MASTER_DETAIL_BRIEF.md
 

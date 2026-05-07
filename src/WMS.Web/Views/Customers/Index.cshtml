@@ -1,15 +1,15 @@
 @{
     Layout = "_OfficeLayout";
-    ViewData["Title"] = "Warehouses";
+    ViewData["Title"] = "Customers";
 }
 
 <div class="wms-page-header">
     <div>
-        <p class="wms-page-title">Warehouses</p>
+        <p class="wms-page-title">Customers</p>
         <div class="wms-breadcrumb">
             <span>Master Data</span>
             <span class="wms-breadcrumb-sep">/</span>
-            <span class="wms-breadcrumb-current">Warehouses</span>
+            <span class="wms-breadcrumb-current">Customers</span>
         </div>
     </div>
     <div class="wms-page-actions">
@@ -23,7 +23,7 @@
         </button>
         <button type="button" class="wms-btn wms-btn-purple">
             <i class="ti ti-plus" style="font-size: 14px;" aria-hidden="true"></i>
-            New warehouse
+            New customer
         </button>
     </div>
 </div>
@@ -32,7 +32,7 @@
     <div class="wms-filter-bar">
         <div class="wms-filter-search">
             <i class="ti ti-search wms-filter-search-icon" aria-hidden="true"></i>
-            <input id="warehouseSearch" type="text" class="wms-input" placeholder="Search warehouses..." />
+            <input id="customerSearch" type="text" class="wms-input" placeholder="Search customers..." />
         </div>
 
         <button type="button" class="wms-filter-dropdown-btn" data-filter="status" data-value="all">
@@ -41,15 +41,15 @@
             <i class="ti ti-chevron-down" style="font-size: 12px;" aria-hidden="true"></i>
         </button>
 
-        <button type="button" class="wms-filter-dropdown-btn" data-filter="region" data-value="any">
-            <i class="ti ti-map-pin" style="font-size: 14px;" aria-hidden="true"></i>
-            <span data-label>Region: Any</span>
-            <i class="ti ti-chevron-down" style="font-size: 12px;" aria-hidden="true"></i>
-        </button>
-
         <button type="button" class="wms-filter-dropdown-btn" data-filter="type" data-value="all">
             <i class="ti ti-tag" style="font-size: 14px;" aria-hidden="true"></i>
             <span data-label>Type: All</span>
+            <i class="ti ti-chevron-down" style="font-size: 12px;" aria-hidden="true"></i>
+        </button>
+
+        <button type="button" class="wms-filter-dropdown-btn" data-filter="country" data-value="any">
+            <i class="ti ti-map-pin" style="font-size: 14px;" aria-hidden="true"></i>
+            <span data-label>Country: Any</span>
             <i class="ti ti-chevron-down" style="font-size: 12px;" aria-hidden="true"></i>
         </button>
 
@@ -81,10 +81,10 @@
         </button>
     </div>
 
-    <div id="warehousesContent">
+    <div id="customersContent">
         <div class="wms-list-loading">
             <div class="wms-list-loading-spinner"></div>
-            Loading warehouses...
+            Loading customers...
         </div>
     </div>
 
@@ -112,17 +112,17 @@
                 pageSize: 20,
                 search: '',
                 status: 'all',
-                region: 'any',
                 type: 'all',
+                country: 'any',
                 sortBy: 'name',
                 sortDesc: false,
-                view: localStorage.getItem('wms-warehouse-view') || 'list',
+                view: localStorage.getItem('wms-customer-view') || 'list',
                 selected: new Set()
             };
 
             const els = {
-                content: document.getElementById('warehousesContent'),
-                search: document.getElementById('warehouseSearch'),
+                content: document.getElementById('customersContent'),
+                search: document.getElementById('customerSearch'),
                 bulk: document.getElementById('bulkToolbar'),
                 bulkCount: document.getElementById('bulkCount'),
                 bulkClose: document.getElementById('bulkClose'),
@@ -150,23 +150,21 @@
 
             function statusBadge(status) {
                 const cfg = {
-                    active:      { cls: 'success', label: 'Active' },
-                    maintenance: { cls: 'warning', label: 'Maintenance' },
-                    inactive:    { cls: 'neutral', label: 'Inactive' }
+                    active:   { cls: 'success', label: 'Active' },
+                    pending:  { cls: 'warning', label: 'Pending' },
+                    inactive: { cls: 'neutral', label: 'Inactive' }
                 };
                 const c = cfg[status] || cfg.inactive;
                 return `<span class="wms-badge wms-badge-${c.cls}"><span class="wms-badge-dot"></span>${c.label}</span>`;
             }
 
             function typeBadge(type) {
-                const cls = type === '3PL' ? 'warning' : 'info';
+                const cls = type === 'B2B' ? 'info' : 'purple';
                 return `<span class="wms-badge wms-badge-${cls}">${escapeHtml(type)}</span>`;
             }
 
-            function iconClassForStatus(status) {
-                if (status === 'maintenance') return 'warning';
-                if (status === 'inactive') return 'danger';
-                return '';
+            function avatar(c) {
+                return `<div style="width: 28px; height: 28px; background: ${escapeHtml(c.avatarColor)}; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; flex-shrink: 0;">${escapeHtml(c.initials)}</div>`;
             }
 
             function fmtNumber(n) {
@@ -175,26 +173,24 @@
 
             function renderList(items) {
                 if (items.length === 0) return renderEmpty();
-                const rows = items.map(w => `
-                    <tr data-code="${escapeHtml(w.code)}">
-                        <td><input type="checkbox" class="row-check" value="${escapeHtml(w.code)}" ${state.selected.has(w.code) ? 'checked' : ''} /></td>
-                        <td class="code">${escapeHtml(w.code)}</td>
+                const rows = items.map(c => `
+                    <tr data-code="${escapeHtml(c.code)}">
+                        <td><input type="checkbox" class="row-check" value="${escapeHtml(c.code)}" ${state.selected.has(c.code) ? 'checked' : ''} /></td>
+                        <td class="code">${escapeHtml(c.code)}</td>
                         <td>
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <div style="width: 26px; height: 26px; background: var(--wms-info-bg); color: #4338CA; border-radius: 6px; display: flex; align-items: center; justify-content: center;">
-                                    <i class="ti ti-building-warehouse" style="font-size: 14px;" aria-hidden="true"></i>
-                                </div>
+                                ${avatar(c)}
                                 <div>
-                                    <p style="margin: 0; font-weight: 500;">${escapeHtml(w.name)}</p>
-                                    ${w.subtitle ? `<p style="margin: 0; font-size: 11px; color: var(--wms-text-tertiary);">${escapeHtml(w.subtitle)}</p>` : ''}
+                                    <p style="margin: 0; font-weight: 500;">${escapeHtml(c.name)}</p>
+                                    <p style="margin: 0; font-size: 11px; color: var(--wms-text-tertiary);">${escapeHtml(c.email)}</p>
                                 </div>
                             </div>
                         </td>
-                        <td style="color: var(--wms-text-secondary);">${escapeHtml(w.region)}</td>
-                        <td>${typeBadge(w.type)}</td>
-                        <td class="numeric">${fmtNumber(w.locationCount)}</td>
-                        <td>${statusBadge(w.status)}</td>
-                        <td style="color: var(--wms-text-secondary); font-size: 11px;">${escapeHtml(w.updatedAtRelative)}</td>
+                        <td>${typeBadge(c.type)}</td>
+                        <td style="color: var(--wms-text-secondary);">${escapeHtml(c.country)}</td>
+                        <td class="numeric">${fmtNumber(c.totalOrders)}</td>
+                        <td>${statusBadge(c.status)}</td>
+                        <td style="color: var(--wms-text-secondary); font-size: 11px;">${escapeHtml(c.lastOrderRelative)}</td>
                         <td style="text-align: right;">
                             <button type="button" style="background: transparent; border: none; padding: 4px; cursor: pointer; color: var(--wms-text-secondary);">
                                 <i class="ti ti-dots-vertical" style="font-size: 14px;" aria-hidden="true"></i>
@@ -210,12 +206,12 @@
                             <tr>
                                 <th style="width: 32px;"><input type="checkbox" id="selectAll" /></th>
                                 <th data-sort="code" style="cursor: pointer;">Code <i class="ti ti-arrows-sort" style="font-size: 11px; opacity: 0.5;" aria-hidden="true"></i></th>
-                                <th data-sort="name" style="cursor: pointer;">Name <i class="ti ti-arrow-up" style="font-size: 11px;" aria-hidden="true"></i></th>
-                                <th data-sort="region" style="cursor: pointer;">Region <i class="ti ti-arrows-sort" style="font-size: 11px; opacity: 0.5;" aria-hidden="true"></i></th>
-                                <th>Type</th>
-                                <th class="numeric" data-sort="locations" style="cursor: pointer;">Locations</th>
+                                <th data-sort="name" style="cursor: pointer;">Customer <i class="ti ti-arrow-up" style="font-size: 11px;" aria-hidden="true"></i></th>
+                                <th data-sort="type" style="cursor: pointer;">Type</th>
+                                <th data-sort="country" style="cursor: pointer;">Country</th>
+                                <th class="numeric" data-sort="totalOrders" style="cursor: pointer;">Orders</th>
                                 <th>Status</th>
-                                <th data-sort="updatedAt" style="cursor: pointer;">Updated</th>
+                                <th data-sort="lastOrderDate" style="cursor: pointer;">Last order</th>
                                 <th style="width: 40px;"></th>
                             </tr>
                         </thead>
@@ -227,34 +223,32 @@
 
             function renderGrid(items) {
                 if (items.length === 0) return renderEmpty();
-                const cards = items.map(w => `
-                    <a href="/Warehouses/Detail/${encodeURIComponent(w.code)}" class="wms-grid-card" data-code="${escapeHtml(w.code)}">
+                const cards = items.map(c => `
+                    <a href="/Customers/Detail/${encodeURIComponent(c.code)}" class="wms-grid-card" data-code="${escapeHtml(c.code)}">
                         <div class="wms-grid-card-actions">
                             <button type="button" class="wms-grid-card-action" title="View"><i class="ti ti-eye" style="font-size: 13px;" aria-hidden="true"></i></button>
                             <button type="button" class="wms-grid-card-action" title="Edit"><i class="ti ti-pencil" style="font-size: 13px;" aria-hidden="true"></i></button>
                             <button type="button" class="wms-grid-card-action danger" title="Archive"><i class="ti ti-archive" style="font-size: 13px;" aria-hidden="true"></i></button>
                         </div>
                         <div style="display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px;">
-                            <div class="wms-grid-card-icon ${iconClassForStatus(w.status)}">
-                                <i class="ti ti-building-warehouse" style="font-size: 18px;" aria-hidden="true"></i>
-                            </div>
+                            <div style="width: 40px; height: 40px; background: ${escapeHtml(c.avatarColor)}; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0;">${escapeHtml(c.initials)}</div>
                             <div style="flex: 1; min-width: 0; padding-right: 16px;">
-                                <p class="wms-grid-card-title">${escapeHtml(w.name)}</p>
-                                <p class="wms-grid-card-code">${escapeHtml(w.code)}</p>
+                                <p class="wms-grid-card-title">${escapeHtml(c.name)}</p>
+                                <p class="wms-grid-card-code">${escapeHtml(c.code)}</p>
                             </div>
                         </div>
                         <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px;">
-                            ${statusBadge(w.status)}
-                            ${typeBadge(w.type)}
+                            ${statusBadge(c.status)}
+                            ${typeBadge(c.type)}
                         </div>
                         <div class="wms-grid-card-footer">
                             <div>
-                                <p class="wms-grid-card-stat-label">Locations</p>
-                                <p class="wms-grid-card-stat-value">${fmtNumber(w.locationCount)}</p>
+                                <p class="wms-grid-card-stat-label">Orders</p>
+                                <p class="wms-grid-card-stat-value">${fmtNumber(c.totalOrders)}</p>
                             </div>
                             <div>
-                                <p class="wms-grid-card-stat-label">Region</p>
-                                <p class="wms-grid-card-stat-value" style="font-size: 12px;">${escapeHtml(w.region.split(',')[0])}</p>
+                                <p class="wms-grid-card-stat-label">Country</p>
+                                <p class="wms-grid-card-stat-value" style="font-size: 12px;">${escapeHtml(c.country)}</p>
                             </div>
                         </div>
                     </a>
@@ -267,8 +261,8 @@
                             <div class="wms-add-card-icon">
                                 <i class="ti ti-plus" style="font-size: 22px;" aria-hidden="true"></i>
                             </div>
-                            <p class="wms-add-card-title">Add warehouse</p>
-                            <p class="wms-add-card-desc">Create a new facility</p>
+                            <p class="wms-add-card-title">Add customer</p>
+                            <p class="wms-add-card-desc">Create a new account</p>
                         </a>
                     </div>
                 `;
@@ -278,13 +272,13 @@
                 return `
                     <div class="wms-empty-state">
                         <div class="wms-empty-state-icon">
-                            <i class="ti ti-building-warehouse" aria-hidden="true"></i>
+                            <i class="ti ti-users" aria-hidden="true"></i>
                         </div>
-                        <p class="wms-empty-state-title">No warehouses found</p>
-                        <p class="wms-empty-state-desc">Try adjusting your filters or create a new warehouse.</p>
+                        <p class="wms-empty-state-title">No customers found</p>
+                        <p class="wms-empty-state-desc">Try adjusting your filters or create a new customer.</p>
                         <button type="button" class="wms-btn wms-btn-purple">
                             <i class="ti ti-plus" style="font-size: 14px;" aria-hidden="true"></i>
-                            New warehouse
+                            New customer
                         </button>
                     </div>
                 `;
@@ -293,7 +287,7 @@
             function renderPagination(total, page, pageSize, totalPages) {
                 const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
                 const end = Math.min(page * pageSize, total);
-                els.resultsInfo.textContent = `Showing ${start}-${end} of ${total} warehouses`;
+                els.resultsInfo.textContent = `Showing ${start}-${end} of ${total} customers`;
 
                 if (total === 0) {
                     els.pagination.style.display = 'none';
@@ -309,8 +303,8 @@
                 const endPage = Math.min(totalPages, startPage + maxPages - 1);
                 startPage = Math.max(1, endPage - maxPages + 1);
 
-                for (let p = startPage; p <= endPage; p++) {
-                    buttons.push(`<button type="button" class="wms-pagination-btn ${p === page ? 'active' : ''}" data-page="${p}">${p}</button>`);
+                for (let pg = startPage; pg <= endPage; pg++) {
+                    buttons.push(`<button type="button" class="wms-pagination-btn ${pg === page ? 'active' : ''}" data-page="${pg}">${pg}</button>`);
                 }
 
                 buttons.push(`<button type="button" class="wms-pagination-btn" ${page === totalPages ? 'disabled' : ''} data-page="${page + 1}"><i class="ti ti-chevron-right" style="font-size: 12px;"></i></button>`);
@@ -318,9 +312,9 @@
                 els.paginationNav.innerHTML = buttons.join('');
                 els.paginationNav.querySelectorAll('button[data-page]').forEach(b => {
                     b.addEventListener('click', () => {
-                        const p = parseInt(b.dataset.page);
-                        if (p && p !== state.page) {
-                            state.page = p;
+                        const pg = parseInt(b.dataset.page);
+                        if (pg && pg !== state.page) {
+                            state.page = pg;
                             load();
                         }
                     });
@@ -374,27 +368,27 @@
                     row.addEventListener('click', (e) => {
                         if (e.target.closest('input[type=checkbox]') || e.target.closest('button')) return;
                         const code = row.dataset.code;
-                        if (code) window.location.href = `/Warehouses/Detail/${encodeURIComponent(code)}`;
+                        if (code) window.location.href = `/Customers/Detail/${encodeURIComponent(code)}`;
                     });
                 });
             }
 
             async function load() {
-                els.content.innerHTML = '<div class="wms-list-loading"><div class="wms-list-loading-spinner"></div>Loading warehouses...</div>';
+                els.content.innerHTML = '<div class="wms-list-loading"><div class="wms-list-loading-spinner"></div>Loading customers...</div>';
 
                 const params = new URLSearchParams({
                     page: state.page,
                     pageSize: state.pageSize,
                     search: state.search,
                     status: state.status,
-                    region: state.region,
                     type: state.type,
+                    country: state.country,
                     sortBy: state.sortBy,
                     sortDesc: state.sortDesc
                 });
 
                 try {
-                    const res = await fetch(`/Warehouses/Data?${params}`);
+                    const res = await fetch(`/Customers/Data?${params}`);
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
                     const data = await res.json();
                     if (state.view === 'grid') {
@@ -422,7 +416,7 @@
             els.viewBtns.forEach(btn => {
                 btn.addEventListener('click', () => {
                     state.view = btn.dataset.view;
-                    localStorage.setItem('wms-warehouse-view', state.view);
+                    localStorage.setItem('wms-customer-view', state.view);
                     els.viewBtns.forEach(b => b.classList.toggle('active', b === btn));
                     load();
                 });
@@ -446,20 +440,22 @@
                 status: [
                     { v: 'all', l: 'Status: All' },
                     { v: 'active', l: 'Active' },
-                    { v: 'maintenance', l: 'Maintenance' },
+                    { v: 'pending', l: 'Pending' },
                     { v: 'inactive', l: 'Inactive' }
-                ],
-                region: [
-                    { v: 'any', l: 'Region: Any' },
-                    { v: 'Bangkok, TH', l: 'Bangkok' },
-                    { v: 'Chiang Mai, TH', l: 'Chiang Mai' },
-                    { v: 'Phuket, TH', l: 'Phuket' },
-                    { v: 'Khon Kaen, TH', l: 'Khon Kaen' }
                 ],
                 type: [
                     { v: 'all', l: 'Type: All' },
-                    { v: '3PL', l: '3PL' },
-                    { v: 'Internal', l: 'Internal' }
+                    { v: 'B2B', l: 'B2B' },
+                    { v: 'B2C', l: 'B2C' }
+                ],
+                country: [
+                    { v: 'any', l: 'Country: Any' },
+                    { v: 'Thailand', l: 'Thailand' },
+                    { v: 'Singapore', l: 'Singapore' },
+                    { v: 'Vietnam', l: 'Vietnam' },
+                    { v: 'Malaysia', l: 'Malaysia' },
+                    { v: 'Indonesia', l: 'Indonesia' },
+                    { v: 'Philippines', l: 'Philippines' }
                 ]
             };
 
