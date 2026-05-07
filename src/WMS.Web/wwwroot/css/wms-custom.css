@@ -142,6 +142,19 @@ code, pre, .font-mono {
   color: var(--wms-text-secondary);
 }
 
+/* Defensive: prevent any Tabler page-wrapper from inserting horizontal
+   padding or a max-width container that would push .wms-app off the
+   left edge. We don't render these wrappers ourselves, but Tabler's
+   base CSS still ships rules for them. */
+.page,
+.page-wrapper,
+.page-body,
+main.page-main {
+  margin: 0 !important;
+  padding: 0 !important;
+  max-width: 100% !important;
+}
+
 /* ================================================================
    3. Layout
    ================================================================ */
@@ -149,6 +162,10 @@ code, pre, .font-mono {
   display: grid;
   grid-template-columns: var(--wms-sidebar-width) 1fr;
   min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 .wms-app.sidebar-collapsed {
