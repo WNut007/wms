@@ -1583,4 +1583,283 @@ code, pre, .font-mono {
   .wms-dashboard-metrics { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* ================================================================
+   18. List/Grid Page (Master CRUD)
+   ================================================================ */
+
+.wms-filter-bar input,
+.wms-filter-bar select {
+  height: 32px;
+  font-size: 12px;
+}
+
+.wms-filter-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.wms-filter-dropdown-btn {
+  padding: 6px 10px;
+  background: var(--wms-bg-secondary);
+  border: 0.5px solid var(--wms-border);
+  border-radius: var(--wms-radius-md);
+  font-size: 12px;
+  color: var(--wms-text-primary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.wms-filter-dropdown-btn:hover {
+  background: var(--wms-bg-tertiary);
+}
+
+.wms-filter-dropdown-btn.active {
+  background: var(--wms-primary-tint);
+  border-color: var(--wms-primary-ring);
+  color: var(--wms-primary);
+  font-weight: 500;
+}
+
+.wms-list-loading {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--wms-text-tertiary);
+  font-size: 13px;
+}
+
+.wms-list-loading-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--wms-bg-tertiary);
+  border-top-color: var(--wms-primary);
+  border-radius: 50%;
+  margin: 0 auto 8px;
+  animation: wms-spin 800ms linear infinite;
+}
+
+.wms-empty-state {
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.wms-empty-state-icon {
+  width: 56px;
+  height: 56px;
+  background: var(--wms-bg-tertiary);
+  color: var(--wms-text-tertiary);
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+  font-size: 28px;
+}
+
+.wms-empty-state-title {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0 0 4px;
+}
+
+.wms-empty-state-desc {
+  font-size: 12px;
+  color: var(--wms-text-secondary);
+  margin: 0 0 16px;
+}
+
+.wms-grid-container {
+  padding: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 1024px) {
+  .wms-grid-container { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+  .wms-grid-container { grid-template-columns: 1fr; }
+}
+
+.wms-grid-card {
+  background: white;
+  border: 0.5px solid var(--wms-border);
+  border-radius: var(--wms-radius-lg);
+  padding: 14px;
+  cursor: pointer;
+  position: relative;
+  transition: border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+  text-decoration: none;
+  color: inherit;
+}
+
+.wms-grid-card:hover {
+  border-color: rgba(93, 79, 160, 0.5);
+  transform: translateY(-1px);
+  box-shadow: var(--wms-shadow-hover);
+}
+
+.wms-grid-card-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+  transition: opacity 180ms ease;
+  display: flex;
+  gap: 2px;
+}
+
+.wms-grid-card:hover .wms-grid-card-actions {
+  opacity: 1;
+}
+
+.wms-grid-card-action {
+  width: 26px;
+  height: 26px;
+  background: white;
+  border: 0.5px solid var(--wms-border);
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--wms-text-secondary);
+  transition: background 150ms ease, color 150ms ease;
+  padding: 0;
+}
+
+.wms-grid-card-action:hover {
+  background: var(--wms-primary-tint);
+  color: var(--wms-primary);
+}
+
+.wms-grid-card-action.danger:hover {
+  background: var(--wms-danger-soft);
+  color: var(--wms-danger);
+}
+
+.wms-grid-card-icon {
+  width: 36px;
+  height: 36px;
+  background: var(--wms-info-bg);
+  color: #4338CA;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform 200ms ease;
+}
+
+.wms-grid-card:hover .wms-grid-card-icon {
+  transform: scale(1.05);
+}
+
+.wms-grid-card-icon.warning {
+  background: var(--wms-warning-bg);
+  color: var(--wms-warning);
+}
+
+.wms-grid-card-icon.danger {
+  background: var(--wms-danger-bg);
+  color: var(--wms-danger);
+}
+
+.wms-grid-card-title {
+  font-size: 13px;
+  font-weight: 500;
+  margin: 0 0 2px;
+  color: var(--wms-text-primary);
+}
+
+.wms-grid-card-code {
+  font-size: 11px;
+  color: var(--wms-text-tertiary);
+  font-family: var(--wms-font-mono);
+  margin: 0;
+}
+
+.wms-grid-card-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 0.5px solid var(--wms-border);
+  margin-top: 12px;
+}
+
+.wms-grid-card-stat-label {
+  font-size: 10px;
+  color: var(--wms-text-secondary);
+  margin: 0 0 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 500;
+}
+
+.wms-grid-card-stat-value {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.2px;
+}
+
+.wms-add-card {
+  background: var(--wms-bg-page);
+  border: 0.5px dashed var(--wms-border);
+  border-radius: var(--wms-radius-lg);
+  padding: 14px;
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  gap: 8px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.wms-add-card:hover {
+  background: rgba(93, 79, 160, 0.04);
+  border-color: rgba(93, 79, 160, 0.4);
+  border-style: solid;
+}
+
+.wms-add-card-icon {
+  width: 40px;
+  height: 40px;
+  background: var(--wms-primary-tint);
+  color: var(--wms-primary);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 200ms ease, background 180ms ease;
+}
+
+.wms-add-card:hover .wms-add-card-icon {
+  transform: rotate(90deg) scale(1.05);
+  background: var(--wms-primary-ring);
+}
+
+.wms-add-card-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--wms-primary);
+  margin: 0;
+}
+
+.wms-add-card-desc {
+  font-size: 11px;
+  color: var(--wms-text-secondary);
+  text-align: center;
+  margin: 0;
+}
+
 /* End wms-custom.css */
