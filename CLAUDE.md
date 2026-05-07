@@ -15,13 +15,33 @@ This is the WMS (Warehouse Management System) rebuild project. This file is your
 
 ### UI Stack
 
-- **UI Foundation**: [Tabler.io](https://tabler.io) — Bootstrap 5 + design overrides (MIT license).
-  Single CSS source: do NOT load standalone Bootstrap alongside Tabler.
-- **Icons**: Tabler Icons (webfont) — `<i class="ti ti-{name}"></i>`.
-- **Custom overrides**: `wwwroot/css/wms-custom.css`, loaded AFTER Tabler.
-- **Delivery**: CDN today (Phase 1 internal dev). Move to local files (libman/npm) before production.
-- **Layouts**: `_OfficeLayout` uses Tabler `.page` shell (sidebar + topbar). `_AuthLayout` uses
-  `.page.page-center`. `_MobileLayout` keeps a bespoke compact shell on top of Tabler base CSS.
+**Framework**: Tabler.io (Free, MIT) — Bootstrap 5 base
+**Icons**: Tabler Icons (5800+ outline) — `<i class="ti ti-{name}"></i>`
+**Charts**: ApexCharts (Phase 2)
+**Date picker**: Flatpickr (Phase 2)
+**Select**: Choices.js (Phase 2)
+**Grids**: Tabulator (Phase 2 — for complex grids only)
+**Interactivity**: HTMX 2.0 + Alpine 3.14
+
+**Design system**: `docs/UI_DESIGN_REFERENCE.md` (LOCKED v1.0)
+**Custom CSS**: `wwwroot/css/wms-custom.css` (loaded AFTER Tabler)
+
+**Color tokens**:
+- Primary: `#5D4FA0` → `#7B5DBF` (purple gradient — sidebar)
+- Hover: `#4F46E5` (Indigo — primary buttons)
+- Hero: `#312E81` (Indigo dark — login)
+- Status: green / amber / red / blue / gray (semantic)
+
+**Typography**: Inter throughout, JetBrains Mono for codes
+
+**Layouts**: `_OfficeLayout` uses bespoke `.wms-app` shell (purple sidebar + white topbar).
+`_AuthLayout` is a minimal hero-friendly shell. `_MobileLayout` keeps its bespoke compact shell.
+
+**Delivery**: CDN today (Phase 1 internal dev). Move to local files (libman/npm) before production.
+
+**Deferred** (Phase 2): Kendo UI, SmartAdmin Extended
+
+**13 mockups approved** — see `docs/UI_DESIGN_REFERENCE.md`.
 
 **Read these documents before starting**:
 - `docs/01_Master_Design.md` — System architecture overview
