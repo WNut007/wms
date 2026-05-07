@@ -338,6 +338,27 @@ Tech: ApexCharts 3.45.2 via CDN.
 
 Mock data is hard-coded. Real queries + SignalR live updates planned for Phase 3.
 
+### Day 5 — UI Phase 3 (List Page)
+
+**Branch**: `feat/list-page-impl` → merged to `main`
+
+Components:
+- `MockWarehouseDataService` (50 seeded warehouses)
+- `WarehousesController` (Index + Data JSON endpoint)
+- `Views/Warehouses/Index.cshtml`
+- List view (Tabler-style table with sort)
+- Grid view (cards with hover effects)
+- View toggle (localStorage persistence)
+- Filter bar (search + status + region + type with chip rotation)
+- Bulk action toolbar
+- Server-side pagination
+- Empty / loading state patterns
+- Sidebar Master Data sub-menu (Warehouses wired; Products / Customers placeholders)
+
+Pattern reusable for: Products, Customers, Carriers, Channels, Order Sources, etc.
+
+Mock data hard-coded. To be replaced with real queries in Phase 4.
+
 ---
 
 ## 🔑 Auth Architecture (Day 3 decisions)

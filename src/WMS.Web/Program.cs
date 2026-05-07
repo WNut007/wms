@@ -13,6 +13,7 @@ using WMS.DAL.Repositories.Master;
 using WMS.DAL.Repositories.Security;
 using WMS.Web.Auth;
 using WMS.Web.Multitenancy;
+using WMS.Web.Services.Mock;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -98,6 +99,10 @@ builder.Services.AddScoped<IPutawayService, PutawayService>();
 // cache itself lives on IMemoryCache (Singleton), so per-request
 // instances cost nothing and survive the captive-dependency check.
 builder.Services.AddScoped<IPermissionService, PermissionService>();
+
+// Phase 3 mock — singleton because the seed is static. Will be retired
+// when the real warehouse repository lands.
+builder.Services.AddSingleton<MockWarehouseDataService>();
 
 // Tenant active-status reader — singleton so its IMemoryCache reference
 // is shared. TenantValidationMiddleware reads through this on every
