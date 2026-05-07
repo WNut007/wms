@@ -290,22 +290,61 @@ code, pre, .font-mono {
   opacity: 0.5;
 }
 
+/* Sub-menu container */
 .wms-sidebar-submenu {
-  background: rgba(0, 0, 0, 0.1);
-  border-left: 2px solid rgba(255, 255, 255, 0.15);
-  margin-left: 30px;
-  padding: 2px 0 4px;
-}
-
-.wms-sidebar-submenu .wms-sidebar-item {
-  padding: 6px 14px;
-  font-size: 12px;
-}
-
-.wms-sidebar-submenu .wms-sidebar-item.active {
-  background: rgba(255, 255, 255, 0.06);
+  position: relative;
+  margin-left: 32px;
+  padding: 4px 0 6px;
+  background: transparent;
   border-left: none;
-  padding-left: 14px;
+}
+
+/* Vertical line guide (subtle) */
+.wms-sidebar-submenu::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Sub-menu items */
+.wms-sidebar-submenu .wms-sidebar-item {
+  margin: 2px 8px 2px 16px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.75);
+  border-radius: 6px;
+  border-left: none;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.wms-sidebar-submenu .wms-sidebar-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: white;
+}
+
+/* Active state in sub-menu */
+.wms-sidebar-submenu .wms-sidebar-item.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+  font-weight: 500;
+  border-left: none;
+  padding: 8px 12px;
+}
+
+.wms-sidebar-submenu .wms-sidebar-item.active::after {
+  right: 12px;
+  width: 6px;
+  height: 6px;
+  background: var(--wms-highlight);
+  border-radius: 50%;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  content: '';
 }
 
 .wms-sidebar-divider {
