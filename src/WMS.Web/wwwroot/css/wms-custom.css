@@ -176,12 +176,15 @@ main.page-main {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  min-width: 0;
   background: var(--wms-bg-page);
 }
 
 .wms-content {
   flex: 1;
+  min-width: 0;
   padding: 22px 24px;
+  overflow-x: auto;
 }
 
 /* ================================================================
