@@ -509,6 +509,74 @@ code, pre, .font-mono {
   cursor: pointer;
 }
 
+/* Topbar Context Switcher (Option B: Stacked Compact) */
+.wms-topbar-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: var(--wms-bg-secondary);
+  border: 0.5px solid var(--wms-border);
+  border-radius: var(--wms-radius-md);
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+  text-decoration: none;
+  color: inherit;
+}
+
+.wms-topbar-context:hover {
+  background: var(--wms-bg-tertiary);
+  border-color: var(--wms-border-secondary);
+}
+
+.wms-topbar-context-icon {
+  width: 28px;
+  height: 28px;
+  background: var(--wms-primary-tint);
+  color: var(--wms-primary);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.wms-topbar-context-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.wms-topbar-context-label {
+  font-size: 9px;
+  color: var(--wms-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+}
+
+.wms-topbar-context-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--wms-text-primary);
+}
+
+.wms-topbar-context-divider-mini {
+  width: 0.5px;
+  height: 22px;
+  background: var(--wms-border);
+  margin: 0 2px;
+}
+
+.wms-topbar-context-chevron {
+  font-size: 12px;
+  color: var(--wms-text-tertiary);
+  margin-left: 4px;
+}
+
 /* ================================================================
    6. Buttons
    ================================================================ */

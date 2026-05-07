@@ -43,16 +43,43 @@
                     </div>
 
                     <div class="wms-topbar-actions">
-                        <span class="wms-mono" style="font-size: 11px; color: var(--wms-text-secondary);">
-                            @User.FindFirst(WmsClaimTypes.TenantCode)?.Value
-                            <span style="opacity: 0.4; margin: 0 4px;">·</span>
-                            @User.FindFirst(WmsClaimTypes.WarehouseCode)?.Value
-                        </span>
+                        @{
+                            var currentTenantCode = User.FindFirst(WmsClaimTypes.TenantCode)?.Value ?? "—";
+                            var currentWarehouseCode = User.FindFirst(WmsClaimTypes.WarehouseCode)?.Value ?? "—";
+                        }
+                        <button type="button"
+                                class="wms-topbar-context"
+                                title="Switch tenant or warehouse"
+                                aria-label="Tenant @currentTenantCode, Warehouse @currentWarehouseCode">
+                            <div class="wms-topbar-context-icon">
+                                <i class="ti ti-building" aria-hidden="true"></i>
+                            </div>
+                            <div class="wms-topbar-context-info">
+                                <span class="wms-topbar-context-label">Tenant</span>
+                                <span class="wms-topbar-context-value">@currentTenantCode</span>
+                            </div>
+
+                            <div class="wms-topbar-context-divider-mini"></div>
+
+                            <div class="wms-topbar-context-icon">
+                                <i class="ti ti-building-warehouse" aria-hidden="true"></i>
+                            </div>
+                            <div class="wms-topbar-context-info">
+                                <span class="wms-topbar-context-label">Warehouse</span>
+                                <span class="wms-topbar-context-value">@currentWarehouseCode</span>
+                            </div>
+
+                            <i class="ti ti-chevron-down wms-topbar-context-chevron" aria-hidden="true"></i>
+                        </button>
+
+                        <div class="wms-topbar-divider"></div>
+
                         <button type="button" class="wms-topbar-icon-btn" aria-label="Settings">
                             <i class="ti ti-settings"></i>
                         </button>
                         <button type="button" class="wms-topbar-icon-btn" aria-label="Notifications">
                             <i class="ti ti-bell"></i>
+                            <span class="wms-topbar-icon-btn-badge">5</span>
                         </button>
                         <div class="wms-topbar-divider"></div>
                         <div class="dropdown">
