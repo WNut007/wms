@@ -54,9 +54,9 @@
     {
         if (string.Equals(module.Code, "MASTER", StringComparison.OrdinalIgnoreCase))
         {
-            // Master Data — Phase 3 wired the Warehouses sub-page; other
-            // entries are placeholders until their own list pages land.
-            var masterActive = IsActive("MASTER") || IsActive("Warehouses");
+            // Master Data — Phase 3 wired Warehouses; Phase 4 added
+            // Products + Customers list/detail pages.
+            var masterActive = IsActive("MASTER") || IsActive("Warehouses") || IsActive("Products") || IsActive("Customers");
             <a href="@Url.Action("Index", "Warehouses")"
                class="wms-sidebar-item @(masterActive ? "active" : "")"
                title="@module.DisplayName">
@@ -69,10 +69,12 @@
                    class="wms-sidebar-item @(IsActive("Warehouses") ? "active" : "")">
                     <span class="wms-sidebar-item-text">Warehouses</span>
                 </a>
-                <a href="#" class="wms-sidebar-item">
+                <a href="@Url.Action("Index", "Products")"
+                   class="wms-sidebar-item @(IsActive("Products") ? "active" : "")">
                     <span class="wms-sidebar-item-text">Products</span>
                 </a>
-                <a href="#" class="wms-sidebar-item">
+                <a href="@Url.Action("Index", "Customers")"
+                   class="wms-sidebar-item @(IsActive("Customers") ? "active" : "")">
                     <span class="wms-sidebar-item-text">Customers</span>
                 </a>
             </div>
