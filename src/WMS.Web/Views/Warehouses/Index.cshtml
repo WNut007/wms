@@ -1,0 +1,476 @@
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Warehouses";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Warehouses</p>
+        <div class="wms-breadcrumb">
+            <span>Master Data</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Warehouses</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <button type="button" class="wms-btn">
+            <i class="ti ti-download" style="font-size: 14px;" aria-hidden="true"></i>
+            Export
+        </button>
+        <button type="button" class="wms-btn">
+            <i class="ti ti-upload" style="font-size: 14px;" aria-hidden="true"></i>
+            Import
+        </button>
+        <button type="button" class="wms-btn wms-btn-purple">
+            <i class="ti ti-plus" style="font-size: 14px;" aria-hidden="true"></i>
+            New warehouse
+        </button>
+    </div>
+</div>
+
+<div class="wms-card" style="padding: 0;">
+    <div class="wms-filter-bar">
+        <div class="wms-filter-search">
+            <i class="ti ti-search wms-filter-search-icon" aria-hidden="true"></i>
+            <input id="warehouseSearch" type="text" class="wms-input" placeholder="Search warehouses..." />
+        </div>
+
+        <button type="button" class="wms-filter-dropdown-btn" data-filter="status" data-value="all">
+            <i class="ti ti-filter" style="font-size: 14px;" aria-hidden="true"></i>
+            <span data-label>Status: All</span>
+            <i class="ti ti-chevron-down" style="font-size: 12px;" aria-hidden="true"></i>
+        </button>
+
+        <button type="button" class="wms-filter-dropdown-btn" data-filter="region" data-value="any">
+            <i class="ti ti-map-pin" style="font-size: 14px;" aria-hidden="true"></i>
+            <span data-label>Region: Any</span>
+            <i class="ti ti-chevron-down" style="font-size: 12px;" aria-hidden="true"></i>
+        </button>
+
+        <button type="button" class="wms-filter-dropdown-btn" data-filter="type" data-value="all">
+            <i class="ti ti-tag" style="font-size: 14px;" aria-hidden="true"></i>
+            <span data-label>Type: All</span>
+            <i class="ti ti-chevron-down" style="font-size: 12px;" aria-hidden="true"></i>
+        </button>
+
+        <div class="wms-view-toggle">
+            <span style="font-size: 11px; color: var(--wms-text-secondary); margin-right: 4px;">View:</span>
+            <button type="button" class="wms-view-toggle-btn active" data-view="list" title="List view">
+                <i class="ti ti-list" style="font-size: 14px;" aria-hidden="true"></i>
+            </button>
+            <button type="button" class="wms-view-toggle-btn" data-view="grid" title="Grid view">
+                <i class="ti ti-layout-grid" style="font-size: 14px;" aria-hidden="true"></i>
+            </button>
+        </div>
+    </div>
+
+    <div id="bulkToolbar" class="wms-bulk-toolbar" style="display: none;">
+        <span><strong id="bulkCount">0</strong> selected</span>
+        <div class="divider"></div>
+        <button type="button" class="wms-btn-ghost" style="font-size: 12px; padding: 4px 8px; cursor: pointer; border: none; background: transparent;">
+            <i class="ti ti-pencil" style="font-size: 13px;" aria-hidden="true"></i> Bulk edit
+        </button>
+        <button type="button" class="wms-btn-ghost" style="font-size: 12px; padding: 4px 8px; cursor: pointer; border: none; background: transparent;">
+            <i class="ti ti-archive" style="font-size: 13px;" aria-hidden="true"></i> Archive
+        </button>
+        <button type="button" class="wms-btn-ghost wms-text-danger" style="font-size: 12px; padding: 4px 8px; cursor: pointer; border: none; background: transparent; color: var(--wms-danger);">
+            <i class="ti ti-trash" style="font-size: 13px;" aria-hidden="true"></i> Delete
+        </button>
+        <button type="button" id="bulkClose" style="margin-left: auto; background: transparent; border: none; padding: 4px; cursor: pointer; color: var(--wms-text-secondary);">
+            <i class="ti ti-x" style="font-size: 16px;" aria-hidden="true"></i>
+        </button>
+    </div>
+
+    <div id="warehousesContent">
+        <div class="wms-list-loading">
+            <div class="wms-list-loading-spinner"></div>
+            Loading warehouses...
+        </div>
+    </div>
+
+    <div id="paginationContainer" class="wms-pagination" style="display: none;">
+        <div class="wms-pagination-info">
+            <span>Show:</span>
+            <select id="pageSizeSelect">
+                <option value="20">20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+            </select>
+            <span>per page</span>
+            <span style="margin-left: 8px;">·</span>
+            <span id="resultsInfo">—</span>
+        </div>
+        <div class="wms-pagination-nav" id="paginationNav"></div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const state = {
+                page: 1,
+                pageSize: 20,
+                search: '',
+                status: 'all',
+                region: 'any',
+                type: 'all',
+                sortBy: 'name',
+                sortDesc: false,
+                view: localStorage.getItem('wms-warehouse-view') || 'list',
+                selected: new Set()
+            };
+
+            const els = {
+                content: document.getElementById('warehousesContent'),
+                search: document.getElementById('warehouseSearch'),
+                bulk: document.getElementById('bulkToolbar'),
+                bulkCount: document.getElementById('bulkCount'),
+                bulkClose: document.getElementById('bulkClose'),
+                pagination: document.getElementById('paginationContainer'),
+                paginationNav: document.getElementById('paginationNav'),
+                resultsInfo: document.getElementById('resultsInfo'),
+                pageSize: document.getElementById('pageSizeSelect'),
+                viewBtns: document.querySelectorAll('[data-view]'),
+                filterBtns: document.querySelectorAll('.wms-filter-dropdown-btn[data-filter]')
+            };
+
+            els.viewBtns.forEach(b => {
+                b.classList.toggle('active', b.dataset.view === state.view);
+            });
+
+            function escapeHtml(s) {
+                if (s == null) return '';
+                return String(s)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            function statusBadge(status) {
+                const cfg = {
+                    active:      { cls: 'success', label: 'Active' },
+                    maintenance: { cls: 'warning', label: 'Maintenance' },
+                    inactive:    { cls: 'neutral', label: 'Inactive' }
+                };
+                const c = cfg[status] || cfg.inactive;
+                return `<span class="wms-badge wms-badge-${c.cls}"><span class="wms-badge-dot"></span>${c.label}</span>`;
+            }
+
+            function typeBadge(type) {
+                const cls = type === '3PL' ? 'warning' : 'info';
+                return `<span class="wms-badge wms-badge-${cls}">${escapeHtml(type)}</span>`;
+            }
+
+            function iconClassForStatus(status) {
+                if (status === 'maintenance') return 'warning';
+                if (status === 'inactive') return 'danger';
+                return '';
+            }
+
+            function fmtNumber(n) {
+                return Number(n).toLocaleString('en-US');
+            }
+
+            function renderList(items) {
+                if (items.length === 0) return renderEmpty();
+                const rows = items.map(w => `
+                    <tr data-code="${escapeHtml(w.code)}">
+                        <td><input type="checkbox" class="row-check" value="${escapeHtml(w.code)}" ${state.selected.has(w.code) ? 'checked' : ''} /></td>
+                        <td class="code">${escapeHtml(w.code)}</td>
+                        <td>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <div style="width: 26px; height: 26px; background: var(--wms-info-bg); color: #4338CA; border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                    <i class="ti ti-building-warehouse" style="font-size: 14px;" aria-hidden="true"></i>
+                                </div>
+                                <div>
+                                    <p style="margin: 0; font-weight: 500;">${escapeHtml(w.name)}</p>
+                                    ${w.subtitle ? `<p style="margin: 0; font-size: 11px; color: var(--wms-text-tertiary);">${escapeHtml(w.subtitle)}</p>` : ''}
+                                </div>
+                            </div>
+                        </td>
+                        <td style="color: var(--wms-text-secondary);">${escapeHtml(w.region)}</td>
+                        <td>${typeBadge(w.type)}</td>
+                        <td class="numeric">${fmtNumber(w.locationCount)}</td>
+                        <td>${statusBadge(w.status)}</td>
+                        <td style="color: var(--wms-text-secondary); font-size: 11px;">${escapeHtml(w.updatedAtRelative)}</td>
+                        <td style="text-align: right;">
+                            <button type="button" style="background: transparent; border: none; padding: 4px; cursor: pointer; color: var(--wms-text-secondary);">
+                                <i class="ti ti-dots-vertical" style="font-size: 14px;" aria-hidden="true"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+
+                return `
+                    <div style="overflow-x: auto;">
+                    <table class="wms-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 32px;"><input type="checkbox" id="selectAll" /></th>
+                                <th data-sort="code" style="cursor: pointer;">Code <i class="ti ti-arrows-sort" style="font-size: 11px; opacity: 0.5;" aria-hidden="true"></i></th>
+                                <th data-sort="name" style="cursor: pointer;">Name <i class="ti ti-arrow-up" style="font-size: 11px;" aria-hidden="true"></i></th>
+                                <th data-sort="region" style="cursor: pointer;">Region <i class="ti ti-arrows-sort" style="font-size: 11px; opacity: 0.5;" aria-hidden="true"></i></th>
+                                <th>Type</th>
+                                <th class="numeric" data-sort="locations" style="cursor: pointer;">Locations</th>
+                                <th>Status</th>
+                                <th data-sort="updatedAt" style="cursor: pointer;">Updated</th>
+                                <th style="width: 40px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                    </div>
+                `;
+            }
+
+            function renderGrid(items) {
+                if (items.length === 0) return renderEmpty();
+                const cards = items.map(w => `
+                    <a href="#" class="wms-grid-card" data-code="${escapeHtml(w.code)}">
+                        <div class="wms-grid-card-actions">
+                            <button type="button" class="wms-grid-card-action" title="View"><i class="ti ti-eye" style="font-size: 13px;" aria-hidden="true"></i></button>
+                            <button type="button" class="wms-grid-card-action" title="Edit"><i class="ti ti-pencil" style="font-size: 13px;" aria-hidden="true"></i></button>
+                            <button type="button" class="wms-grid-card-action danger" title="Archive"><i class="ti ti-archive" style="font-size: 13px;" aria-hidden="true"></i></button>
+                        </div>
+                        <div style="display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px;">
+                            <div class="wms-grid-card-icon ${iconClassForStatus(w.status)}">
+                                <i class="ti ti-building-warehouse" style="font-size: 18px;" aria-hidden="true"></i>
+                            </div>
+                            <div style="flex: 1; min-width: 0; padding-right: 16px;">
+                                <p class="wms-grid-card-title">${escapeHtml(w.name)}</p>
+                                <p class="wms-grid-card-code">${escapeHtml(w.code)}</p>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px;">
+                            ${statusBadge(w.status)}
+                            ${typeBadge(w.type)}
+                        </div>
+                        <div class="wms-grid-card-footer">
+                            <div>
+                                <p class="wms-grid-card-stat-label">Locations</p>
+                                <p class="wms-grid-card-stat-value">${fmtNumber(w.locationCount)}</p>
+                            </div>
+                            <div>
+                                <p class="wms-grid-card-stat-label">Region</p>
+                                <p class="wms-grid-card-stat-value" style="font-size: 12px;">${escapeHtml(w.region.split(',')[0])}</p>
+                            </div>
+                        </div>
+                    </a>
+                `).join('');
+
+                return `
+                    <div class="wms-grid-container">
+                        ${cards}
+                        <a href="#" class="wms-add-card">
+                            <div class="wms-add-card-icon">
+                                <i class="ti ti-plus" style="font-size: 22px;" aria-hidden="true"></i>
+                            </div>
+                            <p class="wms-add-card-title">Add warehouse</p>
+                            <p class="wms-add-card-desc">Create a new facility</p>
+                        </a>
+                    </div>
+                `;
+            }
+
+            function renderEmpty() {
+                return `
+                    <div class="wms-empty-state">
+                        <div class="wms-empty-state-icon">
+                            <i class="ti ti-building-warehouse" aria-hidden="true"></i>
+                        </div>
+                        <p class="wms-empty-state-title">No warehouses found</p>
+                        <p class="wms-empty-state-desc">Try adjusting your filters or create a new warehouse.</p>
+                        <button type="button" class="wms-btn wms-btn-purple">
+                            <i class="ti ti-plus" style="font-size: 14px;" aria-hidden="true"></i>
+                            New warehouse
+                        </button>
+                    </div>
+                `;
+            }
+
+            function renderPagination(total, page, pageSize, totalPages) {
+                const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+                const end = Math.min(page * pageSize, total);
+                els.resultsInfo.textContent = `Showing ${start}-${end} of ${total} warehouses`;
+
+                if (total === 0) {
+                    els.pagination.style.display = 'none';
+                    return;
+                }
+                els.pagination.style.display = 'flex';
+
+                const buttons = [];
+                buttons.push(`<button type="button" class="wms-pagination-btn" ${page === 1 ? 'disabled' : ''} data-page="${page - 1}"><i class="ti ti-chevron-left" style="font-size: 12px;"></i></button>`);
+
+                const maxPages = Math.min(5, totalPages);
+                let startPage = Math.max(1, page - 2);
+                const endPage = Math.min(totalPages, startPage + maxPages - 1);
+                startPage = Math.max(1, endPage - maxPages + 1);
+
+                for (let p = startPage; p <= endPage; p++) {
+                    buttons.push(`<button type="button" class="wms-pagination-btn ${p === page ? 'active' : ''}" data-page="${p}">${p}</button>`);
+                }
+
+                buttons.push(`<button type="button" class="wms-pagination-btn" ${page === totalPages ? 'disabled' : ''} data-page="${page + 1}"><i class="ti ti-chevron-right" style="font-size: 12px;"></i></button>`);
+
+                els.paginationNav.innerHTML = buttons.join('');
+                els.paginationNav.querySelectorAll('button[data-page]').forEach(b => {
+                    b.addEventListener('click', () => {
+                        const p = parseInt(b.dataset.page);
+                        if (p && p !== state.page) {
+                            state.page = p;
+                            load();
+                        }
+                    });
+                });
+            }
+
+            function updateBulkUI() {
+                const n = state.selected.size;
+                if (n > 0) {
+                    els.bulk.style.display = 'flex';
+                    els.bulkCount.textContent = n;
+                } else {
+                    els.bulk.style.display = 'none';
+                }
+            }
+
+            function attachRowHandlers() {
+                els.content.querySelectorAll('.row-check').forEach(cb => {
+                    cb.addEventListener('change', (e) => {
+                        const code = e.target.value;
+                        if (e.target.checked) state.selected.add(code);
+                        else state.selected.delete(code);
+                        updateBulkUI();
+                    });
+                });
+
+                const selectAll = document.getElementById('selectAll');
+                if (selectAll) {
+                    selectAll.addEventListener('change', (e) => {
+                        els.content.querySelectorAll('.row-check').forEach(cb => {
+                            cb.checked = e.target.checked;
+                            const code = cb.value;
+                            if (e.target.checked) state.selected.add(code);
+                            else state.selected.delete(code);
+                        });
+                        updateBulkUI();
+                    });
+                }
+
+                els.content.querySelectorAll('th[data-sort]').forEach(th => {
+                    th.addEventListener('click', () => {
+                        const col = th.dataset.sort;
+                        if (state.sortBy === col) state.sortDesc = !state.sortDesc;
+                        else { state.sortBy = col; state.sortDesc = false; }
+                        load();
+                    });
+                });
+            }
+
+            async function load() {
+                els.content.innerHTML = '<div class="wms-list-loading"><div class="wms-list-loading-spinner"></div>Loading warehouses...</div>';
+
+                const params = new URLSearchParams({
+                    page: state.page,
+                    pageSize: state.pageSize,
+                    search: state.search,
+                    status: state.status,
+                    region: state.region,
+                    type: state.type,
+                    sortBy: state.sortBy,
+                    sortDesc: state.sortDesc
+                });
+
+                try {
+                    const res = await fetch(`/Warehouses/Data?${params}`);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const data = await res.json();
+                    if (state.view === 'grid') {
+                        els.content.innerHTML = renderGrid(data.items);
+                    } else {
+                        els.content.innerHTML = renderList(data.items);
+                        attachRowHandlers();
+                    }
+                    renderPagination(data.total, data.page, data.pageSize, data.totalPages);
+                } catch (e) {
+                    els.content.innerHTML = '<div class="wms-empty-state"><p class="wms-empty-state-title">Failed to load</p><p class="wms-empty-state-desc">' + escapeHtml(e.message) + '</p></div>';
+                }
+            }
+
+            let searchTimer;
+            els.search.addEventListener('input', (e) => {
+                clearTimeout(searchTimer);
+                searchTimer = setTimeout(() => {
+                    state.search = e.target.value.trim();
+                    state.page = 1;
+                    load();
+                }, 300);
+            });
+
+            els.viewBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    state.view = btn.dataset.view;
+                    localStorage.setItem('wms-warehouse-view', state.view);
+                    els.viewBtns.forEach(b => b.classList.toggle('active', b === btn));
+                    load();
+                });
+            });
+
+            els.pageSize.addEventListener('change', (e) => {
+                state.pageSize = parseInt(e.target.value);
+                state.page = 1;
+                load();
+            });
+
+            els.bulkClose.addEventListener('click', () => {
+                state.selected.clear();
+                document.querySelectorAll('.row-check').forEach(cb => cb.checked = false);
+                const sa = document.getElementById('selectAll');
+                if (sa) sa.checked = false;
+                updateBulkUI();
+            });
+
+            const filterValues = {
+                status: [
+                    { v: 'all', l: 'Status: All' },
+                    { v: 'active', l: 'Active' },
+                    { v: 'maintenance', l: 'Maintenance' },
+                    { v: 'inactive', l: 'Inactive' }
+                ],
+                region: [
+                    { v: 'any', l: 'Region: Any' },
+                    { v: 'Bangkok, TH', l: 'Bangkok' },
+                    { v: 'Chiang Mai, TH', l: 'Chiang Mai' },
+                    { v: 'Phuket, TH', l: 'Phuket' },
+                    { v: 'Khon Kaen, TH', l: 'Khon Kaen' }
+                ],
+                type: [
+                    { v: 'all', l: 'Type: All' },
+                    { v: '3PL', l: '3PL' },
+                    { v: 'Internal', l: 'Internal' }
+                ]
+            };
+
+            els.filterBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const filter = btn.dataset.filter;
+                    const current = btn.dataset.value;
+                    const values = filterValues[filter];
+                    const idx = values.findIndex(v => v.v === current);
+                    const next = values[(idx + 1) % values.length];
+                    btn.dataset.value = next.v;
+                    btn.querySelector('[data-label]').textContent = next.l;
+                    btn.classList.toggle('active', next.v !== values[0].v);
+                    state[filter] = next.v;
+                    state.page = 1;
+                    load();
+                });
+            });
+
+            load();
+        })();
+    </script>
+}
