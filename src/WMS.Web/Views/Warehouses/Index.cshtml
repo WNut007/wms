@@ -228,7 +228,7 @@
             function renderGrid(items) {
                 if (items.length === 0) return renderEmpty();
                 const cards = items.map(w => `
-                    <a href="#" class="wms-grid-card" data-code="${escapeHtml(w.code)}">
+                    <a href="/Warehouses/Detail/${encodeURIComponent(w.code)}" class="wms-grid-card" data-code="${escapeHtml(w.code)}">
                         <div class="wms-grid-card-actions">
                             <button type="button" class="wms-grid-card-action" title="View"><i class="ti ti-eye" style="font-size: 13px;" aria-hidden="true"></i></button>
                             <button type="button" class="wms-grid-card-action" title="Edit"><i class="ti ti-pencil" style="font-size: 13px;" aria-hidden="true"></i></button>
@@ -366,6 +366,15 @@
                         if (state.sortBy === col) state.sortDesc = !state.sortDesc;
                         else { state.sortBy = col; state.sortDesc = false; }
                         load();
+                    });
+                });
+
+                els.content.querySelectorAll('tr[data-code]').forEach(row => {
+                    row.style.cursor = 'pointer';
+                    row.addEventListener('click', (e) => {
+                        if (e.target.closest('input[type=checkbox]') || e.target.closest('button')) return;
+                        const code = row.dataset.code;
+                        if (code) window.location.href = `/Warehouses/Detail/${encodeURIComponent(code)}`;
                     });
                 });
             }
