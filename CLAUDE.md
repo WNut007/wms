@@ -13,6 +13,36 @@ This is the WMS (Warehouse Management System) rebuild project. This file is your
 **Architecture**: Multi-tenant (DB per tenant), 5-layer architecture
 **Tech stack**: .NET Core MVC + Dapper + SQL Server + Telerik + htmx + SignalR
 
+### UI Stack
+
+**Framework**: Tabler.io (Free, MIT) — Bootstrap 5 base
+**Icons**: Tabler Icons (5800+ outline) — `<i class="ti ti-{name}"></i>`
+**Charts**: ApexCharts (Phase 2)
+**Date picker**: Flatpickr (Phase 2)
+**Select**: Choices.js (Phase 2)
+**Grids**: Tabulator (Phase 2 — for complex grids only)
+**Interactivity**: HTMX 2.0 + Alpine 3.14
+
+**Design system**: `docs/UI_DESIGN_REFERENCE.md` (LOCKED v1.0)
+**Custom CSS**: `wwwroot/css/wms-custom.css` (loaded AFTER Tabler)
+
+**Color tokens**:
+- Primary: `#5D4FA0` → `#7B5DBF` (purple gradient — sidebar)
+- Hover: `#4F46E5` (Indigo — primary buttons)
+- Hero: `#312E81` (Indigo dark — login)
+- Status: green / amber / red / blue / gray (semantic)
+
+**Typography**: Inter throughout, JetBrains Mono for codes
+
+**Layouts**: `_OfficeLayout` uses bespoke `.wms-app` shell (purple sidebar + white topbar).
+`_AuthLayout` is a minimal hero-friendly shell. `_MobileLayout` keeps its bespoke compact shell.
+
+**Delivery**: CDN today (Phase 1 internal dev). Move to local files (libman/npm) before production.
+
+**Deferred** (Phase 2): Kendo UI, SmartAdmin Extended
+
+**13 mockups approved** — see `docs/UI_DESIGN_REFERENCE.md`.
+
 **Read these documents before starting**:
 - `docs/01_Master_Design.md` — System architecture overview
 - `docs/02_Database_Schema.md` — All tables and relationships

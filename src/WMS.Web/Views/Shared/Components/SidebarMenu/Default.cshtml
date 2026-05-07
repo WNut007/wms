@@ -1,8 +1,62 @@
 @model IReadOnlyList<WMS.Web.ViewComponents.ModuleItem>
+@{
+    var currentController = (ViewContext.RouteData.Values["controller"] as string) ?? string.Empty;
+    bool IsActive(string code) =>
+        string.Equals(currentController, code, StringComparison.OrdinalIgnoreCase);
 
-<nav class="wms-sidebar-nav">
-    @foreach (var module in Model)
+    var operationsCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    { "INBOUND", "INVENTORY", "OUTBOUND", "RETURNS", "COUNTS" };
+    var operations = Model.Where(m => operationsCodes.Contains(m.Code)).ToList();
+    var system     = Model.Where(m => !operationsCodes.Contains(m.Code)).ToList();
+}
+
+<div class="wms-sidebar-logo">
+    <div class="wms-sidebar-logo-icon">
+        <i class="ti ti-package" style="font-size: 16px; color: white;"></i>
+    </div>
+    <span class="wms-sidebar-logo-text">WMS</span>
+    <span class="wms-sidebar-version">v1.0</span>
+</div>
+
+<div class="wms-sidebar-search">
+    <div class="wms-sidebar-search-box">
+        <i class="ti ti-search" style="font-size: 13px;"></i>
+        <span>Filter</span>
+    </div>
+</div>
+
+<p class="wms-sidebar-section">Operations</p>
+
+<a href="@Url.Action("Index", "Home")"
+   class="wms-sidebar-item @(IsActive("Home") ? "active" : "")"
+   title="Dashboard">
+    <i class="ti ti-home wms-sidebar-item-icon"></i>
+    <span class="wms-sidebar-item-text">Dashboard</span>
+</a>
+
+@foreach (var module in operations)
+{
+    <a href="@module.Url"
+       class="wms-sidebar-item @(IsActive(module.Code) ? "active" : "")"
+       title="@module.DisplayName">
+        <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
+        <span class="wms-sidebar-item-text">@module.DisplayName</span>
+    </a>
+}
+
+@if (system.Count > 0)
+{
+    <div class="wms-sidebar-divider"></div>
+
+    <p class="wms-sidebar-section">System</p>
+
+    @foreach (var module in system)
     {
-        <a class="wms-sidebar-link" href="@module.Url">@module.DisplayName</a>
+        <a href="@module.Url"
+           class="wms-sidebar-item @(IsActive(module.Code) ? "active" : "")"
+           title="@module.DisplayName">
+            <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
+            <span class="wms-sidebar-item-text">@module.DisplayName</span>
+        </a>
     }
-</nav>
+}

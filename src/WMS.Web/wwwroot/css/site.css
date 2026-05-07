@@ -8,11 +8,6 @@ html {
     html { font-size: 16px; }
 }
 
-.btn:focus, .btn:active:focus, .btn-link.nav-link:focus,
-.form-control:focus, .form-check-input:focus {
-    box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
-}
-
 .form-floating > .form-control-plaintext::placeholder,
 .form-floating > .form-control::placeholder {
     color: var(--bs-secondary-color);
@@ -24,106 +19,12 @@ html {
     text-align: start;
 }
 
-/* === WMS Office layout ============================================ */
-/* Sidebar + topbar + main column. Flexbox at the body level: sidebar
-   is fixed-width, main grows. When the user is anonymous (e.g. error
-   page hit before login) the layout omits both sidebar and topbar
-   so the body becomes a single full-width column. */
-
-body.wms-office {
-    margin: 0;
-    min-height: 100vh;
-    display: flex;
-    background: #f9fafb;
-}
-
-.wms-sidebar {
-    width: 240px;
-    flex-shrink: 0;
-    background: #1f2937;
-    color: #d1d5db;
-    display: flex;
-    flex-direction: column;
-}
-
-.wms-brand {
-    padding: 1rem 1.25rem;
-    font-size: 1.25rem;
-    font-weight: 600;
-    border-bottom: 1px solid #374151;
-}
-
-.wms-brand a {
-    color: #ffffff;
-    text-decoration: none;
-}
-
-.wms-sidebar-nav {
-    display: flex;
-    flex-direction: column;
-    padding: 0.5rem 0;
-}
-
-.wms-sidebar-link {
-    color: #d1d5db;
-    padding: 0.6rem 1.25rem;
-    text-decoration: none;
-    font-size: 0.95rem;
-}
-
-.wms-sidebar-link:hover {
-    background: #374151;
-    color: #ffffff;
-}
-
-.wms-main {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;       /* let flex children actually shrink */
-}
-
-.wms-topbar {
-    display: flex;
-    align-items: center;
-    background: #ffffff;
-    border-bottom: 1px solid #e5e7eb;
-    padding: 0.5rem 1rem;
-}
-
-.wms-context code {
-    color: #6b7280;
-    background: transparent;
-    font-size: 0.85rem;
-}
-
-.wms-context-sep {
-    color: #d1d5db;
-    margin: 0 0.35rem;
-}
-
-.wms-content {
-    flex-grow: 1;
-    padding: 1.5rem;
-    overflow-x: auto;
-}
-
-/* === WMS Auth layout ============================================== */
-/* Login / tenant-select / warehouse-select / forbidden / no-warehouse-
-   access pages. No sidebar, no topbar — content is centered in a
-   plain background. */
-
-body.wms-auth {
-    margin: 0;
-    min-height: 100vh;
-    background: #f3f4f6;
-}
-
 /* === WMS Mobile layout ============================================ */
 /* PWA workflows (Receive today; Pick / Pack later). Full-width,
    sticky topbar, content capped to a comfortable mobile reading width
    so it also looks reasonable on a desktop browser. No sidebar — the
-   workflows are linear. */
+   workflows are linear. Office and Auth layouts now use Tabler's
+   page-shell directly, so their bespoke rules have been removed. */
 
 body.wms-mobile {
     margin: 0;

@@ -172,7 +172,9 @@ public sealed class AuthController : BaseController
         return await CompleteWarehouseSelectionAsync(selected);
     }
 
-    [HttpGet]
+    // POST + antiforgery so a cross-site link can't sign someone out.
+    [HttpPost]
+    [ValidateAntiForgeryToken]
     public async Task<IActionResult> Logout()
     {
         await HttpContext.SignOutAsync();

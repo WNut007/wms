@@ -1,3 +1,7 @@
+@*
+    Minimal auth shell — the auth pages render the .wms-login-page split-screen
+    full-bleed, so this layout intentionally adds no wrapper container.
+*@
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5,15 +9,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"] - WMS</title>
 
-    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
-    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@@tabler/icons-webfont@@latest/dist/tabler-icons.min.css" />
+    <link rel="stylesheet" href="~/css/wms-custom.css" asp-append-version="true" />
 </head>
-<body class="wms-auth">
-    <div class="container">
-        @RenderBody()
-    </div>
+<body>
+    @RenderBody()
 
-    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

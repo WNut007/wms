@@ -7,36 +7,60 @@
 
 @if (User.Identity?.IsAuthenticated == true)
 {
-    <div class="row justify-content-center mt-3">
-        <div class="col-md-8">
-            <div class="alert alert-success" role="alert">
-                <h4 class="alert-heading">Signed in</h4>
-                <dl class="row mb-0">
-                    <dt class="col-sm-3">Name</dt>
-                    <dd class="col-sm-9">@User.Identity.Name</dd>
+    <div class="page-header d-print-none">
+        <div class="row g-2 align-items-center">
+            <div class="col">
+                <h2 class="page-title">Signed in</h2>
+                <div class="text-secondary">Your active session details.</div>
+            </div>
+        </div>
+    </div>
 
-                    <dt class="col-sm-3">Email</dt>
-                    <dd class="col-sm-9">@User.FindFirst(ClaimTypes.Email)?.Value</dd>
-
-                    <dt class="col-sm-3">Tenant</dt>
-                    <dd class="col-sm-9"><code>@User.FindFirst(WmsClaimTypes.TenantId)?.Value</code></dd>
-
-                    <dt class="col-sm-3">Warehouse</dt>
-                    <dd class="col-sm-9"><code>@User.FindFirst(WmsClaimTypes.WarehouseId)?.Value</code></dd>
-                </dl>
-                <hr />
-                <a asp-controller="Auth" asp-action="Logout" class="btn btn-outline-secondary btn-sm">
-                    Sign out
-                </a>
+    <div class="row row-cards mt-2">
+        <div class="col-12 col-lg-8">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Session</h3>
+                </div>
+                <div class="card-body">
+                    <div class="datagrid">
+                        <div class="datagrid-item">
+                            <div class="datagrid-title">Name</div>
+                            <div class="datagrid-content">@User.Identity.Name</div>
+                        </div>
+                        <div class="datagrid-item">
+                            <div class="datagrid-title">Email</div>
+                            <div class="datagrid-content">
+                                @User.FindFirst(ClaimTypes.Email)?.Value
+                            </div>
+                        </div>
+                        <div class="datagrid-item">
+                            <div class="datagrid-title">Tenant</div>
+                            <div class="datagrid-content">
+                                @User.FindFirst(WmsClaimTypes.TenantCode)?.Value
+                            </div>
+                        </div>
+                        <div class="datagrid-item">
+                            <div class="datagrid-title">Warehouse</div>
+                            <div class="datagrid-content">
+                                @User.FindFirst(WmsClaimTypes.WarehouseCode)?.Value
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 }
 else
 {
-    <div class="text-center mt-5">
-        <h1 class="display-4">WMS</h1>
-        <p class="lead">Warehouse Management System</p>
-        <a asp-controller="Auth" asp-action="Login" class="btn btn-primary">Sign in</a>
+    <div class="empty">
+        <p class="empty-title">WMS</p>
+        <p class="empty-subtitle text-secondary">Warehouse Management System</p>
+        <div class="empty-action">
+            <a asp-controller="Auth" asp-action="Login" class="btn btn-primary">
+                Sign in
+            </a>
+        </div>
     </div>
 }

@@ -3,42 +3,52 @@
     ViewData["Title"] = "Select tenant";
 }
 
-<div class="row justify-content-center">
-    <div class="col-md-6">
-        <div class="card shadow-sm mt-5">
-            <div class="card-body p-4">
-                <h3 class="card-title text-center mb-4">Select tenant</h3>
-                <p class="text-muted text-center small mb-4">
-                    You have access to multiple tenants. Choose which one to enter.
-                </p>
-
-                @if (!ViewData.ModelState.IsValid && ViewData.ModelState[""]?.Errors.Count > 0)
-                {
-                    <div class="alert alert-danger" role="alert">
-                        @foreach (var err in ViewData.ModelState[""]!.Errors)
-                        {
-                            <div>@err.ErrorMessage</div>
-                        }
-                    </div>
-                }
-
-                <form asp-action="SelectTenant" method="post">
-                    <div class="list-group mb-3">
-                        @foreach (var t in Model.Tenants)
-                        {
-                            <label class="list-group-item d-flex align-items-center">
-                                <input type="radio" name="SelectedTenantId"
-                                       value="@t.TenantId" class="form-check-input me-3" required />
-                                <div>
-                                    <div><strong>@t.TenantCode</strong></div>
-                                    <div class="text-muted small">@t.TenantName</div>
-                                </div>
-                            </label>
-                        }
-                    </div>
-                    <button type="submit" class="btn btn-primary w-100">Continue</button>
-                </form>
+<div class="wms-login-page">
+    <aside class="wms-login-hero">
+        <div class="wms-login-hero-content">
+            <div class="wms-login-logo">
+                <div class="wms-login-logo-icon">
+                    <i class="ti ti-package" style="font-size: 22px; color: white;"></i>
+                </div>
+                <span class="wms-login-logo-text">WMS</span>
             </div>
+
+            <p style="font-size: 11px; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 500; margin: 0 0 8px;">
+                Step 2 of 3
+            </p>
+            <h1 class="wms-login-tagline">Choose tenant</h1>
+            <p style="font-size: 14px; opacity: 0.7; color: var(--wms-hero-text); margin: 0;">
+                Select the organization to work with
+            </p>
         </div>
-    </div>
+    </aside>
+
+    <main class="wms-login-form">
+        <div class="wms-login-form-inner">
+            <h2 class="wms-login-form-title">Select tenant</h2>
+            <p class="wms-login-form-subtitle">
+                You have access to multiple tenants. Choose which one to enter.
+            </p>
+
+            <div asp-validation-summary="ModelOnly" class="wms-error-msg mb-3"></div>
+
+            <form asp-action="SelectTenant" method="post">
+                @foreach (var t in Model.Tenants)
+                {
+                    <button type="submit" name="SelectedTenantId" value="@t.TenantId"
+                            class="wms-card wms-card-interactive"
+                            style="display: flex; align-items: center; gap: 12px; width: 100%; margin-bottom: 8px; cursor: pointer; text-align: left;">
+                        <div style="width: 44px; height: 44px; background: var(--wms-primary); color: white; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; flex-shrink: 0;">
+                            @(string.IsNullOrEmpty(t.TenantCode) ? "?" : t.TenantCode.Substring(0, 1).ToUpperInvariant())
+                        </div>
+                        <div style="flex: 1; min-width: 0;">
+                            <p class="wms-mono" style="font-size: 13px; font-weight: 500; margin: 0 0 2px; color: var(--wms-text-primary);">@t.TenantCode</p>
+                            <p class="wms-truncate" style="font-size: 11px; color: var(--wms-text-secondary); margin: 0;">@t.TenantName</p>
+                        </div>
+                        <i class="ti ti-chevron-right" style="font-size: 16px; color: var(--wms-text-tertiary); flex-shrink: 0;"></i>
+                    </button>
+                }
+            </form>
+        </div>
+    </main>
 </div>
