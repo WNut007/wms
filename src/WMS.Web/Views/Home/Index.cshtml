@@ -1,66 +1,189 @@
-@using System.Security.Claims
-@using WMS.Common.Auth
-
+@model WMS.Web.ViewModels.Home.DashboardViewModel
 @{
-    ViewData["Title"] = "Home";
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Dashboard";
 }
 
-@if (User.Identity?.IsAuthenticated == true)
-{
-    <div class="page-header d-print-none">
-        <div class="row g-2 align-items-center">
-            <div class="col">
-                <h2 class="page-title">Signed in</h2>
-                <div class="text-secondary">Your active session details.</div>
-            </div>
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Control center</p>
+        <div class="wms-breadcrumb">
+            <span>Operations</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span>Dashboards</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Control center</span>
         </div>
     </div>
+    <div class="wms-dashboard-stats-mini">
+        <div class="wms-dashboard-stat-mini">
+            <div>
+                <p class="wms-dashboard-stat-mini-label">Receipts</p>
+                <p class="wms-dashboard-stat-mini-value" style="color: #5D4FA0;">@Model.ReceiptsTotal</p>
+            </div>
+            <svg width="60" height="28" viewBox="0 0 60 28" aria-hidden="true">
+                <polyline points="0,20 8,18 16,15 24,16 32,10 40,12 48,8 56,5"
+                          fill="none" stroke="#5D4FA0" stroke-width="1.5"
+                          stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+        </div>
+        <div class="wms-dashboard-stat-mini">
+            <div>
+                <p class="wms-dashboard-stat-mini-label">Orders</p>
+                <p class="wms-dashboard-stat-mini-value" style="color: #EC4899;">@Model.OrdersTotal</p>
+            </div>
+            <svg width="60" height="28" viewBox="0 0 60 28" aria-hidden="true">
+                <polyline points="0,18 8,16 16,12 24,15 32,8 40,10 48,5 56,7"
+                          fill="none" stroke="#EC4899" stroke-width="1.5"
+                          stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+        </div>
+    </div>
+</div>
 
-    <div class="row row-cards mt-2">
-        <div class="col-12 col-lg-8">
-            <div class="card">
-                <div class="card-header">
-                    <h3 class="card-title">Session</h3>
+<div class="wms-dashboard-feeds">
+    <div class="wms-dashboard-feeds-grid">
+        <div>
+            <div class="wms-dashboard-feeds-header">
+                <p class="wms-dashboard-feeds-title">
+                    <span class="accent">Live</span>
+                    <em>feeds</em>
+                </p>
+                <i class="ti ti-lock" style="font-size: 14px; color: var(--wms-text-tertiary);" aria-hidden="true"></i>
+            </div>
+            <div class="wms-toggle-mini">
+                <div class="wms-toggle-mini-track" id="liveUpdateToggle" role="switch" aria-checked="false" tabindex="0">
+                    <div class="wms-toggle-mini-thumb"></div>
                 </div>
-                <div class="card-body">
-                    <div class="datagrid">
-                        <div class="datagrid-item">
-                            <div class="datagrid-title">Name</div>
-                            <div class="datagrid-content">@User.Identity.Name</div>
-                        </div>
-                        <div class="datagrid-item">
-                            <div class="datagrid-title">Email</div>
-                            <div class="datagrid-content">
-                                @User.FindFirst(ClaimTypes.Email)?.Value
-                            </div>
-                        </div>
-                        <div class="datagrid-item">
-                            <div class="datagrid-title">Tenant</div>
-                            <div class="datagrid-content">
-                                @User.FindFirst(WmsClaimTypes.TenantCode)?.Value
-                            </div>
-                        </div>
-                        <div class="datagrid-item">
-                            <div class="datagrid-title">Warehouse</div>
-                            <div class="datagrid-content">
-                                @User.FindFirst(WmsClaimTypes.WarehouseCode)?.Value
-                            </div>
-                        </div>
+                <span class="wms-toggle-mini-label">Live update</span>
+            </div>
+            <div id="liveFeedsChart" style="height: 200px;"></div>
+        </div>
+        <div class="wms-dashboard-progress-panel">
+            @foreach (var item in new[] { Model.PendingPutaway, Model.PickedToday, Model.OrderAccuracy, Model.SlaCompliance })
+            {
+                <div class="wms-progress">
+                    <div class="wms-progress-header">
+                        <span class="wms-progress-label">@item.Label</span>
+                        <span class="wms-progress-value">
+                            @(item.Total == 100 && item.Label != "Pending putaway"
+                                ? $"{item.Current}%"
+                                : $"{item.Current} / {item.Total}")
+                        </span>
+                    </div>
+                    <div class="wms-progress-track">
+                        <div class="wms-progress-fill" style="width: @item.Percent%; background: @item.ColorHex;"></div>
                     </div>
                 </div>
+            }
+            <div class="wms-dashboard-actions-grid">
+                <button type="button" class="wms-btn">
+                    <i class="ti ti-file-text" style="font-size: 14px;" aria-hidden="true"></i>
+                    Generate PDF
+                </button>
+                <button type="button" class="wms-btn">
+                    <i class="ti ti-table-export" style="font-size: 14px;" aria-hidden="true"></i>
+                    Export Excel
+                </button>
             </div>
         </div>
     </div>
-}
-else
-{
-    <div class="empty">
-        <p class="empty-title">WMS</p>
-        <p class="empty-subtitle text-secondary">Warehouse Management System</p>
-        <div class="empty-action">
-            <a asp-controller="Auth" asp-action="Login" class="btn btn-primary">
-                Sign in
-            </a>
+</div>
+
+<div class="wms-dashboard-metrics">
+    @foreach (var card in Model.MetricCards)
+    {
+        <div class="wms-metric-card">
+            <div class="wms-metric-card-row">
+                <div class="wms-metric-donut">
+                    <svg viewBox="0 0 38 38" width="38" height="38" aria-hidden="true">
+                        <circle cx="19" cy="19" r="15" fill="none" stroke="#F3F4F6" stroke-width="3" />
+                        <circle cx="19" cy="19" r="15" fill="none" stroke="@card.ColorHex" stroke-width="3"
+                                stroke-dasharray="@((card.Value * 94.0 / 100.0).ToString("F0")) 94" stroke-linecap="round" />
+                    </svg>
+                    <span class="wms-metric-donut-value">@card.Value</span>
+                </div>
+                <div class="wms-metric-info">
+                    <p class="wms-metric-label">@card.Label</p>
+                    <svg class="wms-metric-sparkline" viewBox="0 0 100 20" preserveAspectRatio="none" aria-hidden="true">
+                        <polyline points="@SparklinePoints(card.Sparkline)"
+                                  fill="none" stroke="@card.ColorHex" stroke-width="1.5" />
+                    </svg>
+                </div>
+                <div class="wms-metric-chips">
+                    <span class="wms-metric-chip" style="background: @card.ColorHex;">@card.ChipPrimary</span>
+                    <span class="wms-metric-chip" style="background: var(--wms-text-primary);">@card.ChipSecondary</span>
+                </div>
+            </div>
         </div>
-    </div>
+    }
+</div>
+
+@functions {
+    string SparklinePoints(int[] data)
+    {
+        if (data == null || data.Length == 0) return "";
+        var max = data.Max();
+        var min = data.Min();
+        var range = Math.Max(1, max - min);
+        var step = 100.0 / Math.Max(1, data.Length - 1);
+        var points = new List<string>();
+        for (int i = 0; i < data.Length; i++)
+        {
+            var x = i * step;
+            var y = 20 - ((data[i] - min) * 20.0 / range);
+            points.Add($"{x:F1},{y:F1}");
+        }
+        return string.Join(" ", points);
+    }
+}
+
+@section Scripts {
+    <script>
+        (function () {
+            var feedData = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.LiveFeedData));
+            var options = {
+                chart: {
+                    type: 'area', height: 200,
+                    toolbar: { show: false },
+                    fontFamily: 'Inter, sans-serif',
+                    animations: { enabled: false }
+                },
+                series: [{ name: 'Activity', data: feedData }],
+                stroke: { curve: 'smooth', width: 2, colors: ['#5D4FA0'] },
+                fill: {
+                    type: 'gradient',
+                    gradient: {
+                        shadeIntensity: 1,
+                        opacityFrom: 0.25,
+                        opacityTo: 0.02,
+                        stops: [0, 100]
+                    }
+                },
+                colors: ['#5D4FA0'],
+                grid: {
+                    borderColor: '#E5E7EB',
+                    strokeDashArray: 3,
+                    xaxis: { lines: { show: false } },
+                    yaxis: { lines: { show: true } }
+                },
+                xaxis: {
+                    labels: { style: { colors: '#9CA3AF', fontSize: '10px' } },
+                    axisBorder: { show: false },
+                    axisTicks: { show: false }
+                },
+                yaxis: { labels: { style: { colors: '#9CA3AF', fontSize: '10px' } } },
+                dataLabels: { enabled: false },
+                tooltip: { theme: 'light' }
+            };
+            var chart = new ApexCharts(document.querySelector('#liveFeedsChart'), options);
+            chart.render();
+
+            var toggle = document.getElementById('liveUpdateToggle');
+            toggle.addEventListener('click', function () {
+                this.classList.toggle('on');
+                this.setAttribute('aria-checked', this.classList.contains('on') ? 'true' : 'false');
+            });
+        })();
+    </script>
 }
