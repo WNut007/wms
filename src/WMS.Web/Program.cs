@@ -104,6 +104,7 @@ builder.Services.AddScoped<IPermissionService, PermissionService>();
 // Phase 3 mock — singleton because the seed is static. Will be retired
 // when the real warehouse repository lands.
 builder.Services.AddSingleton<MockWarehouseDataService>();
+builder.Services.AddSingleton<MockProductDataService>();
 
 // Phase 4 storage abstraction — Mock keeps an in-memory store with seed
 // rows for Products / Warehouses / Customers detail pages. Replace with
