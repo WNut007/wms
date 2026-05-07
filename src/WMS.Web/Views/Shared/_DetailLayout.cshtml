@@ -1,0 +1,147 @@
+@model WMS.Web.ViewModels.Detail.DetailPageViewModel
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = Model.Title;
+}
+
+<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-size: 12px; color: var(--wms-text-secondary);">
+    <a href="@Model.BreadcrumbParentUrl" class="wms-btn" style="width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center;">
+        <i class="ti ti-arrow-left" style="font-size: 14px;" aria-hidden="true"></i>
+    </a>
+    <span>Master Data</span>
+    <i class="ti ti-chevron-right" style="font-size: 12px; opacity: 0.5;" aria-hidden="true"></i>
+    <a href="@Model.BreadcrumbParentUrl" style="color: inherit; text-decoration: none;">@Model.BreadcrumbParent</a>
+    <i class="ti ti-chevron-right" style="font-size: 12px; opacity: 0.5;" aria-hidden="true"></i>
+    <span style="color: var(--wms-text-primary); font-weight: 500;">@Model.EntityId</span>
+</div>
+
+<div class="wms-card" style="display: flex; align-items: center; gap: 16px; margin-bottom: 12px;">
+    <div style="width: 44px; height: 44px; background: @Model.IconBgColor; color: @Model.IconFgColor; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+        <i class="ti @Model.IconClass" style="font-size: 22px;" aria-hidden="true"></i>
+    </div>
+    <div style="flex: 1;">
+        <p style="margin: 0 0 2px; font-size: 17px; font-weight: 500;">@Model.Title</p>
+        <p style="margin: 0; font-size: 12px; color: var(--wms-text-secondary); font-family: var(--wms-font-mono);">@Model.Subtitle</p>
+    </div>
+    @if (!string.IsNullOrEmpty(Model.StatusLabel))
+    {
+        <span class="wms-badge wms-badge-@Model.StatusVariant"><span class="wms-badge-dot"></span>@Model.StatusLabel</span>
+    }
+    <button type="button" class="wms-btn" style="display: inline-flex; align-items: center; gap: 6px;">
+        <i class="ti ti-pencil" style="font-size: 13px;" aria-hidden="true"></i>Edit
+    </button>
+    <button type="button" class="wms-btn" style="width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center;">
+        <i class="ti ti-dots-vertical" style="font-size: 16px;" aria-hidden="true"></i>
+    </button>
+</div>
+
+@if (Model.Stats.Any())
+{
+    <div style="display: grid; grid-template-columns: repeat(@Model.Stats.Count, 1fr); gap: 8px; margin-bottom: 12px;">
+        @foreach (var stat in Model.Stats)
+        {
+            <div class="wms-card" style="padding: 10px 14px;">
+                <p style="margin: 0 0 2px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--wms-text-secondary); font-weight: 500;">@stat.Label</p>
+                <p style="margin: 0; font-size: 17px; font-weight: 500; @(stat.AccentColor != null ? $"color: {stat.AccentColor};" : "")">@stat.Value</p>
+            </div>
+        }
+    </div>
+}
+
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 12px;">
+
+    <div class="wms-card" style="padding: 0; overflow: hidden;">
+        <div style="display: flex; border-bottom: 0.5px solid var(--wms-border); padding: 0 16px;" id="detailTabs">
+            <button type="button" class="detail-tab active" data-tab="overview" style="padding: 12px 14px; font-size: 12px; font-weight: 500; color: var(--wms-text-primary); border: none; background: transparent; border-bottom: 2px solid var(--wms-primary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                <i class="ti ti-info-circle" style="font-size: 14px;" aria-hidden="true"></i>Overview
+            </button>
+            @if (Model.ShowImagesTab)
+            {
+                <button type="button" class="detail-tab" data-tab="images" style="padding: 12px 14px; font-size: 12px; font-weight: 400; color: var(--wms-text-secondary); border: none; background: transparent; border-bottom: 2px solid transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                    <i class="ti ti-photo" style="font-size: 14px;" aria-hidden="true"></i>Images
+                    <span style="background: var(--wms-bg-secondary); color: var(--wms-text-primary); font-size: 10px; padding: 1px 5px; border-radius: 100px; font-weight: 500;">@Model.Images.Count</span>
+                </button>
+            }
+            <button type="button" class="detail-tab" data-tab="documents" style="padding: 12px 14px; font-size: 12px; font-weight: 400; color: var(--wms-text-secondary); border: none; background: transparent; border-bottom: 2px solid transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                <i class="ti ti-files" style="font-size: 14px;" aria-hidden="true"></i>Documents
+                <span style="background: var(--wms-bg-secondary); color: var(--wms-text-primary); font-size: 10px; padding: 1px 5px; border-radius: 100px; font-weight: 500;">@Model.Documents.Count</span>
+            </button>
+            <button type="button" class="detail-tab" data-tab="activity" style="padding: 12px 14px; font-size: 12px; font-weight: 400; color: var(--wms-text-secondary); border: none; background: transparent; border-bottom: 2px solid transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                <i class="ti ti-history" style="font-size: 14px;" aria-hidden="true"></i>Activity
+            </button>
+        </div>
+
+        <div class="detail-tab-panel" data-panel="overview" style="padding: 16px 20px;">
+            @await Html.PartialAsync("Detail/_OverviewPanel", Model)
+        </div>
+
+        @if (Model.ShowImagesTab)
+        {
+            <div class="detail-tab-panel" data-panel="images" style="padding: 16px 20px; display: none;">
+                @await Html.PartialAsync("Detail/_ImagesPanel", Model)
+            </div>
+        }
+
+        <div class="detail-tab-panel" data-panel="documents" style="padding: 16px 20px; display: none;">
+            @await Html.PartialAsync("Detail/_DocumentsPanel", Model)
+        </div>
+
+        <div class="detail-tab-panel" data-panel="activity" style="padding: 16px 20px; display: none;">
+            @await Html.PartialAsync("Detail/_ActivityPanel", Model)
+        </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+        @if (Model.QuickActions.Any())
+        {
+            <div class="wms-card" style="padding: 12px;">
+                <p style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--wms-text-secondary); font-weight: 500; margin: 0 0 8px;">Quick actions</p>
+                @foreach (var action in Model.QuickActions)
+                {
+                    <a href="@action.Url" class="wms-btn" style="width: 100%; justify-content: flex-start; padding: 7px 10px; font-size: 12px; height: auto; margin-bottom: 4px; display: inline-flex; align-items: center; gap: 8px; text-decoration: none;">
+                        <i class="ti @action.IconClass" style="font-size: 14px;" aria-hidden="true"></i>@action.Label
+                    </a>
+                }
+            </div>
+        }
+        @if (Model.Properties.Any())
+        {
+            <div class="wms-card" style="padding: 12px;">
+                <p style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--wms-text-secondary); font-weight: 500; margin: 0 0 8px;">Properties</p>
+                <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px;">
+                    @foreach (var kv in Model.Properties)
+                    {
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: var(--wms-text-secondary);">@kv.Key</span>
+                            <span>@kv.Value</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const tabs = document.querySelectorAll('.detail-tab');
+            const panels = document.querySelectorAll('.detail-tab-panel');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    tabs.forEach(t => {
+                        t.style.color = 'var(--wms-text-secondary)';
+                        t.style.fontWeight = '400';
+                        t.style.borderBottomColor = 'transparent';
+                        t.classList.remove('active');
+                    });
+                    tab.style.color = 'var(--wms-text-primary)';
+                    tab.style.fontWeight = '500';
+                    tab.style.borderBottomColor = 'var(--wms-primary)';
+                    tab.classList.add('active');
+                    panels.forEach(p => p.style.display = p.dataset.panel === tab.dataset.tab ? 'block' : 'none');
+                });
+            });
+        })();
+    </script>
+}
