@@ -482,3 +482,7 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# One-time implementation playbooks (not part of the codebase)
+PILOT_IMPLEMENTATION_BRIEF.md
+
