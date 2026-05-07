@@ -314,13 +314,29 @@ docs(adr): document putaway template decision
 
 ---
 
-## 🎯 Current Phase: [UPDATE THIS!]
+## 🎯 Current Phase
 
-**Active Sprint**: Phase 1 - Foundation (Week 1-4)
-**Current Focus**: [What we're building this week]
-**Blockers**: [Any blockers]
+**Active Sprint**: Phase 2 — UI Dashboard
+**Current Focus**: replace placeholder Home/Index with the approved dashboard mockup
+**Blockers**: none
 
 Update this section weekly during standups.
+
+### Day 5 — UI Phase 2 (Dashboard)
+
+**Branch**: `feat/dashboard-impl` → merged to `main`
+
+Components:
+- `HomeController.Index` + `DashboardViewModel` (mock data)
+- Dashboard view (`Views/Home/Index.cshtml`)
+- Live Feeds area chart (ApexCharts)
+- 4 progress bars
+- 4 metric cards (donut + sparkline + chips)
+- Mini KPI stats top-right
+
+Tech: ApexCharts 3.45.2 via CDN.
+
+Mock data is hard-coded. Real queries + SignalR live updates planned for Phase 3.
 
 ---
 
