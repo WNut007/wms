@@ -104,16 +104,17 @@
   box-sizing: border-box;
 }
 
-html, body {
-  margin: 0;
-  padding: 0;
-}
-
 html {
+  margin: 0 !important;
+  padding: 0 !important;
   height: 100%;
+  width: 100%;
+  overflow-x: hidden;
 }
 
 body {
+  margin: 0 !important;
+  padding: 0 !important;
   font-family: var(--wms-font-sans);
   font-size: 13px;
   font-weight: 400;
@@ -121,6 +122,8 @@ body {
   background: var(--wms-bg-page);
   line-height: 1.55;
   min-height: 100vh;
+  width: 100%;
+  overflow-x: hidden;
 }
 
 h1, h2, h3, h4, h5, h6 {
