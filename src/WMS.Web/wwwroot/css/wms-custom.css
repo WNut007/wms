@@ -312,11 +312,11 @@ code, pre, .font-mono {
 
 /* Sub-menu items */
 .wms-sidebar-submenu .wms-sidebar-item {
-  margin: 2px 8px 2px 16px;
-  padding: 8px 12px;
-  font-size: 13px;
+  margin: 2px 6px 2px 14px;
+  padding: 8px 14px;
+  font-size: 14px;
   color: rgba(255, 255, 255, 0.75);
-  border-radius: 6px;
+  border-radius: 8px;
   border-left: none;
   transition: background 150ms ease, color 150ms ease;
 }
@@ -332,7 +332,20 @@ code, pre, .font-mono {
   color: white;
   font-weight: 500;
   border-left: none;
-  padding: 8px 12px;
+  padding: 8px 14px;
+}
+
+/* Branch marker on the guide line, aligned with active row's vertical centre */
+.wms-sidebar-submenu .wms-sidebar-item.active::before {
+  content: '';
+  position: absolute;
+  left: -17px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 50%;
 }
 
 .wms-sidebar-submenu .wms-sidebar-item.active::after {
