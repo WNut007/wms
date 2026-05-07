@@ -3,51 +3,86 @@
     ViewData["Title"] = "Sign in";
 }
 
-<div class="text-center mb-4">
-    <a href="/" class="navbar-brand navbar-brand-autodark">
-        <span class="display-6 fw-bold text-primary">WMS</span>
-    </a>
-    <div class="text-secondary mt-1">Warehouse Management System</div>
-</div>
-
-<div class="card card-md">
-    <div class="card-body">
-        <h2 class="h2 text-center mb-4">Sign in to your account</h2>
-
-        @if (!ViewData.ModelState.IsValid && ViewData.ModelState[""]?.Errors.Count > 0)
-        {
-            <div class="alert alert-danger" role="alert">
-                @foreach (var err in ViewData.ModelState[""]!.Errors)
-                {
-                    <div>@err.ErrorMessage</div>
-                }
-            </div>
-        }
-
-        <form asp-action="Login" method="post" novalidate>
-            <input type="hidden" asp-for="ReturnUrl" />
-
-            <div class="mb-3">
-                <label asp-for="Email" class="form-label"></label>
-                <input asp-for="Email" class="form-control"
-                       placeholder="you@example.com"
-                       autocomplete="username" autofocus />
-                <span asp-validation-for="Email" class="text-danger small"></span>
+<div class="wms-login-page">
+    <aside class="wms-login-hero">
+        <div class="wms-login-hero-content">
+            <div class="wms-login-logo">
+                <div class="wms-login-logo-icon">
+                    <i class="ti ti-package" style="font-size: 22px; color: white;"></i>
+                </div>
+                <span class="wms-login-logo-text">WMS</span>
             </div>
 
-            <div class="mb-2">
-                <label asp-for="Password" class="form-label"></label>
-                <input asp-for="Password" class="form-control"
-                       placeholder="Your password"
-                       autocomplete="current-password" />
-                <span asp-validation-for="Password" class="text-danger small"></span>
-            </div>
+            <span class="wms-login-pill">
+                <i class="ti ti-sparkles" style="font-size: 12px;"></i>
+                Built for modern logistics
+            </span>
 
-            <div class="form-footer">
-                <button type="submit" class="btn btn-primary w-100">Sign in</button>
+            <h1 class="wms-login-tagline">
+                Run your warehouse like a SaaS company
+            </h1>
+        </div>
+
+        <div class="wms-login-stats">
+            <div class="wms-login-stat">
+                <p class="wms-login-stat-value">99.9%</p>
+                <p class="wms-login-stat-label">Uptime SLA</p>
             </div>
-        </form>
-    </div>
+            <div class="wms-login-stat">
+                <p class="wms-login-stat-value">5K+</p>
+                <p class="wms-login-stat-label">Orders / day</p>
+            </div>
+            <div class="wms-login-stat">
+                <p class="wms-login-stat-value">3PL+</p>
+                <p class="wms-login-stat-label">Multi-tenant</p>
+            </div>
+        </div>
+    </aside>
+
+    <main class="wms-login-form">
+        <div class="wms-login-form-inner">
+            <h2 class="wms-login-form-title">Welcome back</h2>
+            <p class="wms-login-form-subtitle">Sign in to manage your warehouse operations</p>
+
+            <form asp-action="Login" method="post" novalidate>
+                <input type="hidden" asp-for="ReturnUrl" />
+
+                <div asp-validation-summary="ModelOnly" class="wms-error-msg mb-3"></div>
+
+                <div class="wms-login-field">
+                    <label class="wms-label" asp-for="Email">EMAIL</label>
+                    <input asp-for="Email"
+                           class="wms-input wms-login-form-input"
+                           placeholder="you@company.com"
+                           autocomplete="username"
+                           autofocus />
+                    <span asp-validation-for="Email" class="wms-error-msg"></span>
+                </div>
+
+                <div class="wms-login-field">
+                    <div class="wms-login-field-header">
+                        <label class="wms-label" asp-for="Password">PASSWORD</label>
+                        <a href="#" class="wms-login-field-link">Forgot password?</a>
+                    </div>
+                    <input asp-for="Password"
+                           type="password"
+                           class="wms-input wms-login-form-input"
+                           placeholder="••••••••"
+                           autocomplete="current-password" />
+                    <span asp-validation-for="Password" class="wms-error-msg"></span>
+                </div>
+
+                <button type="submit" class="wms-btn wms-btn-primary wms-login-submit wms-btn-block">
+                    Sign in
+                    <i class="ti ti-arrow-right"></i>
+                </button>
+            </form>
+
+            <p class="wms-login-footer">
+                Need help? <a href="#">Contact support</a>
+            </p>
+        </div>
+    </main>
 </div>
 
 @section Scripts {
