@@ -105,6 +105,7 @@ builder.Services.AddScoped<IPermissionService, PermissionService>();
 // when the real warehouse repository lands.
 builder.Services.AddSingleton<MockWarehouseDataService>();
 builder.Services.AddSingleton<MockProductDataService>();
+builder.Services.AddSingleton<MockCustomerDataService>();
 
 // Phase 4 storage abstraction — Mock keeps an in-memory store with seed
 // rows for Products / Warehouses / Customers detail pages. Replace with
