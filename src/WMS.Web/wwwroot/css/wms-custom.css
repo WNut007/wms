@@ -100,6 +100,19 @@
 /* ================================================================
    2. Typography Reset
    ================================================================ */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  height: 100%;
+}
+
 body {
   font-family: var(--wms-font-sans);
   font-size: 13px;
@@ -107,6 +120,7 @@ body {
   color: var(--wms-text-primary);
   background: var(--wms-bg-page);
   line-height: 1.55;
+  min-height: 100vh;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -1079,8 +1093,10 @@ code, pre, .font-mono {
    ================================================================ */
 .wms-login-page {
   min-height: 100vh;
+  height: 100vh;
   display: grid;
   grid-template-columns: 1fr 1fr;
+  overflow: hidden;
 }
 
 .wms-login-hero {
@@ -1092,6 +1108,7 @@ code, pre, .font-mono {
   justify-content: space-between;
   position: relative;
   overflow: hidden;
+  min-height: 100vh;
 }
 
 .wms-login-hero::before,
@@ -1202,6 +1219,8 @@ code, pre, .font-mono {
   display: flex;
   flex-direction: column;
   justify-content: center;
+  min-height: 100vh;
+  overflow-y: auto;
 }
 
 .wms-login-form-inner {
