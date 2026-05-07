@@ -1,0 +1,30 @@
+@model WMS.Web.ViewModels.Detail.DetailPageViewModel
+
+<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+    <div>
+        <p style="margin: 0; font-size: 13px; font-weight: 500;">Product images</p>
+        <p style="margin: 2px 0 0; font-size: 11px; color: var(--wms-text-secondary);">
+            @Model.Images.Count of 10 angles uploaded · Recommended: front, back, sides, top, bottom, packaging
+        </p>
+    </div>
+    <button type="button" class="wms-btn wms-btn-purple" style="display: inline-flex; align-items: center; gap: 6px;">
+        <i class="ti ti-upload" style="font-size: 13px;" aria-hidden="true"></i>Upload images
+    </button>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;">
+    @foreach (var img in Model.Images)
+    {
+        <div style="position: relative; aspect-ratio: 1; background: #F1EFE8; border-radius: var(--wms-radius-md); display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: hidden;">
+            <img src="@img.Url" alt="@img.Label" style="max-width: 100%; max-height: 100%; object-fit: contain;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+            <div style="display: none; align-items: center; justify-content: center;"><i class="ti @Model.IconClass" style="font-size: 36px; color: #B4B2A9;"></i></div>
+            <span style="position: absolute; bottom: 6px; left: 6px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 2px 6px; border-radius: 4px;">@img.Order · @img.Label</span>
+            @if (img.IsPrimary)
+            {
+                <span style="position: absolute; top: 6px; right: 6px; background: #FAEEDA; color: #854F0B; font-size: 9px; padding: 2px 5px; border-radius: 4px; font-weight: 500;">Primary</span>
+            }
+        </div>
+    }
+</div>
+
+<p style="margin: 14px 0 0; font-size: 11px; color: var(--wms-text-tertiary);">Click any image to open in lightbox · Drag to reorder · Right-click for options</p>

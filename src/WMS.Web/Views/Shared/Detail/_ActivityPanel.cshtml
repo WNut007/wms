@@ -1,0 +1,44 @@
+@model WMS.Web.ViewModels.Detail.DetailPageViewModel
+
+<div style="display: flex; gap: 8px; align-items: center; margin-bottom: 16px;">
+    <button type="button" style="padding: 4px 10px; font-size: 11px; height: 26px; border-radius: 100px; background: var(--wms-primary-tint); color: var(--wms-primary); border: 0.5px solid var(--wms-primary-ring); font-weight: 500; cursor: pointer;">All activity</button>
+    <button type="button" style="padding: 4px 10px; font-size: 11px; height: 26px; border-radius: 100px; background: white; color: var(--wms-text-secondary); border: 0.5px solid var(--wms-border); cursor: pointer;">Edits</button>
+    <button type="button" style="padding: 4px 10px; font-size: 11px; height: 26px; border-radius: 100px; background: white; color: var(--wms-text-secondary); border: 0.5px solid var(--wms-border); cursor: pointer;">Files</button>
+    <span style="margin-left: auto; font-size: 11px; color: var(--wms-text-secondary);">Last 30 days</span>
+</div>
+
+@{
+    var grouped = Model.Activities.GroupBy(a => a.DateGroup).ToList();
+}
+
+<div style="position: relative; padding-left: 24px;">
+    <div style="position: absolute; left: 11px; top: 14px; bottom: 14px; width: 1.5px; background: var(--wms-border);"></div>
+
+    @foreach (var group in grouped)
+    {
+        <p style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--wms-text-secondary); font-weight: 500; margin: 4px 0 12px;">@group.Key</p>
+        @foreach (var act in group)
+        {
+            <div style="position: relative; padding-bottom: 18px;">
+                <div style="position: absolute; left: -24px; top: 0; width: 24px; height: 24px; background: white; border: 1.5px solid @act.IconColor; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: @act.IconColor;">
+                    <i class="ti @act.IconClass" style="font-size: 12px;" aria-hidden="true"></i>
+                </div>
+                <p style="margin: 0 0 2px; font-size: 13px;">@Html.Raw(act.Title)</p>
+                <p style="margin: 0 0 6px; font-size: 11px; color: var(--wms-text-secondary);">@act.Description</p>
+                @if (!string.IsNullOrEmpty(act.DiffOld))
+                {
+                    <div style="font-size: 11px; padding: 6px 10px; background: var(--wms-bg-secondary); border-radius: var(--wms-radius-md); display: inline-block;">
+                        <span style="color: var(--wms-text-secondary); text-decoration: line-through;">@act.DiffOld</span>
+                        →
+                        <span style="font-weight: 500;">@act.DiffNew</span>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@if (!Model.Activities.Any())
+{
+    <p style="text-align: center; padding: 40px; color: var(--wms-text-tertiary); font-size: 12px;">No activity yet.</p>
+}

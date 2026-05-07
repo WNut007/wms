@@ -1,0 +1,65 @@
+@model WMS.Web.ViewModels.Detail.DetailPageViewModel
+
+<div style="border: 1.5px dashed var(--wms-border-secondary); border-radius: var(--wms-radius-lg); padding: 24px; text-align: center; margin-bottom: 16px; background: var(--wms-bg-page); cursor: pointer;">
+    <div style="width: 40px; height: 40px; background: #EEEDFE; color: var(--wms-primary); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 8px;">
+        <i class="ti ti-cloud-upload" style="font-size: 20px;" aria-hidden="true"></i>
+    </div>
+    <p style="margin: 0 0 2px; font-size: 13px; font-weight: 500;">Drop files to upload</p>
+    <p style="margin: 0; font-size: 11px; color: var(--wms-text-secondary);">
+        or <a href="#" style="color: var(--wms-primary); text-decoration: none; font-weight: 500;">click to browse</a> · PDF, DOCX, XLSX, JPG, PNG · Max 25 MB
+    </p>
+</div>
+
+<div style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px;">
+    <div style="position: relative; flex: 1; max-width: 280px;">
+        <i class="ti ti-search" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 14px; color: var(--wms-text-tertiary);" aria-hidden="true"></i>
+        <input type="text" placeholder="Search documents..." class="wms-input" style="padding-left: 32px; height: 32px; font-size: 12px;" />
+    </div>
+    <span style="margin-left: auto; font-size: 11px; color: var(--wms-text-secondary);">@Model.Documents.Count files</span>
+</div>
+
+<div style="border: 0.5px solid var(--wms-border); border-radius: var(--wms-radius-md); overflow: hidden;">
+    <table class="wms-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Category</th>
+                <th class="numeric">Size</th>
+                <th>Uploaded by</th>
+                <th>Date</th>
+                <th style="width: 80px;"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var doc in Model.Documents)
+            {
+                <tr>
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="width: 28px; height: 28px; background: @doc.IconBgColor; color: @doc.IconFgColor; border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                <i class="ti @doc.IconClass" style="font-size: 14px;" aria-hidden="true"></i>
+                            </div>
+                            <p style="margin: 0; font-weight: 500;">@doc.FileName</p>
+                        </div>
+                    </td>
+                    <td><span style="display: inline-flex; padding: 1px 8px; background: @doc.CategoryColorBg; color: @doc.CategoryColorFg; border-radius: 100px; font-size: 11px; font-weight: 500;">@doc.Category</span></td>
+                    <td class="numeric">@doc.FileSizeFormatted</td>
+                    <td style="color: var(--wms-text-secondary);">@doc.UploadedBy</td>
+                    <td style="color: var(--wms-text-secondary); font-size: 11px;">@doc.UploadedAtRelative</td>
+                    <td style="text-align: right;">
+                        <button type="button" style="background: transparent; border: none; padding: 4px; cursor: pointer; color: var(--wms-text-secondary);"><i class="ti ti-download" style="font-size: 14px;" aria-hidden="true"></i></button>
+                        <button type="button" style="background: transparent; border: none; padding: 4px; cursor: pointer; color: var(--wms-text-secondary);"><i class="ti ti-dots-vertical" style="font-size: 14px;" aria-hidden="true"></i></button>
+                    </td>
+                </tr>
+            }
+            @if (!Model.Documents.Any())
+            {
+                <tr>
+                    <td colspan="6" style="padding: 40px; text-align: center; color: var(--wms-text-tertiary);">
+                        No documents yet. Upload your first file above.
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
