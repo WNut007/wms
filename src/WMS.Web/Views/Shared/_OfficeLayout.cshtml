@@ -13,6 +13,8 @@
     *@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@@tabler/core@@latest/dist/css/tabler.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@@tabler/icons-webfont@@latest/dist/tabler-icons.min.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@@400;500;600&family=JetBrains+Mono:wght@@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/wms-custom.css" asp-append-version="true" />
 
@@ -22,78 +24,101 @@
 <body>
     @if (User.Identity?.IsAuthenticated == true)
     {
-        <div class="page">
-            <aside class="navbar navbar-vertical navbar-expand-lg" data-bs-theme="dark">
-                <div class="container-fluid">
-                    <h1 class="navbar-brand navbar-brand-autodark">
-                        <a asp-controller="Home" asp-action="Index" class="d-flex flex-column lh-sm">
-                            <span class="fs-3 fw-bold">WMS</span>
-                            <span class="small text-secondary fw-normal">Warehouse Management</span>
-                        </a>
-                    </h1>
-                    @await Component.InvokeAsync("SidebarMenu")
-                </div>
+        <div class="wms-app" id="wmsApp">
+            <aside class="wms-sidebar">
+                @await Component.InvokeAsync("SidebarMenu")
             </aside>
 
-            <div class="page-wrapper">
-                <header class="navbar navbar-expand-md d-print-none">
-                    <div class="container-xl">
-                        <ol class="breadcrumb breadcrumb-arrows" aria-label="breadcrumbs">
-                            <li class="breadcrumb-item">
-                                @User.FindFirst(WmsClaimTypes.TenantCode)?.Value
-                            </li>
-                            <li class="breadcrumb-item active">
-                                @User.FindFirst(WmsClaimTypes.WarehouseCode)?.Value
-                            </li>
-                        </ol>
-                        <div class="navbar-nav flex-row order-md-last ms-auto">
-                            <div class="nav-item dropdown">
-                                <a href="#" class="nav-link d-flex lh-1 text-reset p-0 px-2"
-                                   data-bs-toggle="dropdown" aria-label="Open user menu">
-                                    <span class="avatar avatar-sm">
-                                        @(User.Identity!.Name?.Substring(0, 1).ToUpperInvariant() ?? "?")
-                                    </span>
-                                    <div class="d-none d-xl-block ps-2">
-                                        <div>@User.Identity!.Name</div>
-                                        <div class="mt-1 small text-secondary">
-                                            @User.FindFirst(ClaimTypes.Email)?.Value
-                                        </div>
-                                    </div>
-                                </a>
-                                <div class="dropdown-menu dropdown-menu-end dropdown-menu-arrow">
-                                    <a class="dropdown-item" href="#">Profile</a>
-                                    <a class="dropdown-item" href="#">Settings</a>
-                                    <div class="dropdown-divider"></div>
-                                    <form asp-controller="Auth" asp-action="Logout" method="post" class="m-0">
-                                        <button type="submit" class="dropdown-item">Sign out</button>
-                                    </form>
+            <main class="wms-main">
+                <header class="wms-topbar">
+                    <button type="button" class="wms-topbar-toggle" onclick="wmsToggleSidebar()" aria-label="Toggle sidebar">
+                        <i class="ti ti-chevron-left" id="wmsToggleIcon"></i>
+                    </button>
+
+                    <div class="wms-topbar-search">
+                        <div class="wms-topbar-search-box">
+                            <i class="ti ti-search"></i>
+                            <span>Search anything</span>
+                        </div>
+                    </div>
+
+                    <div class="wms-topbar-actions">
+                        <span class="wms-mono" style="font-size: 11px; color: var(--wms-text-secondary);">
+                            @User.FindFirst(WmsClaimTypes.TenantCode)?.Value
+                            <span style="opacity: 0.4; margin: 0 4px;">·</span>
+                            @User.FindFirst(WmsClaimTypes.WarehouseCode)?.Value
+                        </span>
+                        <button type="button" class="wms-topbar-icon-btn" aria-label="Settings">
+                            <i class="ti ti-settings"></i>
+                        </button>
+                        <button type="button" class="wms-topbar-icon-btn" aria-label="Notifications">
+                            <i class="ti ti-bell"></i>
+                        </button>
+                        <div class="wms-topbar-divider"></div>
+                        <div class="dropdown">
+                            <a href="#" class="wms-topbar-avatar" data-bs-toggle="dropdown"
+                               aria-label="Open user menu" title="@User.Identity!.Name">
+                                @(User.Identity!.Name?.Substring(0, 1).ToUpperInvariant() ?? "?")
+                            </a>
+                            <div class="dropdown-menu dropdown-menu-end">
+                                <div class="dropdown-header">
+                                    <div class="fw-semibold">@User.Identity!.Name</div>
+                                    <div class="small text-secondary">@User.FindFirst(ClaimTypes.Email)?.Value</div>
                                 </div>
+                                <div class="dropdown-divider"></div>
+                                <a class="dropdown-item" href="#">Profile</a>
+                                <a class="dropdown-item" href="#">Settings</a>
+                                <div class="dropdown-divider"></div>
+                                <form asp-controller="Auth" asp-action="Logout" method="post" class="m-0">
+                                    <button type="submit" class="dropdown-item">Sign out</button>
+                                </form>
                             </div>
                         </div>
                     </div>
                 </header>
 
-                <div class="page-body">
-                    <div class="container-xl">
-                        @RenderBody()
-                    </div>
+                <div class="wms-content">
+                    @RenderBody()
                 </div>
-            </div>
+            </main>
         </div>
     }
     else
     {
         @* Anonymous fallback (e.g. error page hit pre-login) — no shell. *@
-        <div class="page-wrapper">
-            <div class="page-body">
-                <div class="container-xl">
-                    @RenderBody()
-                </div>
-            </div>
+        <div class="wms-content">
+            @RenderBody()
         </div>
     }
 
     <script src="https://cdn.jsdelivr.net/npm/@@tabler/core@@latest/dist/js/tabler.min.js"></script>
+    <script>
+        function wmsToggleSidebar() {
+            var app = document.getElementById('wmsApp');
+            var icon = document.getElementById('wmsToggleIcon');
+            if (!app) return;
+            app.classList.toggle('sidebar-collapsed');
+            var collapsed = app.classList.contains('sidebar-collapsed');
+            if (icon) {
+                icon.classList.toggle('ti-chevron-left', !collapsed);
+                icon.classList.toggle('ti-chevron-right', collapsed);
+            }
+            try { localStorage.setItem('wms-sidebar', collapsed ? 'collapsed' : 'expanded'); } catch (e) { }
+        }
+        (function () {
+            try {
+                if (localStorage.getItem('wms-sidebar') === 'collapsed') {
+                    var app = document.getElementById('wmsApp');
+                    var icon = document.getElementById('wmsToggleIcon');
+                    if (app) app.classList.add('sidebar-collapsed');
+                    if (icon) {
+                        icon.classList.remove('ti-chevron-left');
+                        icon.classList.add('ti-chevron-right');
+                    }
+                }
+            } catch (e) { }
+        })();
+    </script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
