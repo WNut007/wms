@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WMS.Common.Multitenancy;
+using WMS.DAL.Repositories.Inbound;
+using WMS.DAL.Repositories.Inventory;
 using WMS.DAL.Repositories.Master;
 using WMS.Web.Services;
 using WMS.Web.Services.Mappers;
@@ -13,16 +15,29 @@ namespace WMS.Web.Controllers;
 [Route("Warehouses")]
 public class WarehousesController : Controller
 {
+    // Cap matches the _ActivityPanel header copy ("Last 30 days").
+    // Each source repo is queried with the same per-source cap; the
+    // controller then merges + sorts + takes the top ActivityFeedLimit
+    // overall, so this is also the upper bound on per-source rows
+    // included in the merge.
+    private const int ActivityFeedLimit = 20;
+
     private readonly IWarehouseRepositoryFactory _repos;
+    private readonly IReceivingHeaderRepositoryFactory _receivingRepos;
+    private readonly IStockMovementRepositoryFactory _movementRepos;
     private readonly ITenantContext _tenant;
     private readonly IDocumentStorageService _docs;
 
     public WarehousesController(
         IWarehouseRepositoryFactory repos,
+        IReceivingHeaderRepositoryFactory receivingRepos,
+        IStockMovementRepositoryFactory movementRepos,
         ITenantContext tenant,
         IDocumentStorageService docs)
     {
         _repos = repos;
+        _receivingRepos = receivingRepos;
+        _movementRepos = movementRepos;
         _tenant = tenant;
         _docs = docs;
     }
@@ -96,11 +111,28 @@ public class WarehousesController : Controller
     [HttpGet("Detail/{code}")]
     public async Task<IActionResult> Detail(string code, CancellationToken ct)
     {
-        var row = await _repos.For(_tenant.RequireTenantId())
-                              .GetListRowByCodeAsync(code, ct);
+        var tenantId = _tenant.RequireTenantId();
+        var row = await _repos.For(tenantId).GetListRowByCodeAsync(code, ct);
         if (row is null) return NotFound();
 
         var docs = await _docs.ListByEntityAsync("Warehouse", code, ct);
+
+        // Closes TD-014 (Warehouse half). Composes the activity feed
+        // in C# from two typed repo queries — Q1 strategy from the
+        // Phase 6E brief. Each source caps at ActivityFeedLimit; the
+        // merged top-N is the same constant. Cycle counts will plug
+        // in here as a third source when their schema lands; no SQL
+        // rewrite needed.
+        var receiving = await _receivingRepos.For(tenantId)
+                                             .GetActivityByWarehouseAsync(row.Id, ActivityFeedLimit, ct);
+        var movements = await _movementRepos.For(tenantId)
+                                            .GetByWarehouseAsync(row.Id, since: null, ActivityFeedLimit, ct);
+
+        var activities = receiving.Select(ReceivingActivityMapper.Map)
+            .Concat(movements.Select(MovementActivityMapper.Map))
+            .OrderByDescending(a => a.Timestamp)
+            .Take(ActivityFeedLimit)
+            .ToList();
 
         var (statusLabel, statusVariant) = row.IsActive
             ? ("Active", "success")
@@ -148,24 +180,11 @@ public class WarehousesController : Controller
                 d.UploadedAt,
                 RelativeTime.Format(d.UploadedAt)
             )).ToList(),
-            // TD-010-style — Activity stays hardcoded until a real
-            // warehouse activity stream exists (cycle counts +
-            // receiving headers + putaway events).
-            Activities = new()
-            {
-                new("<span style=\"font-weight:500\">Maya Rodriguez</span> received shipment",
-                    "RC-2026-0142 · 50 units · 12 SKUs", "ti-package-import", "#639922",
-                    DateTime.UtcNow.AddHours(-3), "3 h ago", "Today"),
-                new("<span style=\"font-weight:500\">Cycle count</span> completed",
-                    "Zone A-1 · 142 locations · 0 variances", "ti-checklist", "#534AB7",
-                    DateTime.UtcNow.AddDays(-1), "1 d ago", "Yesterday"),
-                new("<span style=\"font-weight:500\">System Admin</span> uploaded floor plan",
-                    "Floor_Plan.pdf · 1.8 MB", "ti-file-plus", "#534AB7",
-                    DateTime.UtcNow.AddDays(-45), "1 mo ago", "1 month ago"),
-                new("<span style=\"font-weight:500\">System Admin</span> created warehouse",
-                    $"{row.Code} added to network", "ti-plus", "#888780",
-                    row.CreatedAt, RelativeTime.Format(row.CreatedAt), "Earlier"),
-            },
+            // Real merged feed (Phase 6E — closes TD-014 Warehouse
+            // half). Empty list renders the panel's existing
+            // "No activity yet." state. Cycle counts will append
+            // here as a third source when their schema lands.
+            Activities = activities,
             QuickActions = new()
             {
                 // TD-017 partial — all three disabled. Receive
