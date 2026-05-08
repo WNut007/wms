@@ -168,9 +168,15 @@ public class WarehousesController : Controller
             },
             QuickActions = new()
             {
-                new("Receive shipment", "ti-package-import", "#"),
-                new("Cycle count",      "ti-checklist",      "#"),
-                new("View stock",       "ti-archive",        "#"),
+                // TD-017 partial — all three disabled. Receive
+                // shipment from a Warehouse Detail context implies a
+                // session-warehouse switch (operator's WarehouseId
+                // claim is the canonical source today); a clean
+                // wiring waits on multi-warehouse session UX.
+                // Cycle count + View stock need Phase 7+ routes.
+                new("Receive shipment", "ti-package-import", "#", Enabled: false),
+                new("Cycle count",      "ti-checklist",      "#", Enabled: false),
+                new("View stock",       "ti-archive",        "#", Enabled: false),
             },
             OverviewFields = new()
             {

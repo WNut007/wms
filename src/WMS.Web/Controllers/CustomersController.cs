@@ -161,9 +161,16 @@ public class CustomersController : Controller
             },
             QuickActions = new()
             {
-                new("Create order",   "ti-shopping-cart", "#"),
-                new("Send email",     "ti-mail",          customer.Email is null ? "#" : $"mailto:{customer.Email}"),
-                new("View invoices",  "ti-receipt",       "#"),
+                // TD-017 partial — only Send email has a working
+                // target today (mailto:); it auto-disables when the
+                // customer has no email on file. Create order +
+                // View invoices wait on Phase 7+ orders/invoices
+                // schemas.
+                new("Create order",   "ti-shopping-cart", "#", Enabled: false),
+                new("Send email",     "ti-mail",
+                    customer.Email is null ? "#" : $"mailto:{customer.Email}",
+                    Enabled: customer.Email is not null),
+                new("View invoices",  "ti-receipt",       "#", Enabled: false),
             },
             OverviewFields = new()
             {

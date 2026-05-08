@@ -97,9 +97,21 @@
                 <p style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--wms-text-secondary); font-weight: 500; margin: 0 0 8px;">Quick actions</p>
                 @foreach (var action in Model.QuickActions)
                 {
-                    <a href="@action.Url" class="wms-btn" style="width: 100%; justify-content: flex-start; padding: 7px 10px; font-size: 12px; height: auto; margin-bottom: 4px; display: inline-flex; align-items: center; gap: 8px; text-decoration: none;">
-                        <i class="ti @action.IconClass" style="font-size: 14px;" aria-hidden="true"></i>@action.Label
-                    </a>
+                    @if (action.Enabled)
+                    {
+                        <a href="@action.Url" class="wms-btn" style="width: 100%; justify-content: flex-start; padding: 7px 10px; font-size: 12px; height: auto; margin-bottom: 4px; display: inline-flex; align-items: center; gap: 8px; text-decoration: none;">
+                            <i class="ti @action.IconClass" style="font-size: 14px;" aria-hidden="true"></i>@action.Label
+                        </a>
+                    }
+                    else
+                    {
+                        @* TD-017: action target doesn't exist yet (Phase 7+ admin CRUD).
+                           Rendered as a muted, non-clickable button so users see what's
+                           coming without hitting a "#" link that does nothing. *@
+                        <span class="wms-btn" style="width: 100%; justify-content: flex-start; padding: 7px 10px; font-size: 12px; height: auto; margin-bottom: 4px; display: inline-flex; align-items: center; gap: 8px; text-decoration: none; opacity: 0.45; cursor: not-allowed;" title="Coming in a future phase" aria-disabled="true">
+                            <i class="ti @action.IconClass" style="font-size: 14px;" aria-hidden="true"></i>@action.Label
+                        </span>
+                    }
                 }
             </div>
         }

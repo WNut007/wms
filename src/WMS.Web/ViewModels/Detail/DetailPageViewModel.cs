@@ -55,4 +55,9 @@ public record ActivityItem(
     string? DiffOld = null,
     string? DiffNew = null);
 
-public record QuickAction(string Label, string IconClass, string Url);
+// Sidebar quick-action button on the Detail layout. `Enabled = false`
+// renders the button visually muted (low opacity, not-allowed cursor)
+// with a tooltip — for actions whose target route doesn't exist yet
+// (Phase 7+ admin CRUD). Default true so existing call sites stay
+// functional.
+public record QuickAction(string Label, string IconClass, string Url, bool Enabled = true);

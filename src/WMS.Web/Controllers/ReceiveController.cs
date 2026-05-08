@@ -32,12 +32,20 @@ public sealed class ReceiveController : BaseController
     }
 
     [HttpGet("")]
-    public IActionResult Index()
+    public IActionResult Index(string? sku = null)
     {
         if (CurrentUser.WarehouseId is null)
             return RedirectToAction("SelectWarehouse", "Auth");
 
-        return View(new ReceiveFormModel { OwnerCode = "SELF", Quantity = 1 });
+        // TD-017 partial: when arriving via the Products Detail
+        // "Receive stock" Quick Action, prefill ProductCode so the
+        // operator doesn't re-key the SKU they already navigated from.
+        return View(new ReceiveFormModel
+        {
+            OwnerCode = "SELF",
+            Quantity = 1,
+            ProductCode = sku?.Trim() ?? string.Empty,
+        });
     }
 
     [HttpPost("post")]
