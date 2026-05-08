@@ -316,8 +316,8 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Phase 6D — Activity Name Resolution shipped (v0.7.2-resolve-names)
-**Current Focus**: pending decision — candidates include TD-014 (Customer + Warehouse Activity tabs), TD-007/TD-008 (Receive/Putaway page layout cleanup), TD-016 (putaway-pair grouping, naturally blocked on TD-004 / ADR-004)
+**Active Sprint**: Phase 6E — Warehouse Activity Feed shipped (v0.7.3-warehouse-activity)
+**Current Focus**: pending decision — candidates include TD-014 Customer half (blocked on Phase 7+ orders schema), TD-007/TD-008 (mobile PWA design-system styling pass), TD-013 (jQuery on `_AuthLayout`), TD-016 (putaway-pair grouping, naturally blocked on TD-004 / ADR-004)
 **Blockers**: none
 
 Update this section weekly during standups.
@@ -607,6 +607,64 @@ Out of scope (logged for follow-up):
   header table lands, paired rows share a `ReferenceId` and the
   renderer can group by `(ReferenceType, ReferenceId)`.
 
+### Day 6 — Phase 6E (Warehouse Activity Feed)
+
+**Branch**: `feat/td014-warehouse-activity` → merged to `main` · **Tag**: `v0.7.3-warehouse-activity` · **Closes**: TD-014 Warehouse half (Customer half remains open)
+
+Components:
+- New `ReceivingActivityRow` DTO (`WMS.DAL.Repositories.Inbound`) —
+  Id + ReceivingNumber + ReceivedAt + Status + PerformedByName +
+  LineCount. Lightweight, distinct from the write-side
+  ReceivingHeader/Lines aggregate.
+- `IReceivingHeaderRepository.GetActivityByWarehouseAsync` (new) —
+  per-warehouse receipt feed; SQL leans on
+  `IX_ReceivingHeaders_Warehouse(WarehouseId, ReceivedAt DESC)` for
+  the WHERE+ORDER, correlated `COUNT(*)` for line count, COALESCE for
+  PerformedByName.
+- `IStockMovementRepository.GetByWarehouseAsync` (new) — reuses
+  Phase 6D's `StockMovementListRow`; filters via
+  `m.StockId → Stock.LocationId → Locations.WarehouseId` chain (Stock
+  rows are warehouse-scoped via location). Cross-warehouse Transfers
+  surface only the row whose Stock is in this warehouse.
+- New `ReceivingActivityMapper` (`Services/Mappers/`) — visually
+  distinct from `MovementActivityMapper` (icon `ti-truck-delivery` +
+  color `#085041` deep green vs the movement Receive's
+  `ti-package-import` + `#639922`) so adjacent timeline entries
+  read as related-but-different. Verb varies by Status: `Posted` →
+  "posted", `Draft` → "drafted", `Cancelled` → "cancelled" (red),
+  unknown → "recorded" (defensive). Date-bucket delegates to
+  `MovementActivityMapper.BucketDateGroup` so headers + movements
+  group under the same section headers.
+- `WarehousesController.Detail` composes the feed in C# (Q1 strategy
+  from the Phase 6E brief — chosen over single-SQL UNION-ALL because
+  cycle counts + future sources plug in as additional `Concat` calls
+  without SQL rewrites):
+
+  ```
+  Activities = receiving.Select(ReceivingActivityMapper.Map)
+      .Concat(movements.Select(MovementActivityMapper.Map))
+      .OrderByDescending(a => a.Timestamp)
+      .Take(ActivityFeedLimit)  // 20
+      .ToList();
+  ```
+
+  The 4 hardcoded mock activities deleted (including the dubious
+  "created warehouse" entry that synthesised a timestamp from
+  `row.CreatedAt`).
+- `WarehousesControllerTests.Build()` grew two new tuple slots
+  (Receiving + Movement mocks, defaulting to empty); 12 existing
+  call sites migrated to `(ctrl, repo, _, _)`. 6 new tests cover
+  empty-state regression, Id-vs-code contract pin, single-source
+  paths, two-source merge ordering, and the 20-row cap.
+
+Test posture: 101 unit + 206 integration (+21 net — 15 receiving
+mapper + 6 controller) + 5 skipped (TD-006).
+
+Out of scope (logged):
+- TD-014 Customer half remains open — needs orders + invoices
+  schemas (Phase 7+). Composition pattern from this phase ports
+  cleanly when those land.
+
 ---
 
 ## 🔑 Auth Architecture (Day 3 decisions)
@@ -738,5 +796,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-09 (Phase 6D — Activity Name Resolution)
-**Version**: 1.8
+**Last updated**: 2026-05-09 (Phase 6E — Warehouse Activity Feed)
+**Version**: 1.9
