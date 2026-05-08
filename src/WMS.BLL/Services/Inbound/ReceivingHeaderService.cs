@@ -96,6 +96,10 @@ public sealed class ReceivingHeaderService : IReceivingHeaderService
             var line = lines[i];
             var req = request.Lines[i];
 
+            // line.Id is already on the books from Step 1's
+            // CreateAsync — pass it through as the ReferenceId so the
+            // matching StockMovements row traces back to this receiving
+            // line. ADR-014: ReferenceType='ReceivingLine'.
             var stock = await _receivingService.ReceiveStockAsync(
                 tenantId,
                 new ReceiveStockRequest(
@@ -105,7 +109,8 @@ public sealed class ReceivingHeaderService : IReceivingHeaderService
                     UomId: req.UomId,
                     Quantity: req.ReceivedQuantity,
                     Lot: req.Lot,
-                    Pallet: req.Pallet),
+                    Pallet: req.Pallet,
+                    ReceivingLineId: line.Id),
                 currentUserId,
                 ct);
 

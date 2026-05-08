@@ -69,17 +69,45 @@ internal sealed class StockRepository : IStockRepository
     // Server endorses for this pattern: HOLDLOCK serializes concurrent
     // executions on the same key range, eliminating the classic
     // SELECT-then-INSERT race. NULL-safe key matching mirrors
-    // GetByKeyAsync above. OUTPUT inserted.* gives us back the row in
-    // either branch (insert returns the new row, update returns the
-    // post-update row), so the caller never has to round-trip again
-    // for the resulting Id / Version.
+    // GetByKeyAsync above.
+    //
+    // Wrapped in BEGIN TRAN so the MERGE and the matching
+    // StockMovements INSERT (per ADR-014) commit together — if the
+    // movement insert fails (e.g. CHECK constraint typo), the Stock
+    // change rolls back too. SET XACT_ABORT ON ensures any
+    // mid-batch failure aborts the whole transaction.
+    //
+    // OUTPUT INTO @merged captures the upserted row's Id (and the
+    // columns the caller expects back) so the StockMovements INSERT
+    // can reference it by StockId without a second SELECT.
     public Task<Stock> UpsertOnHandAsync(
         StockKey key,
         decimal quantityDelta,
-        Guid? userId,
+        StockMovementContext movementCtx,
         CancellationToken ct = default) =>
         _connection.QuerySingleAsync<Stock>(new CommandDefinition(
-            @"MERGE inventory.Stock WITH (HOLDLOCK) AS target
+            @"SET XACT_ABORT ON;
+              BEGIN TRAN;
+
+              DECLARE @merged TABLE (
+                  Id                UNIQUEIDENTIFIER,
+                  LocationId        UNIQUEIDENTIFIER,
+                  ProductId         UNIQUEIDENTIFIER,
+                  LotId             UNIQUEIDENTIFIER NULL,
+                  PalletId          UNIQUEIDENTIFIER NULL,
+                  OwnerId           UNIQUEIDENTIFIER,
+                  UomId             UNIQUEIDENTIFIER,
+                  QuantityOnHand    DECIMAL(18,4),
+                  QuantityAllocated DECIMAL(18,4),
+                  LastMovementAt    DATETIME2 NULL,
+                  CreatedAt         DATETIME2,
+                  UpdatedAt         DATETIME2 NULL,
+                  CreatedBy         UNIQUEIDENTIFIER NULL,
+                  UpdatedBy         UNIQUEIDENTIFIER NULL,
+                  Version           INT
+              );
+
+              MERGE inventory.Stock WITH (HOLDLOCK) AS target
               USING (
                   SELECT @LocationId AS LocationId,
                          @ProductId  AS ProductId,
@@ -99,7 +127,7 @@ internal sealed class StockRepository : IStockRepository
                       QuantityOnHand = target.QuantityOnHand + @Delta,
                       LastMovementAt = SYSUTCDATETIME(),
                       UpdatedAt      = SYSUTCDATETIME(),
-                      UpdatedBy      = @UserId,
+                      UpdatedBy      = @PerformedBy,
                       Version        = target.Version + 1
               WHEN NOT MATCHED THEN
                   INSERT (LocationId, ProductId, LotId, PalletId, OwnerId, UomId,
@@ -108,7 +136,7 @@ internal sealed class StockRepository : IStockRepository
                   VALUES (src.LocationId, src.ProductId, src.LotId, src.PalletId,
                           src.OwnerId, src.UomId,
                           @Delta, 0, SYSUTCDATETIME(),
-                          SYSUTCDATETIME(), @UserId)
+                          SYSUTCDATETIME(), @PerformedBy)
               OUTPUT inserted.Id, inserted.LocationId, inserted.ProductId,
                      inserted.LotId, inserted.PalletId,
                      inserted.OwnerId, inserted.UomId,
@@ -116,7 +144,24 @@ internal sealed class StockRepository : IStockRepository
                      inserted.LastMovementAt,
                      inserted.CreatedAt, inserted.UpdatedAt,
                      inserted.CreatedBy, inserted.UpdatedBy,
-                     inserted.Version;",
+                     inserted.Version
+              INTO @merged;
+
+              -- Movement row pairs with the Stock UPSERT, same TX. For
+              -- UpsertOnHandAsync (Receive / future Adjust+), From is
+              -- NULL and To is the merged row's location.
+              INSERT INTO inventory.StockMovements
+                  (StockId, MovementType, FromLocationId, ToLocationId,
+                   QuantityDelta, UomId, OwnerId,
+                   ReferenceType, ReferenceId, Notes, PerformedBy)
+              SELECT m.Id, @MovementType, NULL, m.LocationId,
+                     @Delta, m.UomId, m.OwnerId,
+                     @ReferenceType, @ReferenceId, @Notes, @PerformedBy
+              FROM @merged m;
+
+              COMMIT TRAN;
+
+              SELECT * FROM @merged;",
             new
             {
                 key.LocationId,
@@ -125,8 +170,12 @@ internal sealed class StockRepository : IStockRepository
                 key.PalletId,
                 key.OwnerId,
                 key.UomId,
-                Delta = quantityDelta,
-                UserId = userId,
+                Delta         = quantityDelta,
+                MovementType  = movementCtx.MovementType.ToString(),
+                ReferenceType = movementCtx.ReferenceType,
+                ReferenceId   = movementCtx.ReferenceId,
+                Notes         = movementCtx.Notes,
+                PerformedBy   = movementCtx.PerformedBy,
             },
             cancellationToken: ct));
 
@@ -143,12 +192,25 @@ internal sealed class StockRepository : IStockRepository
         Guid fromStockId,
         Guid toLocationId,
         decimal quantity,
-        Guid? userId,
+        StockMovementContext movementCtx,
         CancellationToken ct = default)
     {
         if (_connection.State != ConnectionState.Open)
             (_connection as Microsoft.Data.SqlClient.SqlConnection)?.Open();
 
+        // Two StockMovements rows pair with the source UPDATE +
+        // destination MERGE — same transaction (per ADR-014). Both
+        // share movementCtx's ReferenceType/ReferenceId so the pair
+        // reconciles in reports.
+        //
+        // The source movement INSERT happens after the UPDATE (so
+        // failed validation aborts before any movement row is
+        // written). The destination movement INSERT consumes the
+        // merged row's Id via OUTPUT INTO @destMerged.
+        //
+        // SET XACT_ABORT ON guarantees any THROW (50001/50002/50003)
+        // or constraint violation rolls back BOTH Stock changes AND
+        // BOTH movement rows.
         const string sql = @"
 SET XACT_ABORT ON;
 BEGIN TRAN;
@@ -184,9 +246,25 @@ UPDATE inventory.Stock
 SET QuantityOnHand = QuantityOnHand - @Quantity,
     LastMovementAt = SYSUTCDATETIME(),
     UpdatedAt      = SYSUTCDATETIME(),
-    UpdatedBy      = @UserId,
+    UpdatedBy      = @PerformedBy,
     Version        = Version + 1
 WHERE Id = @FromStockId;
+
+-- Source-side movement: signed -Quantity against @FromStockId.
+INSERT INTO inventory.StockMovements
+    (StockId, MovementType, FromLocationId, ToLocationId,
+     QuantityDelta, UomId, OwnerId,
+     ReferenceType, ReferenceId, Notes, PerformedBy)
+VALUES
+    (@FromStockId, @MovementType, @currentLoc, @ToLocationId,
+     -@Quantity, @uomId, @ownerId,
+     @ReferenceType, @ReferenceId, @Notes, @PerformedBy);
+
+DECLARE @destMerged TABLE (
+    Id      UNIQUEIDENTIFIER,
+    UomId   UNIQUEIDENTIFIER,
+    OwnerId UNIQUEIDENTIFIER
+);
 
 MERGE inventory.Stock WITH (HOLDLOCK) AS target
 USING (SELECT @ToLocationId AS LocationId,
@@ -206,7 +284,7 @@ WHEN MATCHED THEN
         QuantityOnHand = target.QuantityOnHand + @Quantity,
         LastMovementAt = SYSUTCDATETIME(),
         UpdatedAt      = SYSUTCDATETIME(),
-        UpdatedBy      = @UserId,
+        UpdatedBy      = @PerformedBy,
         Version        = target.Version + 1
 WHEN NOT MATCHED THEN
     INSERT (LocationId, ProductId, LotId, PalletId, OwnerId, UomId,
@@ -215,7 +293,20 @@ WHEN NOT MATCHED THEN
     VALUES (src.LocationId, src.ProductId, src.LotId, src.PalletId,
             src.OwnerId, src.UomId,
             @Quantity, 0, SYSUTCDATETIME(),
-            SYSUTCDATETIME(), @UserId);
+            SYSUTCDATETIME(), @PerformedBy)
+OUTPUT inserted.Id, inserted.UomId, inserted.OwnerId
+INTO @destMerged;
+
+-- Destination-side movement: signed +Quantity against the merged
+-- (or just-created) destination StockId.
+INSERT INTO inventory.StockMovements
+    (StockId, MovementType, FromLocationId, ToLocationId,
+     QuantityDelta, UomId, OwnerId,
+     ReferenceType, ReferenceId, Notes, PerformedBy)
+SELECT m.Id, @MovementType, @currentLoc, @ToLocationId,
+       @Quantity, m.UomId, m.OwnerId,
+       @ReferenceType, @ReferenceId, @Notes, @PerformedBy
+FROM @destMerged m;
 
 COMMIT TRAN;
 
@@ -243,10 +334,14 @@ WHERE LocationId = @ToLocationId
             sql,
             new
             {
-                FromStockId = fromStockId,
-                ToLocationId = toLocationId,
-                Quantity = quantity,
-                UserId = userId,
+                FromStockId   = fromStockId,
+                ToLocationId  = toLocationId,
+                Quantity      = quantity,
+                MovementType  = movementCtx.MovementType.ToString(),
+                ReferenceType = movementCtx.ReferenceType,
+                ReferenceId   = movementCtx.ReferenceId,
+                Notes         = movementCtx.Notes,
+                PerformedBy   = movementCtx.PerformedBy,
             },
             cancellationToken: ct));
 

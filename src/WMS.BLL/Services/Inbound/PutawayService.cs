@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
+using WMS.Common.Inventory;
 using WMS.DAL.Repositories.Inventory;
+using WMS.Domain.Entities.Inventory;
 
 namespace WMS.BLL.Services.Inbound;
 
@@ -42,8 +44,19 @@ public sealed class PutawayService : IPutawayService
             throw new InvalidOperationException(
                 "No stock row matches the source 6-tuple.");
 
+        // ReferenceId is null because Putaway has no header/line table
+        // yet — ADR-004 (hybrid putaway template + scoring) will
+        // introduce one and TD-004 will close. ReferenceType='Putaway'
+        // is still set so the rows are findable via a free-text scan
+        // even without an Id.
+        var movementCtx = new StockMovementContext(
+            MovementType: StockMovementType.Putaway,
+            PerformedBy:  currentUserId,
+            ReferenceType: "Putaway",
+            ReferenceId:   null);
+
         var (afterSource, destination) = await repo.TransferStockAsync(
-            source.Id, request.ToLocationId, request.Quantity, currentUserId, ct);
+            source.Id, request.ToLocationId, request.Quantity, movementCtx, ct);
 
         _logger.LogInformation(
             "Putaway {Qty} of product {ProductId} from {FromLocation} to {ToLocation} " +

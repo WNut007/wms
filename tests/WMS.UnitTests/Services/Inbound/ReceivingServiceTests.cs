@@ -43,8 +43,8 @@ public class ReceivingServiceTests
         StockKey? captured = null;
         stockRepo.Setup(r => r.UpsertOnHandAsync(
                 It.IsAny<StockKey>(), It.IsAny<decimal>(),
-                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
-            .Callback<StockKey, decimal, Guid?, CancellationToken>(
+                It.IsAny<StockMovementContext>(), It.IsAny<CancellationToken>()))
+            .Callback<StockKey, decimal, StockMovementContext, CancellationToken>(
                 (k, _, _, _) => captured = k)
             .ReturnsAsync(NewStockRow(onHand: 5));
 
@@ -80,8 +80,8 @@ public class ReceivingServiceTests
         StockKey? capturedKey = null;
         stockRepo.Setup(r => r.UpsertOnHandAsync(
                 It.IsAny<StockKey>(), It.IsAny<decimal>(),
-                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
-            .Callback<StockKey, decimal, Guid?, CancellationToken>(
+                It.IsAny<StockMovementContext>(), It.IsAny<CancellationToken>()))
+            .Callback<StockKey, decimal, StockMovementContext, CancellationToken>(
                 (k, _, _, _) => capturedKey = k)
             .ReturnsAsync(NewStockRow(onHand: 1));
 
@@ -111,8 +111,8 @@ public class ReceivingServiceTests
         StockKey? capturedKey = null;
         stockRepo.Setup(r => r.UpsertOnHandAsync(
                 It.IsAny<StockKey>(), It.IsAny<decimal>(),
-                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
-            .Callback<StockKey, decimal, Guid?, CancellationToken>(
+                It.IsAny<StockMovementContext>(), It.IsAny<CancellationToken>()))
+            .Callback<StockKey, decimal, StockMovementContext, CancellationToken>(
                 (k, _, _, _) => capturedKey = k)
             .ReturnsAsync(NewStockRow(onHand: 1));
 
@@ -146,8 +146,8 @@ public class ReceivingServiceTests
         StockKey? capturedKey = null;
         stockRepo.Setup(r => r.UpsertOnHandAsync(
                 It.IsAny<StockKey>(), It.IsAny<decimal>(),
-                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
-            .Callback<StockKey, decimal, Guid?, CancellationToken>(
+                It.IsAny<StockMovementContext>(), It.IsAny<CancellationToken>()))
+            .Callback<StockKey, decimal, StockMovementContext, CancellationToken>(
                 (k, _, _, _) => capturedKey = k)
             .ReturnsAsync(NewStockRow(onHand: 1));
 
@@ -169,7 +169,7 @@ public class ReceivingServiceTests
         var expected = NewStockRow(onHand: 42);
         stockRepo.Setup(r => r.UpsertOnHandAsync(
                 It.IsAny<StockKey>(), It.IsAny<decimal>(),
-                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+                It.IsAny<StockMovementContext>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(expected);
 
         var result = await sut.ReceiveStockAsync(

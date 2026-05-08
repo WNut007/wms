@@ -18,31 +18,45 @@ public interface IStockRepository
 
     // Atomic receive primitive. Adds quantityDelta to the stock row at
     // the 6-tuple key, creating it on first arrival. Implemented as a
-    // single MERGE WITH (HOLDLOCK) so concurrent receives at the same
-    // key serialize safely without app-level locking. quantityDelta is
-    // expected to be positive (receiving deposits stock, never removes
-    // it); the service layer enforces that.
+    // MERGE WITH (HOLDLOCK) wrapped in a transaction with the
+    // matching StockMovements INSERT so concurrent receives at the
+    // same key serialize safely AND every Stock change has a paired
+    // movement row (ADR-014). quantityDelta is expected to be
+    // positive (receiving deposits stock, never removes it); the
+    // service layer enforces that.
+    //
+    // movementCtx carries MovementType (Receive / Adjust+ for future),
+    // PerformedBy, and provenance (ReferenceType + ReferenceId). The
+    // userId previously passed standalone is now in ctx.PerformedBy.
     Task<Stock> UpsertOnHandAsync(
         StockKey key,
         decimal quantityDelta,
-        Guid? userId,
+        StockMovementContext movementCtx,
         CancellationToken ct = default);
 
-    // Atomic put-away primitive. Decrements OnHand at the source stock
-    // row and adds the same quantity onto the row at (toLocationId,
-    // sourceProduct, sourceLot, sourcePallet, sourceOwner, sourceUom),
-    // creating the destination row if it doesn't yet exist.
+    // Atomic put-away / transfer primitive. Decrements OnHand at the
+    // source stock row and adds the same quantity onto the row at
+    // (toLocationId, sourceProduct, sourceLot, sourcePallet,
+    // sourceOwner, sourceUom), creating the destination row if it
+    // doesn't yet exist.
+    //
+    // Writes TWO StockMovements rows inside the same transaction —
+    // one with QuantityDelta = -quantity against the source StockId,
+    // one with +quantity against the destination StockId. Both share
+    // movementCtx's ReferenceType/ReferenceId so they reconcile in
+    // reports.
     //
     // SQL Server raises (THROW 50001..50003) if:
     //   * source row is missing
     //   * destination location matches source (no-op refused)
     //   * source has insufficient quantity
+    // Any THROW rolls back both Stock changes AND both movement rows.
     //
     // Returns the source + destination rows after the operation.
     Task<(Stock Source, Stock Destination)> TransferStockAsync(
         Guid fromStockId,
         Guid toLocationId,
         decimal quantity,
-        Guid? userId,
+        StockMovementContext movementCtx,
         CancellationToken ct = default);
 }
