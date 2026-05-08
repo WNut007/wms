@@ -98,4 +98,40 @@ internal sealed class StockMovementRepository : IStockMovementRepository
             cancellationToken: ct));
         return rows.AsList();
     }
+
+    public async Task<IReadOnlyList<StockMovementListRow>> GetByWarehouseAsync(
+        Guid warehouseId, DateTime? since = null, int limit = 20,
+        CancellationToken ct = default)
+    {
+        // Movement-belongs-to-warehouse via Stock.LocationId →
+        // Locations.WarehouseId. Same Users + Locations LEFT JOINs as
+        // GetByProductAsync for display-field resolution. Cross-
+        // warehouse Transfers naturally show twice (once per side)
+        // when both endpoints are in the same warehouse, and only
+        // once otherwise — which matches the per-warehouse view's
+        // intent (you see what touched THIS warehouse).
+        var rows = await _connection.QueryAsync<StockMovementListRow>(new CommandDefinition(
+            @"SELECT m.Id,
+                     m.MovementType,
+                     m.QuantityDelta,
+                     fl.Code AS FromLocationCode,
+                     tl.Code AS ToLocationCode,
+                     m.ReferenceType,
+                     m.Notes,
+                     COALESCE(u.FullName, u.Email, 'System') AS PerformedByName,
+                     m.PerformedAt
+              FROM inventory.StockMovements m
+              JOIN inventory.Stock s     ON s.Id  = m.StockId
+              JOIN master.Locations sl   ON sl.Id = s.LocationId
+              LEFT JOIN master.Locations fl ON fl.Id = m.FromLocationId
+              LEFT JOIN master.Locations tl ON tl.Id = m.ToLocationId
+              LEFT JOIN security.Users u    ON u.Id  = m.PerformedBy
+              WHERE sl.WarehouseId = @warehouseId
+                AND (@since IS NULL OR m.PerformedAt >= @since)
+              ORDER BY m.PerformedAt DESC
+              OFFSET 0 ROWS FETCH NEXT @limit ROWS ONLY",
+            new { warehouseId, since, limit },
+            cancellationToken: ct));
+        return rows.AsList();
+    }
 }

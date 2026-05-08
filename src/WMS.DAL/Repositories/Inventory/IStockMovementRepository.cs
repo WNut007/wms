@@ -33,4 +33,18 @@ public interface IStockMovementRepository
         DateTime? since = null,
         int limit = 100,
         CancellationToken ct = default);
+
+    // Per-warehouse activity feed for the Warehouse Detail Activity
+    // tab. Resolves "movements that touched this warehouse" via the
+    // movement's StockId → inventory.Stock.LocationId →
+    // master.Locations.WarehouseId chain (Stock rows are warehouse-
+    // scoped via location). Same display-resolution LEFT JOINs as
+    // GetByProductAsync (Users + Locations × 2). Cross-warehouse
+    // transfers surface only the row whose Stock is in this warehouse
+    // — which is what the warehouse activity panel wants anyway.
+    Task<IReadOnlyList<StockMovementListRow>> GetByWarehouseAsync(
+        Guid warehouseId,
+        DateTime? since = null,
+        int limit = 20,
+        CancellationToken ct = default);
 }

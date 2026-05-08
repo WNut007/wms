@@ -159,4 +159,34 @@ internal sealed class ReceivingHeaderRepository : IReceivingHeaderRepository
         var lines = (await multi.ReadAsync<ReceivingLine>()).AsList();
         return new ReceivingDetail(header, lines);
     }
+
+    public async Task<IReadOnlyList<ReceivingActivityRow>> GetActivityByWarehouseAsync(
+        Guid warehouseId, int limit = 20, CancellationToken ct = default)
+    {
+        // IX_ReceivingHeaders_Warehouse(WarehouseId, ReceivedAt DESC)
+        // covers the WHERE + ORDER exactly. The line-count subquery is
+        // a correlated SELECT COUNT(*) — at <=20 rows that's a row-by-
+        // row index lookup against ReceivingLines.ReceivingHeaderId,
+        // which is the line table's leading FK index. Cheap.
+        // COALESCE handles NULL PerformedBy (system-imported headers)
+        // → falls back to literal 'System', same convention as
+        // StockMovementRepository.GetByProductAsync.
+        var rows = await _connection.QueryAsync<ReceivingActivityRow>(new CommandDefinition(
+            @"SELECT
+                  h.Id,
+                  h.ReceivingNumber,
+                  h.ReceivedAt,
+                  h.Status,
+                  COALESCE(u.FullName, u.Email, 'System') AS PerformedByName,
+                  (SELECT COUNT(*) FROM inbound.ReceivingLines rl
+                   WHERE rl.ReceivingHeaderId = h.Id) AS LineCount
+              FROM inbound.ReceivingHeaders h
+              LEFT JOIN security.Users u ON u.Id = h.CreatedBy
+              WHERE h.WarehouseId = @warehouseId
+              ORDER BY h.ReceivedAt DESC
+              OFFSET 0 ROWS FETCH NEXT @limit ROWS ONLY",
+            new { warehouseId, limit },
+            cancellationToken: ct));
+        return rows.AsList();
+    }
 }

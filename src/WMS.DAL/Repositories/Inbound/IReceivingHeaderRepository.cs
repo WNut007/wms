@@ -29,4 +29,15 @@ public interface IReceivingHeaderRepository
         Guid? palletId,
         Guid? userId,
         CancellationToken ct = default);
+
+    // Per-warehouse activity feed for the Warehouse Detail Activity
+    // tab. Lightweight projection: header-level fields + COALESCE'd
+    // user-display name + COUNT(*) of lines. Index
+    // IX_ReceivingHeaders_Warehouse(WarehouseId, ReceivedAt DESC) covers
+    // the WHERE + ORDER BY exactly. Newest first; default cap matches
+    // _ActivityPanel's "Last 30 days" copy without paging.
+    Task<IReadOnlyList<ReceivingActivityRow>> GetActivityByWarehouseAsync(
+        Guid warehouseId,
+        int limit = 20,
+        CancellationToken ct = default);
 }
