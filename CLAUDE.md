@@ -316,8 +316,8 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Phase 5 — Real File Storage shipped (v0.5.0-real-storage)
-**Current Focus**: next phase planning
+**Active Sprint**: Phase 6A — Stock Movement Log shipped (v0.6.0-movement-log)
+**Current Focus**: Phase 6B (Real Master Data + Activity tab wiring)
 **Blockers**: none
 
 Update this section weekly during standups.
@@ -421,6 +421,44 @@ DI swap (Program.cs):
 
 Out of scope (Phase 6+): virus scan, EXIF strip / image re-encode, soft-delete via `IsArchived`, lightbox + drag-to-reorder for Images tab, signed download URLs, Azure Blob / S3 providers (drop-in via the same interface).
 
+### Day 6 — Phase 6A (Stock Movement Log)
+
+**Branch**: `feat/movement-log-impl` → merged to `main` · **Tag**: `v0.6.0-movement-log` · **ADR**: ADR-014
+
+Components:
+- Migration `20260508002` — `inventory.StockMovements`. `StockId`-FK'd, signed `QuantityDelta`,
+  no `TenantId` (DB-per-tenant per ADR-001), CHECK on the closed `MovementType` enum
+  (`Receive/Putaway/Pick/Adjust/Transfer/Return/Cycle`), 3 indexes (per-Stock with INCLUDE,
+  partial Reference skipping NULL ReferenceId rows, global PerformedAt feed), no audit
+  columns beyond `PerformedBy`/`PerformedAt` (rows are immutable — mirrors `security.AuditLog`).
+- Domain types: `StockMovement` entity, `StockMovementType` enum, `StockMovementContext` record.
+  `WMS.Domain` → `WMS.Common` project reference added; the enum lives in Common alongside
+  `StockKey` so the Domain entity can reference it without crossing layers.
+- `IStockMovementRepository` (read-side: `GetByStockAsync`, `GetByReferenceAsync`,
+  `GetByProductAsync` — last one JOINs through `inventory.Stock.ProductId`).
+- `IStockRepository.UpsertOnHandAsync` + `TransferStockAsync` signatures changed:
+  `Guid? userId` replaced with `StockMovementContext` (controlled refactor — both call
+  sites updated in the same commit).
+- Atomic INSERT: every Stock mutation writes its matching `StockMovements` row(s) inside
+  the same `BEGIN TRAN; … COMMIT;` batch. SET XACT_ABORT ON ensures rollback on any
+  failure (THROW 50001/50002/50003 → no movements written).
+- `ReceivingService` writes `MovementType=Receive`, `ReferenceType='ReceivingLine'`,
+  `ReferenceId=<line guid>`. `ReceivingHeaderService.PostReceivingAsync` already inserts
+  the line before the stock upsert — no reorder needed; just plumbed `line.Id` through
+  via a new optional `ReceivingLineId` field on `ReceiveStockRequest`.
+- `PutawayService` writes 2 movements per operation (source -qty, dest +qty),
+  both `MovementType=Putaway`, `ReferenceType='Putaway'`, `ReferenceId=null` (TD-004 — closes
+  when ADR-004 introduces a putaway header).
+
+Test posture: 44 unit + 18 integration + 5 skipped (TD-006 — write-path SQL needs a real
+SQL Server fixture; intent-complete tests in place, just need the fixture).
+
+Forward-only — pre-existing Stock rows synthesized no history. New TD-004 (Putaway
+ReferenceId null), TD-005 (ADR-004 missing), TD-006 (write-path test fixture) logged.
+
+Foundation for: ADR-013 Adjustment, ADR-012 Transfer, future Pick/Pack, Cycle Count,
+Activity tab (Phase 6B — wires `_ActivityPanel` to `GetByProductAsync`).
+
 ---
 
 ## 🔑 Auth Architecture (Day 3 decisions)
@@ -482,6 +520,7 @@ Change them only via a new ADR.
 - ADR-011: 3D Warehouse Monitor — schema in Phase 1, implementation deferred to Phase 4 (post-launch)
 - ADR-012: Inter-warehouse Transfer — 9-state workflow, header+lines, status history, owner-aware
 - ADR-013: General Stock Adjustment — separate from cycle count, reason-driven, approval workflow, billing hooks
+- ADR-014: Stock Movement Log — materialised log table, transactional with Stock mutations, signed `QuantityDelta`, `StockId`-FK'd, forward-only
 
 (Add ADRs in `docs/decisions/` when making architectural decisions)
 
@@ -551,5 +590,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-08 (Phase 5 — Real File Storage + DB Schema)
-**Version**: 1.4
+**Last updated**: 2026-05-08 (Phase 6A — Stock Movement Log)
+**Version**: 1.5

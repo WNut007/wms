@@ -25,7 +25,11 @@ closed when fixed.
 
 | ID | Title | Priority | Discovered | Plan | Notes |
 |----|-------|----------|------------|------|-------|
-| _(none)_ | | | | | |
+| TD-004 | Putaway StockMovements rows carry ReferenceId = NULL | Medium | 2026-05-08 | Closes when ADR-004 (hybrid putaway template + scoring) lands and introduces a putaway header table; backfill via UPDATE matching ReferenceType='Putaway' AND PerformedAt range is then trivial | Per ADR-014. Pinned by PutawayServiceTests.PutawayStockAsync_PassesNullReferenceId_TD004 |
+| TD-005 | ADR-004 (Hybrid Putaway: Template + Scoring) missing as a doc | Low | 2026-05-08 | Draft alongside the suggestion-engine implementation. Referenced by name in `docs/01_WMS_Master_Design.md` and `IPutawayService` comments but no file in `docs/decisions/` | Discovered during ADR-014 audit |
+| TD-006 | StockMovements write-path integration tests need a real SQL Server fixture | Low | 2026-05-08 | Stand up testcontainers / LocalDB fixture when ADR-013 / ADR-012 implementations land — they'll need it too. Then remove the `Skip` attributes on `StockMovementLogTests` (5 cases already authored, intent-complete) | Currently relying on manual smoke + Moq-level context-binding tests in unit suite |
+| TD-007 | `/Receive` page uses raw layout (no `_OfficeLayout`) | Medium | 2026-05-08 | Migrate to `_OfficeLayout` + Master Data form pattern (sidebar + topbar + breadcrumb + wms-custom.css). Address in a dedicated UI-cleanup phase, or in Phase 6B if time allows | Built in Day 3-4 alongside `ReceivingService`. Functional but visually inconsistent with the Phase 1+ design system |
+| TD-008 | `/Putaway` page uses raw layout (no `_OfficeLayout`) | Medium | 2026-05-08 | Same migration as TD-007 — `_OfficeLayout` + Master Data form pattern | Built in Day 3-4 alongside `PutawayService`. Same issues + refactor approach as TD-007 |
 
 ---
 
