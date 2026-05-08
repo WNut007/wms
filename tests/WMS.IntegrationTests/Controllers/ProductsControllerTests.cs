@@ -5,7 +5,6 @@ using WMS.Common.Multitenancy;
 using WMS.DAL.Common;
 using WMS.DAL.Repositories.Inventory;
 using WMS.DAL.Repositories.Master;
-using WMS.Domain.Entities.Inventory;
 using WMS.Web.Controllers;
 using WMS.Web.Services.Storage;
 using WMS.Web.ViewModels.Detail;
@@ -42,7 +41,7 @@ public class ProductsControllerTests
                 It.IsAny<DateTime?>(),
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<StockMovement>());
+            .ReturnsAsync(Array.Empty<StockMovementListRow>());
 
         var docsImpl = docs ?? Mock.Of<IDocumentStorageService>(d =>
             d.ListByEntityAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())
@@ -255,28 +254,26 @@ public class ProductsControllerTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[]
             {
-                new StockMovement
-                {
-                    Id            = Guid.NewGuid(),
-                    StockId       = Guid.NewGuid(),
-                    MovementType  = StockMovementType.Receive,
-                    QuantityDelta = 50m,
-                    UomId         = Guid.NewGuid(),
-                    OwnerId       = Guid.NewGuid(),
-                    ReferenceType = "ReceivingLine",
-                    PerformedAt   = DateTime.UtcNow.AddHours(-2),
-                },
-                new StockMovement
-                {
-                    Id            = Guid.NewGuid(),
-                    StockId       = Guid.NewGuid(),
-                    MovementType  = StockMovementType.Putaway,
-                    QuantityDelta = -50m,
-                    UomId         = Guid.NewGuid(),
-                    OwnerId       = Guid.NewGuid(),
-                    ReferenceType = "Putaway",
-                    PerformedAt   = DateTime.UtcNow.AddHours(-1),
-                },
+                new StockMovementListRow(
+                    Id:               Guid.NewGuid(),
+                    MovementType:     StockMovementType.Receive,
+                    QuantityDelta:    50m,
+                    FromLocationCode: null,
+                    ToLocationCode:   "WH-MAIN",
+                    ReferenceType:    "ReceivingLine",
+                    Notes:            null,
+                    PerformedByName:  "Maya Rodriguez",
+                    PerformedAt:      DateTime.UtcNow.AddHours(-2)),
+                new StockMovementListRow(
+                    Id:               Guid.NewGuid(),
+                    MovementType:     StockMovementType.Putaway,
+                    QuantityDelta:    -50m,
+                    FromLocationCode: "STAGE-01",
+                    ToLocationCode:   "BIN-A1",
+                    ReferenceType:    "Putaway",
+                    Notes:            null,
+                    PerformedByName:  "Maya Rodriguez",
+                    PerformedAt:      DateTime.UtcNow.AddHours(-1)),
             });
 
         var result = await ctrl.Detail("PROD-0001", CancellationToken.None);
@@ -286,8 +283,10 @@ public class ProductsControllerTests
         // Order is whatever the repo returns — controller doesn't
         // re-sort. The mapper is exercised by both rows.
         Assert.Equal(2, vm.Activities.Count);
-        Assert.Contains(vm.Activities, a => a.Title == "Stock received");
-        Assert.Contains(vm.Activities, a => a.Title == "Putaway (out)");
+        Assert.Contains(vm.Activities,
+            a => a.Title.Contains("received 50 units") && a.Title.Contains(" at WH-MAIN"));
+        Assert.Contains(vm.Activities,
+            a => a.Title.Contains("moved 50 units") && a.Title.Contains(" from STAGE-01"));
     }
 
     [Fact]
@@ -310,7 +309,7 @@ public class ProductsControllerTests
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
             .Callback<Guid, DateTime?, int, CancellationToken>((id, _, _, _) => capturedId = id)
-            .ReturnsAsync(Array.Empty<StockMovement>());
+            .ReturnsAsync(Array.Empty<StockMovementListRow>());
 
         await ctrl.Detail("PROD-0001", CancellationToken.None);
 

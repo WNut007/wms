@@ -316,8 +316,8 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Phase 6C — Activity Tab Wiring shipped (v0.7.1-activity-tab)
-**Current Focus**: Phase 6D — pending decision (candidates: TD-015 actor/location name resolution; TD-014 Customer + Warehouse Activity tabs)
+**Active Sprint**: Phase 6D — Activity Name Resolution shipped (v0.7.2-resolve-names)
+**Current Focus**: pending decision — candidates include TD-014 (Customer + Warehouse Activity tabs), TD-007/TD-008 (Receive/Putaway page layout cleanup), TD-016 (putaway-pair grouping, naturally blocked on TD-004 / ADR-004)
 **Blockers**: none
 
 Update this section weekly during standups.
@@ -546,6 +546,67 @@ Out of scope (logged for follow-up):
   Needs batch `IUserRepository` + `ILocationRepository` lookups +
   a richer `Map()` overload taking the resolved dictionaries.
 
+### Day 6 — Phase 6D (Activity Name Resolution)
+
+**Branch**: `feat/td015-resolve-names` → merged to `main` · **Tag**: `v0.7.2-resolve-names` · **Closes**: TD-015 · **Spawns**: TD-016
+
+Components:
+- New `StockMovementListRow` DTO (`WMS.DAL.Repositories.Inventory`) —
+  read-projection carrying resolved `PerformedByName` + `From/To`
+  location codes alongside the existing movement fields. Same
+  separation as `ProductListRow` vs `Product`. Entity-only IDs
+  (`StockId`, `UomId`, `OwnerId`, `ReferenceId`, raw Guid Performer
+  /Locations) intentionally dropped — the panel never displays them.
+- `IStockMovementRepository.GetByProductAsync` return type changed
+  `IReadOnlyList<StockMovement>` → `IReadOnlyList<StockMovementListRow>`.
+  Repo SQL grew 3 `LEFT JOIN`s: `master.Locations × 2` (From/To codes)
+  + `security.Users` for `PerformedByName`. `COALESCE(FullName, Email,
+  'System')` keeps the title non-blank for NULL-`PerformedBy` rows
+  (system actions). Indexes `IX_Stock_Product` + `IX_StockMovements_Stock`
+  still cover the leading lookup; the LEFT JOINs are seek-by-PK.
+- `MovementActivityMapper` rewritten — `Map(StockMovementListRow)`
+  produces `<span>{user}</span> {verb} {abs-qty} {unit/units}{location-clause}`.
+  Verb + clause vary by `MovementType` and `QuantityDelta` sign:
+  Receive → "received … at {to}"; Putaway+ → "putaway … into {to}";
+  Putaway− → "moved … from {from}"; Pick → "picked … from {from}";
+  Transfer → "transferred … from {from} at {to}"; Adjust+/− →
+  signed in title with no location clause. Description shrinks to
+  `{ReferenceType} · {Notes}` — qty moved into the title.
+  Actor + location codes are HTML-encoded at the mapper boundary
+  (operator-supplied strings cannot break out of the `@Html.Raw`
+  render).
+- Strategy chosen: SQL JOIN with new DTO (audit considered batch
+  lookup + per-row resolve too). JOIN matches the established
+  `ProductRepository` / `WarehouseRepository` pattern; avoids
+  creating `ILocationRepository` for one consumer; single
+  round-trip at ≤20 rows.
+- `ProductsControllerTests`: `Build()` default + `Detail_WithMovements_*`
+  migrated to the new DTO + assert the resolved title format
+  ("Maya received 5 units at WH-MAIN").
+- `MovementActivityMapperTests` rewritten — 32 cases covering
+  per-`MovementType` verb/icon/location-clause, sign handling
+  including signed Adjust, pluralization (`1 unit` vs `5 units`
+  vs `1.5 units`), unsigned-qty-in-title (verb conveys direction),
+  HTML encoding of actor + location, System-user pass-through,
+  description shape, and the 5 date-bucket cases preserved.
+
+Test posture: 101 unit + 185 integration (+11 net mapper) + 5
+skipped (TD-006).
+
+Atomic refactor — repo signature change, DTO introduction, mapper
+rewrite, controller-test fixes all in commit `bb2a114` (Phase 6A's
+"controlled refactor in same commit" precedent — half-applied
+state can't compile).
+
+Out of scope (logged for follow-up):
+- TD-016: Putaway operations render as 2 separate rows. Mapper
+  splits the location clause by sign so each row is grammatical
+  (source→"from STAGE-01", dest→"into BIN-A1") but doesn't pair
+  them into a single "moved {qty} from {from} to {to}" entry.
+  Naturally closes with TD-004 / ADR-004 — once the putaway
+  header table lands, paired rows share a `ReferenceId` and the
+  renderer can group by `(ReferenceType, ReferenceId)`.
+
 ---
 
 ## 🔑 Auth Architecture (Day 3 decisions)
@@ -677,5 +738,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-09 (Phase 6C — Activity Tab Wiring)
-**Version**: 1.7
+**Last updated**: 2026-05-09 (Phase 6D — Activity Name Resolution)
+**Version**: 1.8
