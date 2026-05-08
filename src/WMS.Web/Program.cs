@@ -91,6 +91,7 @@ builder.Services.AddScoped<IStockMovementRepositoryFactory, StockMovementReposit
 builder.Services.AddScoped<ILotRepositoryFactory, LotRepositoryFactory>();
 builder.Services.AddScoped<IPalletRepositoryFactory, PalletRepositoryFactory>();
 builder.Services.AddScoped<IProductRepositoryFactory, ProductRepositoryFactory>();
+builder.Services.AddScoped<ICustomerRepositoryFactory, CustomerRepositoryFactory>();
 builder.Services.AddScoped<IStockService, StockService>();
 builder.Services.AddScoped<IReceivingService, ReceivingService>();
 builder.Services.AddScoped<IPurchaseOrderRepositoryFactory, PurchaseOrderRepositoryFactory>();

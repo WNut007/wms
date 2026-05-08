@@ -149,10 +149,15 @@
             }
 
             function statusBadge(status) {
+                // Wire vocabulary mirrors CustomerStatusMapper.ToWire —
+                // DB 'Draft' surfaces as 'pending' (mock heritage) and
+                // DB 'Suspended' surfaces as 'suspended' (no mock chip
+                // but rendered honestly here).
                 const cfg = {
-                    active:   { cls: 'success', label: 'Active' },
-                    pending:  { cls: 'warning', label: 'Pending' },
-                    inactive: { cls: 'neutral', label: 'Inactive' }
+                    active:    { cls: 'success', label: 'Active' },
+                    pending:   { cls: 'warning', label: 'Pending' },
+                    suspended: { cls: 'warning', label: 'Suspended' },
+                    inactive:  { cls: 'neutral', label: 'Inactive' }
                 };
                 const c = cfg[status] || cfg.inactive;
                 return `<span class="wms-badge wms-badge-${c.cls}"><span class="wms-badge-dot"></span>${c.label}</span>`;
@@ -168,6 +173,10 @@
             }
 
             function fmtNumber(n) {
+                // TD-011: orders schema not yet wired — totalOrders is
+                // null on real data. Render '—' instead of '0' so the
+                // UI is honest about "no data" vs. "zero orders".
+                if (n == null) return '—';
                 return Number(n).toLocaleString('en-US');
             }
 
