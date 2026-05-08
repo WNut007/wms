@@ -1,30 +1,190 @@
 @model WMS.Web.ViewModels.Detail.DetailPageViewModel
 
-<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-    <div>
-        <p style="margin: 0; font-size: 13px; font-weight: 500;">Product images</p>
-        <p style="margin: 2px 0 0; font-size: 11px; color: var(--wms-text-secondary);">
-            @Model.Images.Count of 10 angles uploaded · Recommended: front, back, sides, top, bottom, packaging
-        </p>
-    </div>
-    <button type="button" class="wms-btn wms-btn-purple" style="display: inline-flex; align-items: center; gap: 6px;">
-        <i class="ti ti-upload" style="font-size: 13px;" aria-hidden="true"></i>Upload images
-    </button>
-</div>
+@{
+    var panelId = $"img-panel-{Model.EntityType}-{Model.EntityId}".Replace("/", "-").Replace(" ", "-");
+}
 
-<div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;">
-    @foreach (var img in Model.Images)
-    {
-        <div style="position: relative; aspect-ratio: 1; background: #F1EFE8; border-radius: var(--wms-radius-md); display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: hidden;">
-            <img src="@img.Url" alt="@img.Label" style="max-width: 100%; max-height: 100%; object-fit: contain;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
-            <div style="display: none; align-items: center; justify-content: center;"><i class="ti @Model.IconClass" style="font-size: 36px; color: #B4B2A9;"></i></div>
-            <span style="position: absolute; bottom: 6px; left: 6px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 2px 6px; border-radius: 4px;">@img.Order · @img.Label</span>
-            @if (img.IsPrimary)
-            {
-                <span style="position: absolute; top: 6px; right: 6px; background: #FAEEDA; color: #854F0B; font-size: 9px; padding: 2px 5px; border-radius: 4px; font-weight: 500;">Primary</span>
-            }
+<div id="@panelId" class="img-panel"
+     data-entity-type="@Model.EntityType"
+     data-entity-id="@Model.EntityId">
+
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+        <div>
+            <p style="margin: 0; font-size: 13px; font-weight: 500;">Images</p>
+            <p class="img-panel-summary" style="margin: 2px 0 0; font-size: 11px; color: var(--wms-text-secondary);">
+                Drag images into the dropzone, or click to browse. PNG, JPG, WEBP, GIF · Max 25 MB
+            </p>
         </div>
-    }
+        <button type="button" class="wms-btn wms-btn-purple img-browse-btn" style="display: inline-flex; align-items: center; gap: 6px;">
+            <i class="ti ti-upload" style="font-size: 13px;" aria-hidden="true"></i>Upload images
+        </button>
+    </div>
+
+    <label class="img-dropzone" style="display: block; border: 1.5px dashed var(--wms-border-secondary); border-radius: var(--wms-radius-lg); padding: 20px; text-align: center; margin-bottom: 14px; background: var(--wms-bg-page); cursor: pointer;">
+        <div style="width: 36px; height: 36px; background: #EEEDFE; color: var(--wms-primary); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 6px;">
+            <i class="ti ti-photo-up" style="font-size: 18px;" aria-hidden="true"></i>
+        </div>
+        <p style="margin: 0; font-size: 12px; color: var(--wms-text-secondary);">
+            Drop images here, or <span style="color: var(--wms-primary); font-weight: 500;">click to browse</span>
+        </p>
+        <input type="file" class="img-file-input" multiple accept="image/*" style="display: none;" />
+    </label>
+
+    <div class="img-progress" style="display: none; margin-bottom: 12px; padding: 8px 12px; background: var(--wms-bg-page); border-radius: var(--wms-radius-md); font-size: 12px; color: var(--wms-text-secondary);">
+        <span class="img-progress-text">Uploading…</span>
+    </div>
+
+    <div class="img-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;">
+        <div class="img-empty" style="grid-column: 1 / -1; padding: 32px; text-align: center; color: var(--wms-text-tertiary); font-size: 12px;">
+            Loading images…
+        </div>
+    </div>
 </div>
 
-<p style="margin: 14px 0 0; font-size: 11px; color: var(--wms-text-tertiary);">Click any image to open in lightbox · Drag to reorder · Right-click for options</p>
+<script>
+    (function () {
+        const root = document.getElementById('@panelId');
+        if (!root || root.dataset.imgWired === '1') return;
+        root.dataset.imgWired = '1';
+
+        const entityType = root.dataset.entityType;
+        const entityId   = root.dataset.entityId;
+        const dropzone   = root.querySelector('.img-dropzone');
+        const fileInput  = root.querySelector('.img-file-input');
+        const browseBtn  = root.querySelector('.img-browse-btn');
+        const grid       = root.querySelector('.img-grid');
+        const summary    = root.querySelector('.img-panel-summary');
+        const progress   = root.querySelector('.img-progress');
+        const progressTx = root.querySelector('.img-progress-text');
+
+        const escapeAttr = s => String(s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+
+        const renderTile = img => `
+            <div class="img-tile" data-doc-id="${img.documentId}" style="position: relative; aspect-ratio: 1; background: #F1EFE8; border-radius: var(--wms-radius-md); overflow: hidden; cursor: pointer;">
+                <img src="${img.downloadUrl}" alt="${escapeAttr(img.fileName)}" style="width: 100%; height: 100%; object-fit: cover;" />
+                <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.5), transparent 40%); opacity: 0; transition: opacity 0.15s;" class="img-overlay"></div>
+                <span style="position: absolute; bottom: 6px; left: 6px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 2px 6px; border-radius: 4px; pointer-events: none;">${escapeAttr(img.fileName)}</span>
+                <button type="button" class="img-delete-btn" data-doc-id="${img.documentId}" title="Delete" style="position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,0.6); color: white; border: none; padding: 4px; border-radius: 4px; cursor: pointer; opacity: 0; transition: opacity 0.15s; display: inline-flex; align-items: center; justify-content: center;">
+                    <i class="ti ti-trash" style="font-size: 12px;" aria-hidden="true"></i>
+                </button>
+            </div>`;
+
+        const renderEmpty = () => `
+            <div class="img-empty" style="grid-column: 1 / -1; padding: 32px; text-align: center; color: var(--wms-text-tertiary); font-size: 12px;">
+                No images yet. Drag one in to get started.
+            </div>`;
+
+        const refresh = async () => {
+            const url = `/Documents/List?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}&kind=image`;
+            const res = await fetch(url, { credentials: 'same-origin' });
+            if (!res.ok) {
+                grid.innerHTML = `<div class="img-empty" style="grid-column: 1 / -1; padding: 32px; text-align: center; color: var(--wms-text-tertiary); font-size: 12px;">Failed to load images.</div>`;
+                return;
+            }
+            const data = await res.json();
+            if (!data.items.length) {
+                grid.innerHTML = renderEmpty();
+                summary.textContent = 'No images yet · PNG, JPG, WEBP, GIF · Max 25 MB';
+                return;
+            }
+            grid.innerHTML = data.items.map(renderTile).join('');
+            summary.textContent = `${data.total} image${data.total === 1 ? '' : 's'} · PNG, JPG, WEBP, GIF · Max 25 MB`;
+        };
+
+        const uploadOne = async file => {
+            progress.style.display = 'block';
+            progressTx.textContent = `Uploading ${file.name}…`;
+            const fd = new FormData();
+            fd.append('file', file);
+            fd.append('entityType', entityType);
+            fd.append('entityId', entityId);
+            fd.append('category', 'Image');
+            try {
+                const res = await fetch('/Documents/Upload', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    body: fd,
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    progressTx.textContent = `Failed: ${data.error || 'Upload error'}`;
+                    setTimeout(() => progress.style.display = 'none', 4000);
+                    return false;
+                }
+                return true;
+            } catch (e) {
+                progressTx.textContent = `Failed: ${e.message}`;
+                setTimeout(() => progress.style.display = 'none', 4000);
+                return false;
+            }
+        };
+
+        const uploadFiles = async fileList => {
+            if (!fileList || !fileList.length) return;
+            // Keep image-only on the client too — the server validates the
+            // extension allowlist, but rejecting early avoids a round trip
+            // when someone drops a PDF onto the gallery.
+            const images = Array.from(fileList).filter(f => f.type.startsWith('image/'));
+            if (!images.length) {
+                progress.style.display = 'block';
+                progressTx.textContent = 'Only image files can be dropped here.';
+                setTimeout(() => progress.style.display = 'none', 3000);
+                return;
+            }
+            for (const f of images) await uploadOne(f);
+            progress.style.display = 'none';
+            await refresh();
+        };
+
+        browseBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', e => {
+            uploadFiles(e.target.files);
+            fileInput.value = '';
+        });
+
+        ['dragenter', 'dragover'].forEach(ev =>
+            root.addEventListener(ev, e => {
+                e.preventDefault(); e.stopPropagation();
+                dropzone.style.borderColor = 'var(--wms-primary)';
+                dropzone.style.background = '#EEEDFE';
+            }));
+        ['dragleave', 'drop'].forEach(ev =>
+            root.addEventListener(ev, e => {
+                e.preventDefault(); e.stopPropagation();
+                dropzone.style.borderColor = 'var(--wms-border-secondary)';
+                dropzone.style.background = 'var(--wms-bg-page)';
+            }));
+        root.addEventListener('drop', e => uploadFiles(e.dataTransfer.files));
+
+        // Hover overlay + delete handler. Single delegated listener on the
+        // grid rather than per-tile so dynamically added tiles work too.
+        grid.addEventListener('mouseover', e => {
+            const tile = e.target.closest('.img-tile');
+            if (!tile) return;
+            tile.querySelector('.img-overlay').style.opacity = '1';
+            tile.querySelector('.img-delete-btn').style.opacity = '1';
+        });
+        grid.addEventListener('mouseout', e => {
+            const tile = e.target.closest('.img-tile');
+            if (!tile) return;
+            tile.querySelector('.img-overlay').style.opacity = '0';
+            tile.querySelector('.img-delete-btn').style.opacity = '0';
+        });
+        grid.addEventListener('click', async e => {
+            const btn = e.target.closest('.img-delete-btn');
+            if (!btn) return;
+            e.stopPropagation();
+            if (!confirm('Delete this image?')) return;
+            const id = btn.dataset.docId;
+            const res = await fetch(`/Documents/${id}`, {
+                method: 'DELETE',
+                credentials: 'same-origin',
+            });
+            if (res.ok) await refresh();
+        });
+
+        refresh();
+    })();
+</script>

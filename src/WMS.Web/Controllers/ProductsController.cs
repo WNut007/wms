@@ -66,11 +66,9 @@ public class ProductsController : Controller
 
         var docs = await _docs.ListByEntityAsync("Product", sku, ct);
 
-        var labels = new[] { "Front", "Back", "Left", "Right", "Top", "Bottom", "Box", "Detail", "In-use", "Scale" };
-        var images = Enumerable.Range(1, 10).Select(i =>
-            new ImageItem(i, labels[i - 1], $"/Products/PlaceholderImage?sku={Uri.EscapeDataString(sku)}&angle={i}", i == 1)
-        ).ToList();
-
+        // Image tiles are now fetched client-side by _ImagesPanel directly
+        // from /Documents/List?kind=image — keeps a single source of truth
+        // and avoids re-rendering the same data twice on upload/delete.
         var (statusLabel, statusVariant) = product.Status switch
         {
             "active"       => ("Active", "success"),
@@ -99,7 +97,6 @@ public class ProductsController : Controller
                 new("Sold YTD",  "3,142"),
             },
             ShowImagesTab = true,
-            Images = images,
             Documents = docs.Select(d => new DocumentItem(
                 d.DocumentId,
                 d.FileName,
@@ -158,29 +155,6 @@ public class ProductsController : Controller
         };
 
         return View("~/Views/Shared/_DetailLayout.cshtml", vm);
-    }
-
-    [HttpGet("PlaceholderImage")]
-    [AllowAnonymous]
-    public IActionResult PlaceholderImage(string sku, int angle)
-    {
-        var labels = new[] { "Front", "Back", "Left", "Right", "Top", "Bottom", "Box", "Detail", "In-use", "Scale" };
-        var label = angle >= 1 && angle <= 10 ? labels[angle - 1] : "View";
-        var product = _data.GetBySku(sku);
-        var name = product?.Name ?? sku;
-        var bgColor = product?.IconColor ?? "#888780";
-
-        var safeName = System.Net.WebUtility.HtmlEncode(name);
-        var safeLabel = System.Net.WebUtility.HtmlEncode(label);
-
-        var svg = $"""
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
-          <rect width="400" height="400" fill="{bgColor}1A"/>
-          <text x="200" y="180" text-anchor="middle" font-family="Inter, sans-serif" font-size="20" font-weight="500" fill="{bgColor}">{safeName}</text>
-          <text x="200" y="220" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="{bgColor}" opacity="0.6">Angle {angle} · {safeLabel}</text>
-        </svg>
-        """;
-        return Content(svg, "image/svg+xml");
     }
 
     private static string CategoryColorBg(string cat) => cat switch

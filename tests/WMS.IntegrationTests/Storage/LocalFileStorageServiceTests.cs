@@ -144,6 +144,42 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ListByEntity_PreservesContentType_SoCallersCanFilterImagesVsDocuments()
+    {
+        // The /Documents/List?kind=image filter in DocumentsController
+        // works by ContentType.StartsWith("image/"). This test pins the
+        // storage service's contract: ContentType round-trips faithfully
+        // so the filter has accurate input — regardless of where the
+        // filter logic lives.
+        var sut = NewService();
+
+        await UploadWithType(sut, "spec.pdf", "application/pdf");
+        await UploadWithType(sut, "front.png", "image/png");
+        await UploadWithType(sut, "back.jpg", "image/jpeg");
+        await UploadWithType(sut, "manual.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+
+        var all = await sut.ListByEntityAsync("Product", "SKU-MIX");
+        Assert.Equal(4, all.Count);
+
+        var images = all.Where(d => d.ContentType.StartsWith("image/")).ToList();
+        Assert.Equal(2, images.Count);
+        Assert.All(images, d => Assert.StartsWith("image/", d.ContentType));
+
+        var docs = all.Where(d => !d.ContentType.StartsWith("image/")).ToList();
+        Assert.Equal(2, docs.Count);
+    }
+
+    private async Task<DocumentMetadata> UploadWithType(
+        LocalFileStorageService sut, string fileName, string contentType)
+    {
+        using var ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(fileName));
+        return await sut.UploadAsync(
+            ms, fileName, contentType,
+            "Product", "SKU-MIX", "Document", "u");
+    }
+
+    [Fact]
     public async Task GetStream_MetadataExistsButFileMissing_ReturnsNull()
     {
         var sut = NewService();

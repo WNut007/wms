@@ -94,16 +94,32 @@ public class DocumentsController : BaseController
     public async Task<IActionResult> List(
         [FromQuery] string entityType,
         [FromQuery] string entityId,
+        [FromQuery] string? kind,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(entityType) || string.IsNullOrWhiteSpace(entityId))
             return JsonError("entityType and entityId are required.");
 
         var docs = await _storage.ListByEntityAsync(entityType, entityId, ct);
+
+        // kind=image  → image/* only (Images tab on Detail page)
+        // kind=document → everything else (Documents tab — keeps PDFs out of the gallery if a future
+        //                  uploader misroutes a PNG into Documents)
+        // anything else / omitted → no filter, full list
+        IEnumerable<DocumentMetadata> filtered = kind?.ToLowerInvariant() switch
+        {
+            "image"    => docs.Where(d => d.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)),
+            "document" => docs.Where(d => !d.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)),
+            _          => docs,
+        };
+        var list = filtered.ToList();
+
         return Json(new
         {
-            items = docs.Select(d => new
+            items = list.Select(d => new
             {
+                contentType       = d.ContentType,
+                downloadUrl       = $"/Documents/Download/{d.DocumentId}",
                 documentId        = d.DocumentId,
                 fileName          = d.FileName,
                 category          = d.Category,
@@ -115,7 +131,7 @@ public class DocumentsController : BaseController
                 iconBgColor       = d.IconColorBg,
                 iconFgColor       = d.IconColorFg,
             }),
-            total              = docs.Count,
+            total              = list.Count,
             maxFileSizeMB      = _options.MaxFileSizeMB,
             allowedExtensions  = _options.AllowedExtensions,
         });
