@@ -39,6 +39,27 @@ internal sealed class ProductRepository : IProductRepository
             new { code },
             cancellationToken: ct));
 
+    public Task<ProductListRow?> GetListRowByCodeAsync(string code, CancellationToken ct = default) =>
+        _connection.QuerySingleOrDefaultAsync<ProductListRow?>(new CommandDefinition(
+            // Same CTE + LEFT JOIN shape as GetPagedAsync — no
+            // pagination wrapper, single-row WHERE on Code.
+            @"WITH stock AS (
+    SELECT ProductId, SUM(QuantityOnHand) AS Qty
+    FROM inventory.Stock
+    GROUP BY ProductId
+)
+SELECT
+    p.Id, p.Code, p.Name, p.Status, p.Brand,
+    p.CategoryId, c.Code AS CategoryCode,
+    ISNULL(s.Qty, 0) AS StockOnHand,
+    p.CreatedAt, p.UpdatedAt
+FROM master.Products p
+JOIN master.ProductCategories c ON c.Id = p.CategoryId
+LEFT JOIN stock s ON s.ProductId = p.Id
+WHERE p.Code = @code",
+            new { code },
+            cancellationToken: ct));
+
     public async Task<PagedResult<ProductListRow>> GetPagedAsync(
         ProductFilter f, CancellationToken ct = default)
     {
@@ -77,7 +98,7 @@ SELECT
     p.Id, p.Code, p.Name, p.Status, p.Brand,
     p.CategoryId, c.Code AS CategoryCode,
     ISNULL(s.Qty, 0) AS StockOnHand,
-    p.UpdatedAt
+    p.CreatedAt, p.UpdatedAt
 FROM master.Products p
 JOIN master.ProductCategories c ON c.Id = p.CategoryId
 LEFT JOIN stock s ON s.ProductId = p.Id

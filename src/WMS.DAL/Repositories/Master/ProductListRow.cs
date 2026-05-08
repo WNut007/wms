@@ -21,4 +21,5 @@ public sealed record ProductListRow(
     Guid CategoryId,
     string CategoryCode,
     decimal StockOnHand,
+    DateTime CreatedAt,
     DateTime? UpdatedAt);

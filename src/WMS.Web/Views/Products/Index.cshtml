@@ -149,12 +149,16 @@
             }
 
             function statusBadge(status) {
+                // Wire vocabulary mirrors ProductStatusMapper.ToWire —
+                // PascalCase Active/Inactive/Discontinued/Draft on the
+                // way down, lowercased here.
                 const cfg = {
-                    active:        { cls: 'success', label: 'Active' },
-                    out_of_stock:  { cls: 'warning', label: 'Out of stock' },
-                    discontinued:  { cls: 'neutral', label: 'Discontinued' }
+                    active:       { cls: 'success', label: 'Active' },
+                    inactive:     { cls: 'neutral', label: 'Inactive' },
+                    discontinued: { cls: 'neutral', label: 'Discontinued' },
+                    draft:        { cls: 'warning', label: 'Draft' }
                 };
-                const c = cfg[status] || cfg.discontinued;
+                const c = cfg[status] || cfg.inactive;
                 return `<span class="wms-badge wms-badge-${c.cls}"><span class="wms-badge-dot"></span>${c.label}</span>`;
             }
 
@@ -167,12 +171,17 @@
             }
 
             function fmtPrice(p) {
+                // TD-012: real per-product price doesn't exist (pricing
+                // is owner-scoped on ProductOwners.SettlementPrice).
+                // Render '—' until owner-context resolution lands.
+                if (p == null) return '—';
                 return '฿' + Number(p).toLocaleString('en-US');
             }
 
             function iconClassForStatus(status) {
-                if (status === 'out_of_stock') return 'warning';
+                if (status === 'draft') return 'warning';
                 if (status === 'discontinued') return 'danger';
+                if (status === 'inactive') return 'neutral';
                 return '';
             }
 
@@ -445,28 +454,36 @@
             });
 
             const filterValues = {
+                // Vocabulary aligned with ProductStatusMapper. Mock UI's
+                // 'out_of_stock' chip dropped — pricing/availability
+                // computed states belong on a separate filter, not the
+                // Status enum.
                 status: [
                     { v: 'all', l: 'Status: All' },
                     { v: 'active', l: 'Active' },
-                    { v: 'out_of_stock', l: 'Out of stock' },
-                    { v: 'discontinued', l: 'Discontinued' }
+                    { v: 'inactive', l: 'Inactive' },
+                    { v: 'discontinued', l: 'Discontinued' },
+                    { v: 'draft', l: 'Draft' }
                 ],
+                // Only 'DEMO' category is seeded today (migration 052).
+                // Frontend dropdown stays terse until categories are
+                // properly populated; older mock entries (Electronics,
+                // Apparel, ...) would all return empty against current
+                // schema and add UX noise.
                 category: [
                     { v: 'all', l: 'Category: All' },
-                    { v: 'Electronics', l: 'Electronics' },
-                    { v: 'Apparel', l: 'Apparel' },
-                    { v: 'Food', l: 'Food' },
-                    { v: 'Beauty', l: 'Beauty' },
-                    { v: 'Home', l: 'Home' },
-                    { v: 'Toys', l: 'Toys' }
+                    { v: 'DEMO', l: 'Demo' }
                 ],
                 brand: [
                     { v: 'all', l: 'Brand: All' },
                     { v: 'Apple', l: 'Apple' },
                     { v: 'Samsung', l: 'Samsung' },
+                    { v: 'Sony', l: 'Sony' },
                     { v: 'Nike', l: 'Nike' },
                     { v: 'Uniqlo', l: 'Uniqlo' },
-                    { v: 'IKEA', l: 'IKEA' }
+                    { v: 'IKEA', l: 'IKEA' },
+                    { v: 'Lego', l: 'Lego' },
+                    { v: 'Generic', l: 'Generic' }
                 ]
             };
 
