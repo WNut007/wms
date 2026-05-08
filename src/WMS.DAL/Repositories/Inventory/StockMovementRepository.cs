@@ -59,25 +59,37 @@ internal sealed class StockMovementRepository : IStockMovementRepository
         return rows.AsList();
     }
 
-    public async Task<IReadOnlyList<StockMovement>> GetByProductAsync(
+    public async Task<IReadOnlyList<StockMovementListRow>> GetByProductAsync(
         Guid productId,
         DateTime? since = null,
         int limit = 100,
         CancellationToken ct = default)
     {
-        // 2-step seek — IX_Stock_Product (ProductId) hits the Stock
-        // rows for this product, then per-Stock history via the
-        // covering index. Acceptable for Phase 1 read patterns; if
-        // reports get slow, denormalise ProductId onto StockMovements
-        // in a follow-up migration.
-        var rows = await _connection.QueryAsync<StockMovement>(new CommandDefinition(
-            @"SELECT m.Id, m.StockId, m.MovementType,
-                     m.FromLocationId, m.ToLocationId,
-                     m.QuantityDelta, m.UomId, m.OwnerId,
-                     m.ReferenceType, m.ReferenceId, m.Notes,
-                     m.PerformedBy, m.PerformedAt
+        // 2-step seek for the inventory rows (IX_Stock_Product →
+        // per-Stock history via IX_StockMovements_Stock), plus three
+        // LEFT JOINs to resolve display fields:
+        //   - master.Locations × 2 for From/To codes (NULL when the
+        //     movement has no source/destination — Receive has no
+        //     FromLocationId, etc.)
+        //   - security.Users for PerformedByName, COALESCE'd through
+        //     FullName → Email → 'System' so the title is never blank
+        //     even when PerformedBy itself is NULL (system actions).
+        // All three JOINs hit PK indexes — cheap at 20-row pages.
+        var rows = await _connection.QueryAsync<StockMovementListRow>(new CommandDefinition(
+            @"SELECT m.Id,
+                     m.MovementType,
+                     m.QuantityDelta,
+                     fl.Code AS FromLocationCode,
+                     tl.Code AS ToLocationCode,
+                     m.ReferenceType,
+                     m.Notes,
+                     COALESCE(u.FullName, u.Email, 'System') AS PerformedByName,
+                     m.PerformedAt
               FROM inventory.StockMovements m
-              JOIN inventory.Stock s ON s.Id = m.StockId
+              JOIN inventory.Stock s        ON s.Id  = m.StockId
+              LEFT JOIN master.Locations fl ON fl.Id = m.FromLocationId
+              LEFT JOIN master.Locations tl ON tl.Id = m.ToLocationId
+              LEFT JOIN security.Users u    ON u.Id  = m.PerformedBy
               WHERE s.ProductId = @productId
                 AND (@since IS NULL OR m.PerformedAt >= @since)
               ORDER BY m.PerformedAt DESC

@@ -22,10 +22,13 @@ public interface IStockMovementRepository
         string referenceType, Guid referenceId, CancellationToken ct = default);
 
     // Per-product activity feed — JOINs inventory.Stock to filter by
-    // ProductId. Accepts a 2-step seek (IX_Stock_Product → per-Stock
-    // history) rather than denormalising ProductId on the movement
-    // row. Phase 1 OK; revisit at Phase 2 if reports are slow.
-    Task<IReadOnlyList<StockMovement>> GetByProductAsync(
+    // ProductId, then LEFT JOINs security.Users (for PerformedByName)
+    // and master.Locations twice (for From/To codes). Returns a
+    // StockMovementListRow projection rather than the entity so the
+    // resolved display fields don't pollute StockMovement itself.
+    // Indexes Phase 6A built (IX_Stock_Product, IX_StockMovements_Stock)
+    // still cover the leading lookup; the LEFT JOINs are seek-by-PK.
+    Task<IReadOnlyList<StockMovementListRow>> GetByProductAsync(
         Guid productId,
         DateTime? since = null,
         int limit = 100,

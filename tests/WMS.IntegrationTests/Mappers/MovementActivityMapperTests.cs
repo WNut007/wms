@@ -1,5 +1,5 @@
 using WMS.Common.Inventory;
-using WMS.Domain.Entities.Inventory;
+using WMS.DAL.Repositories.Inventory;
 using WMS.Web.Services.Mappers;
 
 namespace WMS.IntegrationTests.Mappers;
@@ -8,150 +8,247 @@ namespace WMS.IntegrationTests.Mappers;
 // reason as the other mapper tests — WMS.Web is net8.0-windows.
 public class MovementActivityMapperTests
 {
-    private static StockMovement Mvmt(
+    private static StockMovementListRow Row(
         StockMovementType type,
         decimal qty,
-        DateTime? performedAt = null,
+        string? from = null,
+        string? to = null,
+        string user = "Maya Rodriguez",
         string? refType = null,
-        string? notes = null) =>
-        new()
-        {
-            Id            = Guid.NewGuid(),
-            StockId       = Guid.NewGuid(),
-            MovementType  = type,
-            QuantityDelta = qty,
-            UomId         = Guid.NewGuid(),
-            OwnerId       = Guid.NewGuid(),
-            ReferenceType = refType,
-            Notes         = notes,
-            PerformedAt   = performedAt ?? DateTime.UtcNow.AddHours(-2),
-        };
+        string? notes = null,
+        DateTime? performedAt = null) =>
+        new(
+            Id:               Guid.NewGuid(),
+            MovementType:     type,
+            QuantityDelta:    qty,
+            FromLocationCode: from,
+            ToLocationCode:   to,
+            ReferenceType:    refType,
+            Notes:            notes,
+            PerformedByName:  user,
+            PerformedAt:      performedAt ?? DateTime.UtcNow.AddHours(-2));
 
     [Fact]
-    public void Map_Receive_GreenPackageImportIcon()
+    public void Map_Receive_TitleHasUserVerbQtyAndDestinationLocation()
     {
-        var item = MovementActivityMapper.Map(Mvmt(StockMovementType.Receive, 5));
+        var item = MovementActivityMapper.Map(
+            Row(StockMovementType.Receive, 5, to: "WH-MAIN"));
 
-        Assert.Equal("Stock received", item.Title);
+        Assert.Contains("Maya Rodriguez", item.Title);
+        Assert.Contains("received 5 units", item.Title);
+        Assert.Contains(" at WH-MAIN", item.Title);
         Assert.Equal("ti-package-import", item.IconClass);
         Assert.Equal("#639922", item.IconColor);
     }
 
     [Fact]
-    public void Map_PutawayPositive_RendersAsInbound()
+    public void Map_Receive_NoToLocation_OmitsLocationClause()
     {
-        // Destination row of a putaway pair — QuantityDelta > 0.
-        var item = MovementActivityMapper.Map(Mvmt(StockMovementType.Putaway, +5));
+        // Defensive: if the LEFT JOIN didn't resolve a location,
+        // title stays grammatical without an awkward " at ".
+        var item = MovementActivityMapper.Map(
+            Row(StockMovementType.Receive, 5, to: null));
 
-        Assert.Equal("Putaway (in)", item.Title);
+        Assert.Contains("received 5 units", item.Title);
+        Assert.DoesNotContain(" at ", item.Title);
+    }
+
+    [Fact]
+    public void Map_PutawayPositive_VerbPutawayInto()
+    {
+        var item = MovementActivityMapper.Map(
+            Row(StockMovementType.Putaway, +5, from: "STAGE-01", to: "BIN-A1"));
+
+        Assert.Contains("putaway 5 units", item.Title);
+        Assert.Contains(" into BIN-A1", item.Title);
+        // Source clause not rendered on the destination-side row —
+        // splits the paired entry's information by sign so users
+        // mentally pair adjacent rows.
+        Assert.DoesNotContain(" from STAGE-01", item.Title);
         Assert.Equal("ti-arrow-down-right", item.IconClass);
     }
 
     [Fact]
-    public void Map_PutawayNegative_RendersAsOutbound()
+    public void Map_PutawayNegative_VerbMovedFrom()
     {
-        // Source row of a putaway pair — QuantityDelta < 0.
-        var item = MovementActivityMapper.Map(Mvmt(StockMovementType.Putaway, -5));
+        var item = MovementActivityMapper.Map(
+            Row(StockMovementType.Putaway, -5, from: "STAGE-01", to: "BIN-A1"));
 
-        Assert.Equal("Putaway (out)", item.Title);
+        Assert.Contains("moved 5 units", item.Title);
+        Assert.Contains(" from STAGE-01", item.Title);
+        Assert.DoesNotContain(" into BIN-A1", item.Title);
         Assert.Equal("ti-arrow-up-right", item.IconClass);
     }
 
-    [Theory]
-    [InlineData(StockMovementType.Pick,     "Stock picked")]
-    [InlineData(StockMovementType.Transfer, "Stock transferred")]
-    [InlineData(StockMovementType.Return,   "Stock returned")]
-    [InlineData(StockMovementType.Cycle,    "Cycle count")]
-    public void Map_DeferredTypes_HavePlaceholderTitles(StockMovementType type, string expected)
-    {
-        // Pick / Transfer / Return / Cycle don't have writers yet —
-        // the mapper still produces sane output so when the writers
-        // land no mapper update is needed.
-        var item = MovementActivityMapper.Map(Mvmt(type, 10));
-        Assert.Equal(expected, item.Title);
-    }
-
-    [Theory]
-    [InlineData(+5, "Stock adjusted (+)")]
-    [InlineData(-5, "Stock adjusted (−)")]
-    public void Map_AdjustSign_DistinguishesPosNeg(decimal qty, string expected)
-    {
-        var item = MovementActivityMapper.Map(Mvmt(StockMovementType.Adjust, qty));
-        Assert.Equal(expected, item.Title);
-    }
-
-    [Theory]
-    [InlineData(+5,    "+5 units")]
-    [InlineData(-3,    "-3 units")]
-    [InlineData(0,     "0 units")]
-    [InlineData(+1.5,  "+1.5 units")]
-    [InlineData(-2.25, "-2.25 units")]
-    public void Map_DescriptionOpensWithSignedQty(decimal qty, string startsWith)
-    {
-        var item = MovementActivityMapper.Map(Mvmt(StockMovementType.Receive, qty));
-        Assert.StartsWith(startsWith, item.Description);
-    }
-
     [Fact]
-    public void Map_DescriptionAppendsRefTypeAndNotes()
+    public void Map_Pick_VerbPickedFrom()
     {
         var item = MovementActivityMapper.Map(
-            Mvmt(StockMovementType.Receive, 5, refType: "ReceivingLine", notes: "Damaged carton"));
+            Row(StockMovementType.Pick, -3, from: "BIN-A1"));
 
-        Assert.Equal("+5 units · ReceivingLine · Damaged carton", item.Description);
+        Assert.Contains("picked 3 units", item.Title);
+        Assert.Contains(" from BIN-A1", item.Title);
+    }
+
+    [Theory]
+    [InlineData(+5, "adjusted +5 units")]
+    [InlineData(-5, "adjusted -5 units")]
+    public void Map_AdjustSignedDelta_TitleCarriesSign(decimal qty, string expected)
+    {
+        var item = MovementActivityMapper.Map(
+            Row(StockMovementType.Adjust, qty));
+
+        Assert.Contains(expected, item.Title);
     }
 
     [Fact]
-    public void Map_DescriptionOmitsEmptySegments()
+    public void Map_Transfer_ShowsFromAndToOnSameRow()
     {
-        // No ref, no notes — description is just the qty segment.
-        var item = MovementActivityMapper.Map(Mvmt(StockMovementType.Receive, 5));
-        Assert.Equal("+5 units", item.Description);
+        var item = MovementActivityMapper.Map(
+            Row(StockMovementType.Transfer, 2, from: "WH-A", to: "WH-B"));
+
+        Assert.Contains("transferred 2 units", item.Title);
+        Assert.Contains(" from WH-A", item.Title);
+        Assert.Contains(" at WH-B", item.Title);    // helper reuses " at " for the to-clause
+    }
+
+    [Theory]
+    [InlineData(+5, "5 units")]
+    [InlineData(-5, "5 units")]
+    [InlineData(+1, "1 unit")]      // singular
+    [InlineData(-1, "1 unit")]
+    [InlineData(+1.5, "1.5 units")] // fractional → plural
+    [InlineData(-2.25, "2.25 units")]
+    public void Map_QtyInTitle_IsUnsignedAndPluralCorrect(decimal qty, string expected)
+    {
+        var item = MovementActivityMapper.Map(
+            Row(StockMovementType.Receive, qty));
+
+        Assert.Contains(expected, item.Title);
+        // Unsigned — verb conveys direction. The CSS attribute
+        // "font-weight" inside the actor span has a hyphen, so a bare
+        // DoesNotContain("-") would always trip; check only that the
+        // qty itself isn't sign-prefixed.
+        Assert.DoesNotContain($"-{expected}", item.Title);
+    }
+
+    [Fact]
+    public void Map_ActorName_IsHtmlEncoded()
+    {
+        // Operator-supplied display names land in the HTML title via
+        // @Html.Raw — must be encoded at the mapper boundary.
+        var item = MovementActivityMapper.Map(
+            Row(StockMovementType.Receive, 1, user: "Maya <script>alert('x')</script>"));
+
+        Assert.Contains("Maya &lt;script&gt;", item.Title);
+        Assert.DoesNotContain("<script>alert", item.Title);
+    }
+
+    [Fact]
+    public void Map_LocationCode_IsHtmlEncoded()
+    {
+        var item = MovementActivityMapper.Map(
+            Row(StockMovementType.Receive, 1, to: "BIN-<x>"));
+
+        Assert.Contains("BIN-&lt;x&gt;", item.Title);
+        Assert.DoesNotContain("<x>", item.Title);
+    }
+
+    [Fact]
+    public void Map_ActorWrappedInFontWeightSpan()
+    {
+        // The single bit of HTML the mapper does emit — the actor
+        // name gets the bold-ish weight wrapper to match the rest of
+        // the design language.
+        var item = MovementActivityMapper.Map(
+            Row(StockMovementType.Receive, 1));
+
+        Assert.Contains("<span style=\"font-weight:500\">Maya Rodriguez</span>", item.Title);
+    }
+
+    [Fact]
+    public void Map_DescriptionHasReferenceAndNotes()
+    {
+        var item = MovementActivityMapper.Map(
+            Row(StockMovementType.Receive, 5, refType: "ReceivingLine", notes: "Damaged carton"));
+
+        Assert.Equal("ReceivingLine · Damaged carton", item.Description);
+    }
+
+    [Fact]
+    public void Map_DescriptionEmpty_WhenNoRefOrNotes()
+    {
+        // Quantity is in the title now — description is purely
+        // metadata. No ref + no notes → empty description.
+        var item = MovementActivityMapper.Map(
+            Row(StockMovementType.Receive, 5));
+
+        Assert.Equal(string.Empty, item.Description);
+    }
+
+    [Fact]
+    public void Map_DescriptionHasOnlyRef_WhenNotesNull()
+    {
+        var item = MovementActivityMapper.Map(
+            Row(StockMovementType.Receive, 5, refType: "ReceivingLine"));
+
+        Assert.Equal("ReceivingLine", item.Description);
+    }
+
+    [Theory]
+    [InlineData(StockMovementType.Receive,  "ti-package-import",   "#639922")]
+    [InlineData(StockMovementType.Pick,     "ti-package-export",   "#BA7517")]
+    [InlineData(StockMovementType.Adjust,   "ti-edit",             "#854F0B")]
+    [InlineData(StockMovementType.Transfer, "ti-arrow-right",      "#534AB7")]
+    [InlineData(StockMovementType.Return,   "ti-rotate-clockwise", "#A32D2D")]
+    [InlineData(StockMovementType.Cycle,    "ti-list-check",       "#3C3489")]
+    public void Map_IconAndColor_PerMovementType(StockMovementType type, string icon, string color)
+    {
+        var item = MovementActivityMapper.Map(Row(type, 1));
+        Assert.Equal(icon, item.IconClass);
+        Assert.Equal(color, item.IconColor);
     }
 
     [Fact]
     public void Map_PreservesPerformedAt_AsTimestamp()
     {
         var when = DateTime.UtcNow.AddHours(-7);
-        var item = MovementActivityMapper.Map(Mvmt(StockMovementType.Receive, 5, performedAt: when));
+        var item = MovementActivityMapper.Map(
+            Row(StockMovementType.Receive, 5, performedAt: when));
 
         Assert.Equal(when, item.Timestamp);
     }
 
     [Fact]
-    public void BucketDateGroup_Today_ForRecentTimestamps()
+    public void Map_SystemUser_RendersInTitleVerbatim()
     {
-        // 1 hour ago is unambiguously "Today" no matter the local
-        // time of day — buckets use UTC calendar dates.
+        // Repo COALESCE flows 'System' literal through PerformedByName
+        // when m.PerformedBy is NULL. Mapper just renders it.
+        var item = MovementActivityMapper.Map(
+            Row(StockMovementType.Receive, 5, user: "System"));
+
+        Assert.Contains("<span style=\"font-weight:500\">System</span>", item.Title);
+    }
+
+    [Fact]
+    public void BucketDateGroup_Today_ForRecentTimestamps() =>
         Assert.Equal("Today", MovementActivityMapper.BucketDateGroup(DateTime.UtcNow.AddHours(-1)));
-    }
 
     [Fact]
-    public void BucketDateGroup_Yesterday_ForPriorCalendarDay()
-    {
-        // 25 hours ago lands cleanly in yesterday's calendar day in
-        // every test-run hour-of-day.
+    public void BucketDateGroup_Yesterday_ForPriorCalendarDay() =>
         Assert.Equal("Yesterday", MovementActivityMapper.BucketDateGroup(DateTime.UtcNow.AddHours(-25)));
-    }
 
     [Fact]
-    public void BucketDateGroup_ThisWeek_ForRecentDays()
-    {
+    public void BucketDateGroup_ThisWeek_ForRecentDays() =>
         Assert.Equal("This week", MovementActivityMapper.BucketDateGroup(DateTime.UtcNow.AddDays(-3)));
-    }
 
     [Fact]
-    public void BucketDateGroup_Older_BeyondAWeek()
-    {
+    public void BucketDateGroup_Older_BeyondAWeek() =>
         Assert.Equal("Older", MovementActivityMapper.BucketDateGroup(DateTime.UtcNow.AddDays(-30)));
-    }
 
     [Fact]
     public void BucketDateGroup_BoundaryAt7Days_StaysInThisWeek()
     {
-        // Boundary check — 6 days 23 hours ago should still be
-        // "This week", not "Older". Using AddDays(-7).AddHours(1)
-        // keeps it just inside the window.
         var t = DateTime.UtcNow.Date.AddDays(-7).AddHours(1);
         Assert.Equal("This week", MovementActivityMapper.BucketDateGroup(t));
     }
