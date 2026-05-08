@@ -173,9 +173,13 @@ public class ProductsController : Controller
             Activities = movements.Select(MovementActivityMapper.Map).ToList(),
             QuickActions = new()
             {
-                new("Receive stock",  "ti-package-import", "#"),
-                new("Adjust stock",   "ti-adjustments",    "#"),
-                new("Print label",    "ti-printer",        "#"),
+                // TD-017 partial — wired now that ReceiveController.Index
+                // accepts ?sku=. The other two stay disabled until
+                // Phase 7+ admin CRUD provides their target routes.
+                new("Receive stock",  "ti-package-import",
+                    $"/receive?sku={Uri.EscapeDataString(row.Code)}"),
+                new("Adjust stock",   "ti-adjustments",    "#", Enabled: false),
+                new("Print label",    "ti-printer",        "#", Enabled: false),
             },
             OverviewFields = new()
             {
