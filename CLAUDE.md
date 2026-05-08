@@ -316,8 +316,8 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Phase 6B — Real Master Data shipped (v0.7.0-real-master-data)
-**Current Focus**: Phase 6C (Activity tab live wiring — TD-010)
+**Active Sprint**: Phase 6C — Activity Tab Wiring shipped (v0.7.1-activity-tab)
+**Current Focus**: Phase 6D — pending decision (candidates: TD-015 actor/location name resolution; TD-014 Customer + Warehouse Activity tabs)
 **Blockers**: none
 
 Update this section weekly during standups.
@@ -457,7 +457,7 @@ Forward-only — pre-existing Stock rows synthesized no history. New TD-004 (Put
 ReferenceId null), TD-005 (ADR-004 missing), TD-006 (write-path test fixture) logged.
 
 Foundation for: ADR-013 Adjustment, ADR-012 Transfer, future Pick/Pack, Cycle Count,
-Activity tab (Phase 6C — wires `_ActivityPanel` to `GetByProductAsync`).
+Activity tab on Product Detail (Phase 6C — shipped, closes TD-010).
 
 ### Day 6 — Phase 6B (Real Master Data)
 
@@ -503,6 +503,48 @@ order metrics stubbed `"—"` (TD-011). Product price column dropped — pricing
 owner-scoped on `ProductOwners.SettlementPrice` (TD-012).
 
 Foundation for: Phase 6C activity-tab wiring, Phase 7+ admin CRUD on master entities.
+
+### Day 6 — Phase 6C (Activity Tab Wiring)
+
+**Branch**: `feat/activity-tab-wire` → merged to `main` · **Tag**: `v0.7.1-activity-tab` · **Closes**: TD-010
+
+Components:
+- `MovementActivityMapper` (`Services/Mappers/`) — pure-function
+  `StockMovement → ActivityItem`. Per-`MovementType` title + icon +
+  color; signed `QuantityDelta` splits Putaway and Adjust into `(in)` /
+  `(out)` variants so paired rows render distinctly. `BucketDateGroup`
+  helper buckets `PerformedAt` into Today / Yesterday / This week /
+  Older (UTC calendar-day anchored).
+- `ProductsController.Detail` reads movement history via
+  `IStockMovementRepository.GetByProductAsync(productId, limit: 20)` —
+  the JOIN-through-`inventory.Stock` query Phase 6A already
+  implemented. Lookup is by resolved `Product.Id` (from
+  `GetListRowByCodeAsync`), not by SKU string — pinned by
+  `Detail_FetchesMovements_WithProductIdFromListRow`.
+- The 5 hardcoded mock activities in `ProductsController.Detail`
+  deleted; `Activities = movements.Select(MovementActivityMapper.Map)
+  .ToList()`. Empty list (the default for `DEMO-001` and fresh seeds —
+  forward-only per ADR-014) renders the existing
+  "No activity yet." empty state.
+- Pre-existing TD-010 regression test inverted: was
+  `Detail_KnownSku_ActivitiesStillHardcoded_TD010Regression`
+  (`Equal(5, ...)`), now `Detail_NoMovements_ActivitiesEmpty_TD010Closed`
+  (`Empty(...)`). Two new tests cover the wired path + the
+  `Product.Id`-vs-SKU contract.
+
+Test posture: 101 unit + 174 integration (+22 mapper, +2 net
+controller — 1 inverted, 2 added) + 5 skipped (TD-006).
+
+Out of scope (logged for follow-up):
+- TD-014: Customer + Warehouse Activity tabs still on hardcoded
+  entries — both need data sources that don't exist yet (outbound
+  orders schema; unified warehouse activity feed across receiving +
+  cycle counts + putaway).
+- TD-015: `MovementActivityMapper` doesn't resolve actor names or
+  location codes. Title is `"Stock received"` (no `"{user}"`),
+  description is `"+5 units · ReferenceType"` (no `"at {location}"`).
+  Needs batch `IUserRepository` + `ILocationRepository` lookups +
+  a richer `Map()` overload taking the resolved dictionaries.
 
 ---
 
@@ -635,5 +677,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-09 (Phase 6B — Real Master Data)
-**Version**: 1.6
+**Last updated**: 2026-05-09 (Phase 6C — Activity Tab Wiring)
+**Version**: 1.7
