@@ -16,4 +16,7 @@ public sealed record WarehouseListRow(
     bool IsActive,
     int LocationCount,
     string? Address,
+    string? ManagerName,
+    string? PhoneNumber,
+    DateTime CreatedAt,
     DateTime? UpdatedAt);

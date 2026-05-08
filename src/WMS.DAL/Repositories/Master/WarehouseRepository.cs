@@ -52,6 +52,26 @@ internal sealed class WarehouseRepository : IWarehouseRepository
             new { code },
             cancellationToken: ct));
 
+    public Task<WarehouseListRow?> GetListRowByCodeAsync(string code, CancellationToken ct = default) =>
+        _connection.QuerySingleOrDefaultAsync<WarehouseListRow?>(new CommandDefinition(
+            // Same CTE + LEFT JOIN shape as GetPagedAsync — no
+            // pagination wrapper, single-row WHERE on Code.
+            @"WITH locs AS (
+    SELECT WarehouseId, COUNT(*) AS Cnt
+    FROM master.Locations
+    GROUP BY WarehouseId
+)
+SELECT
+    w.Id, w.Code, w.Name, w.Type, w.IsActive,
+    ISNULL(l.Cnt, 0) AS LocationCount,
+    w.Address, w.ManagerName, w.PhoneNumber,
+    w.CreatedAt, w.UpdatedAt
+FROM master.Warehouses w
+LEFT JOIN locs l ON l.WarehouseId = w.Id
+WHERE w.Code = @code",
+            new { code },
+            cancellationToken: ct));
+
     public async Task<PagedResult<WarehouseListRow>> GetPagedAsync(
         WarehouseFilter f, CancellationToken ct = default)
     {
@@ -85,7 +105,8 @@ WITH locs AS (
 SELECT
     w.Id, w.Code, w.Name, w.Type, w.IsActive,
     ISNULL(l.Cnt, 0) AS LocationCount,
-    w.Address, w.UpdatedAt
+    w.Address, w.ManagerName, w.PhoneNumber,
+    w.CreatedAt, w.UpdatedAt
 FROM master.Warehouses w
 LEFT JOIN locs l ON l.WarehouseId = w.Id
 {whereClause}

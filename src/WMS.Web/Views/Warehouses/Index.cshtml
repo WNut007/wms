@@ -170,6 +170,7 @@
             }
 
             function fmtNumber(n) {
+                if (n == null) return '—';
                 return Number(n).toLocaleString('en-US');
             }
 
@@ -456,10 +457,15 @@
                     { v: 'Phuket, TH', l: 'Phuket' },
                     { v: 'Khon Kaen, TH', l: 'Khon Kaen' }
                 ],
+                // Type values mirror master.Warehouses CK_Warehouses_Type
+                // (Main / Satellite / Branch). Mock UI's '3PL' / 'Internal'
+                // were custom labels with no schema backing; replaced with
+                // the real CHECK set.
                 type: [
                     { v: 'all', l: 'Type: All' },
-                    { v: '3PL', l: '3PL' },
-                    { v: 'Internal', l: 'Internal' }
+                    { v: 'Main', l: 'Main' },
+                    { v: 'Satellite', l: 'Satellite' },
+                    { v: 'Branch', l: 'Branch' }
                 ]
             };
 

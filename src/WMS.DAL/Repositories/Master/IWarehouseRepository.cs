@@ -35,4 +35,10 @@ public interface IWarehouseRepository
     // Detail-page resolution by Code. Code is tenant-wide unique
     // (UQ index on master.Warehouses.Code).
     Task<Warehouse?> GetByCodeAsync(string code, CancellationToken ct = default);
+
+    // Detail-page list-row read — same JOIN-aggregate shape as
+    // GetPagedAsync but for one row. Returns the LocationCount
+    // alongside the entity fields the Detail page needs, so the page
+    // renders from a single round-trip without a separate count query.
+    Task<WarehouseListRow?> GetListRowByCodeAsync(string code, CancellationToken ct = default);
 }
