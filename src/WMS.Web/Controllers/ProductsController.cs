@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WMS.Common.Multitenancy;
+using WMS.DAL.Repositories.Inventory;
 using WMS.DAL.Repositories.Master;
 using WMS.Web.Services;
 using WMS.Web.Services.Mappers;
@@ -13,16 +14,23 @@ namespace WMS.Web.Controllers;
 [Route("Products")]
 public class ProductsController : Controller
 {
+    // Cap matches the _ActivityPanel header copy ("Last 30 days") and
+    // gives the timeline enough breathing room without paging.
+    private const int ActivityFeedLimit = 20;
+
     private readonly IProductRepositoryFactory _repos;
+    private readonly IStockMovementRepositoryFactory _movementRepos;
     private readonly ITenantContext _tenant;
     private readonly IDocumentStorageService _docs;
 
     public ProductsController(
         IProductRepositoryFactory repos,
+        IStockMovementRepositoryFactory movementRepos,
         ITenantContext tenant,
         IDocumentStorageService docs)
     {
         _repos = repos;
+        _movementRepos = movementRepos;
         _tenant = tenant;
         _docs = docs;
     }
@@ -97,11 +105,19 @@ public class ProductsController : Controller
     [HttpGet("Detail/{sku}")]
     public async Task<IActionResult> Detail(string sku, CancellationToken ct)
     {
-        var row = await _repos.For(_tenant.RequireTenantId())
-                              .GetListRowByCodeAsync(sku, ct);
+        var tenantId = _tenant.RequireTenantId();
+        var row = await _repos.For(tenantId).GetListRowByCodeAsync(sku, ct);
         if (row is null) return NotFound();
 
         var docs = await _docs.ListByEntityAsync("Product", sku, ct);
+
+        // Closes TD-010. GetByProductAsync JOINs through inventory.Stock
+        // by ProductId and returns up to ActivityFeedLimit movements
+        // newest-first. Empty list is the expected state for fresh
+        // products until receiving / putaway writes movement rows;
+        // _ActivityPanel renders its own empty state in that case.
+        var movements = await _movementRepos.For(tenantId)
+                                            .GetByProductAsync(row.Id, since: null, limit: ActivityFeedLimit, ct);
 
         var (statusLabel, statusVariant) = row.Status switch
         {
@@ -151,30 +167,10 @@ public class ProductsController : Controller
                 d.UploadedAt,
                 RelativeTime.Format(d.UploadedAt)
             )).ToList(),
-            // TD-010: Activity tab stays on hardcoded entries until
-            // Phase 6C wires IStockMovementRepository.GetByProductAsync.
-            // Seeded products have no movement history yet, so wiring
-            // now would only show empty timelines.
-            Activities = new()
-            {
-                new("<span style=\"font-weight:500\">System Admin</span> uploaded 3 product images",
-                    "Front, Back, Left angles", "ti-photo-plus", "#534AB7",
-                    DateTime.UtcNow.AddHours(-2), "2 h ago", "Today"),
-                new("<span style=\"font-weight:500\">System Admin</span> updated price",
-                    "Adjustment recorded", "ti-edit", "#BA7517",
-                    DateTime.UtcNow.AddHours(-5), "5 h ago", "Today",
-                    "฿65,900", "฿69,900"),
-                new("<span style=\"font-weight:500\">Maya Rodriguez</span> received 50 units",
-                    $"RC-2026-0142 · WH-MAIN · Stock change recorded",
-                    "ti-package-import", "#639922",
-                    DateTime.UtcNow.AddDays(-1), "1 d ago", "Yesterday"),
-                new("<span style=\"font-weight:500\">System Admin</span> uploaded document",
-                    "Pricing_Tiers_2026.xlsx · 412 KB", "ti-file-plus", "#534AB7",
-                    DateTime.UtcNow.AddDays(-1).AddHours(-3), "1 d ago", "Yesterday"),
-                new("<span style=\"font-weight:500\">System Admin</span> created product",
-                    $"{row.Code} added to catalog", "ti-plus", "#888780",
-                    row.CreatedAt, RelativeTime.Format(row.CreatedAt), "Earlier"),
-            },
+            // Real movement history (Phase 6C — TD-010 closed). Empty
+            // until receiving/putaway writes movements; _ActivityPanel
+            // renders "No activity yet." for an empty list.
+            Activities = movements.Select(MovementActivityMapper.Map).ToList(),
             QuickActions = new()
             {
                 new("Receive stock",  "ti-package-import", "#"),
