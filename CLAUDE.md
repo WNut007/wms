@@ -316,8 +316,8 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Phase 2 — UI Dashboard
-**Current Focus**: replace placeholder Home/Index with the approved dashboard mockup
+**Active Sprint**: Phase 5 — Real File Storage shipped (v0.5.0-real-storage)
+**Current Focus**: next phase planning
 **Blockers**: none
 
 Update this section weekly during standups.
@@ -390,6 +390,36 @@ Pattern proven:
 
 Out of scope (Phase 5+): real file upload endpoint, disk writes, lightbox,
 drag-to-reorder, document download, real activity log, edit forms.
+
+### Day 6 — UI Phase 5 (Real File Storage + DB Schema)
+
+**Branch**: `feat/real-storage` → merged to `main` · **Tag**: `v0.5.0-real-storage`
+
+Components:
+- `DocumentStorageOptions` — bound from `Storage` section (Provider, Local.RootPath, MaxFileSizeMB, AllowedExtensions)
+- Migration `20260508001` — `documents.Files` table + schema; FK `CreatedBy/UpdatedBy → security.Users` (NO ACTION); filtered index `IX_Files_Entity` on (EntityType, EntityId, CreatedAt DESC) WHERE IsArchived = 0
+- `DocumentFile` domain entity (`WMS.Domain.Entities.Documents`)
+- `IDocumentRepository` + `DocumentRepository` (Dapper) + `DocumentRepositoryFactory` (uses `ITenantConnectionFactory`)
+- `LocalFileStorageService` implements `IDocumentStorageService` against the local filesystem
+- `DocumentsController` — `POST /Documents/Upload`, `GET /Documents/Download/{id}`, `DELETE /Documents/{id}`, `GET /Documents/List?entityType=&entityId=`
+- `_DocumentsPanel` rewritten — drag/drop dropzone, fetch-based upload/delete, client-side search, refresh-after-mutate
+
+Storage layout:
+- Disk path: `{RootPath}/{tenantId:N}/{entityType}/{entityId}/{fileId:N}{ext}`
+- StorageKey persisted relative to RootPath so RootPath moves don't break references
+- Original filename preserved on metadata for `Content-Disposition`; on-disk filename is `{Guid}{ext}` (collision-free)
+- Path traversal defence: each segment sanitised + final resolved path must remain under RootPath
+
+Validation rules (LocalFileStorageService.UploadAsync, before bytes hit disk):
+- Extension lower-cased + must be in `AllowedExtensions`
+- Size ≤ `MaxFileSizeMB × 1024²` (re-checked post-write for non-seekable streams)
+- Failed metadata insert rolls back the disk write (orphan-free)
+
+DI swap (Program.cs):
+- `Storage:Provider == "Mock"` → keeps `MockDocumentStorageService` (handy for tests not wiring SQL)
+- Anything else → `LocalFileStorageService` (Scoped — captures `ITenantContext`)
+
+Out of scope (Phase 6+): virus scan, EXIF strip / image re-encode, soft-delete via `IsArchived`, lightbox + drag-to-reorder for Images tab, signed download URLs, Azure Blob / S3 providers (drop-in via the same interface).
 
 ---
 
@@ -521,5 +551,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-06 (formalised ADR-008 + ADR-010 as files)
-**Version**: 1.3
+**Last updated**: 2026-05-08 (Phase 5 — Real File Storage + DB Schema)
+**Version**: 1.4

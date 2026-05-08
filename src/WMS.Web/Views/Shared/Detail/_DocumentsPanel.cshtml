@@ -1,65 +1,241 @@
 @model WMS.Web.ViewModels.Detail.DetailPageViewModel
 
-<div style="border: 1.5px dashed var(--wms-border-secondary); border-radius: var(--wms-radius-lg); padding: 24px; text-align: center; margin-bottom: 16px; background: var(--wms-bg-page); cursor: pointer;">
-    <div style="width: 40px; height: 40px; background: #EEEDFE; color: var(--wms-primary); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 8px;">
-        <i class="ti ti-cloud-upload" style="font-size: 20px;" aria-hidden="true"></i>
-    </div>
-    <p style="margin: 0 0 2px; font-size: 13px; font-weight: 500;">Drop files to upload</p>
-    <p style="margin: 0; font-size: 11px; color: var(--wms-text-secondary);">
-        or <a href="#" style="color: var(--wms-primary); text-decoration: none; font-weight: 500;">click to browse</a> · PDF, DOCX, XLSX, JPG, PNG · Max 25 MB
-    </p>
-</div>
+@{
+    var dropId = $"docs-drop-{Model.EntityType}-{Model.EntityId}".Replace("/", "-");
+}
 
-<div style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px;">
-    <div style="position: relative; flex: 1; max-width: 280px;">
-        <i class="ti ti-search" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 14px; color: var(--wms-text-tertiary);" aria-hidden="true"></i>
-        <input type="text" placeholder="Search documents..." class="wms-input" style="padding-left: 32px; height: 32px; font-size: 12px;" />
-    </div>
-    <span style="margin-left: auto; font-size: 11px; color: var(--wms-text-secondary);">@Model.Documents.Count files</span>
-</div>
+<div id="@dropId" class="docs-panel"
+     data-entity-type="@Model.EntityType"
+     data-entity-id="@Model.EntityId"
+     style="position: relative;">
 
-<div style="border: 0.5px solid var(--wms-border); border-radius: var(--wms-radius-md); overflow: hidden;">
-    <table class="wms-table">
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Category</th>
-                <th class="numeric">Size</th>
-                <th>Uploaded by</th>
-                <th>Date</th>
-                <th style="width: 80px;"></th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var doc in Model.Documents)
-            {
+    <label class="docs-dropzone" style="display: block; border: 1.5px dashed var(--wms-border-secondary); border-radius: var(--wms-radius-lg); padding: 24px; text-align: center; margin-bottom: 16px; background: var(--wms-bg-page); cursor: pointer;">
+        <div style="width: 40px; height: 40px; background: #EEEDFE; color: var(--wms-primary); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 8px;">
+            <i class="ti ti-cloud-upload" style="font-size: 20px;" aria-hidden="true"></i>
+        </div>
+        <p style="margin: 0 0 2px; font-size: 13px; font-weight: 500;">Drop files to upload</p>
+        <p class="docs-hint" style="margin: 0; font-size: 11px; color: var(--wms-text-secondary);">
+            or <span style="color: var(--wms-primary); font-weight: 500;">click to browse</span> · PDF, DOCX, XLSX, JPG, PNG · Max 25 MB
+        </p>
+        <input type="file" class="docs-file-input" multiple style="display: none;" />
+    </label>
+
+    <div class="docs-progress" style="display: none; margin-bottom: 12px; padding: 8px 12px; background: var(--wms-bg-page); border-radius: var(--wms-radius-md); font-size: 12px; color: var(--wms-text-secondary);">
+        <span class="docs-progress-text">Uploading…</span>
+    </div>
+
+    <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px;">
+        <div style="position: relative; flex: 1; max-width: 280px;">
+            <i class="ti ti-search" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 14px; color: var(--wms-text-tertiary);" aria-hidden="true"></i>
+            <input type="text" placeholder="Search documents..." class="wms-input docs-search" style="padding-left: 32px; height: 32px; font-size: 12px;" />
+        </div>
+        <span class="docs-count" style="margin-left: auto; font-size: 11px; color: var(--wms-text-secondary);">@Model.Documents.Count files</span>
+    </div>
+
+    <div style="border: 0.5px solid var(--wms-border); border-radius: var(--wms-radius-md); overflow: hidden;">
+        <table class="wms-table">
+            <thead>
                 <tr>
-                    <td>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <div style="width: 28px; height: 28px; background: @doc.IconBgColor; color: @doc.IconFgColor; border-radius: 6px; display: flex; align-items: center; justify-content: center;">
-                                <i class="ti @doc.IconClass" style="font-size: 14px;" aria-hidden="true"></i>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th class="numeric">Size</th>
+                    <th>Uploaded by</th>
+                    <th>Date</th>
+                    <th style="width: 80px;"></th>
+                </tr>
+            </thead>
+            <tbody class="docs-tbody">
+                @foreach (var doc in Model.Documents)
+                {
+                    <tr data-doc-id="@doc.DocumentId">
+                        <td>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <div style="width: 28px; height: 28px; background: @doc.IconBgColor; color: @doc.IconFgColor; border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                    <i class="ti @doc.IconClass" style="font-size: 14px;" aria-hidden="true"></i>
+                                </div>
+                                <p style="margin: 0; font-weight: 500;">@doc.FileName</p>
                             </div>
-                            <p style="margin: 0; font-weight: 500;">@doc.FileName</p>
-                        </div>
-                    </td>
-                    <td><span style="display: inline-flex; padding: 1px 8px; background: @doc.CategoryColorBg; color: @doc.CategoryColorFg; border-radius: 100px; font-size: 11px; font-weight: 500;">@doc.Category</span></td>
-                    <td class="numeric">@doc.FileSizeFormatted</td>
-                    <td style="color: var(--wms-text-secondary);">@doc.UploadedBy</td>
-                    <td style="color: var(--wms-text-secondary); font-size: 11px;">@doc.UploadedAtRelative</td>
-                    <td style="text-align: right;">
-                        <button type="button" style="background: transparent; border: none; padding: 4px; cursor: pointer; color: var(--wms-text-secondary);"><i class="ti ti-download" style="font-size: 14px;" aria-hidden="true"></i></button>
-                        <button type="button" style="background: transparent; border: none; padding: 4px; cursor: pointer; color: var(--wms-text-secondary);"><i class="ti ti-dots-vertical" style="font-size: 14px;" aria-hidden="true"></i></button>
-                    </td>
-                </tr>
-            }
-            @if (!Model.Documents.Any())
-            {
-                <tr>
-                    <td colspan="6" style="padding: 40px; text-align: center; color: var(--wms-text-tertiary);">
-                        No documents yet. Upload your first file above.
-                    </td>
-                </tr>
-            }
-        </tbody>
-    </table>
+                        </td>
+                        <td><span style="display: inline-flex; padding: 1px 8px; background: @doc.CategoryColorBg; color: @doc.CategoryColorFg; border-radius: 100px; font-size: 11px; font-weight: 500;">@doc.Category</span></td>
+                        <td class="numeric">@doc.FileSizeFormatted</td>
+                        <td style="color: var(--wms-text-secondary);">@doc.UploadedBy</td>
+                        <td style="color: var(--wms-text-secondary); font-size: 11px;">@doc.UploadedAtRelative</td>
+                        <td style="text-align: right;">
+                            <a href="/Documents/Download/@doc.DocumentId" title="Download" style="display: inline-flex; padding: 4px; color: var(--wms-text-secondary); text-decoration: none;"><i class="ti ti-download" style="font-size: 14px;" aria-hidden="true"></i></a>
+                            <button type="button" class="docs-delete-btn" data-doc-id="@doc.DocumentId" title="Delete" style="background: transparent; border: none; padding: 4px; cursor: pointer; color: var(--wms-text-secondary);"><i class="ti ti-trash" style="font-size: 14px;" aria-hidden="true"></i></button>
+                        </td>
+                    </tr>
+                }
+                @if (!Model.Documents.Any())
+                {
+                    <tr class="docs-empty-row">
+                        <td colspan="6" style="padding: 40px; text-align: center; color: var(--wms-text-tertiary);">
+                            No documents yet. Upload your first file above.
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
 </div>
+
+<script>
+    (function () {
+        const root = document.getElementById('@dropId');
+        if (!root || root.dataset.docsWired === '1') return;
+        root.dataset.docsWired = '1';
+
+        const entityType = root.dataset.entityType;
+        const entityId   = root.dataset.entityId;
+        const dropzone   = root.querySelector('.docs-dropzone');
+        const fileInput  = root.querySelector('.docs-file-input');
+        const tbody      = root.querySelector('.docs-tbody');
+        const countEl    = root.querySelector('.docs-count');
+        const progress   = root.querySelector('.docs-progress');
+        const progressTx = root.querySelector('.docs-progress-text');
+        const search     = root.querySelector('.docs-search');
+
+        const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+
+        const formatRelative = iso => {
+            const ms = Date.now() - new Date(iso).getTime();
+            const m = Math.floor(ms / 60000), h = Math.floor(m / 60), d = Math.floor(h / 24);
+            if (m < 1) return 'just now';
+            if (m < 60) return m + ' min ago';
+            if (h < 24) return h + ' h ago';
+            return d + ' d ago';
+        };
+
+        const renderRow = doc => {
+            const tr = document.createElement('tr');
+            tr.setAttribute('data-doc-id', doc.documentId);
+            tr.innerHTML = `
+                <td>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 28px; height: 28px; background: ${doc.iconBgColor}; color: ${doc.iconFgColor}; border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                            <i class="ti ${doc.iconClass}" style="font-size: 14px;" aria-hidden="true"></i>
+                        </div>
+                        <p style="margin: 0; font-weight: 500;">${escapeHtml(doc.fileName)}</p>
+                    </div>
+                </td>
+                <td><span style="display: inline-flex; padding: 1px 8px; background: #F1EFE8; color: #444441; border-radius: 100px; font-size: 11px; font-weight: 500;">${escapeHtml(doc.category)}</span></td>
+                <td class="numeric">${escapeHtml(doc.fileSizeFormatted)}</td>
+                <td style="color: var(--wms-text-secondary);">${escapeHtml(doc.uploadedBy || '')}</td>
+                <td style="color: var(--wms-text-secondary); font-size: 11px;">${escapeHtml(formatRelative(doc.uploadedAt))}</td>
+                <td style="text-align: right;">
+                    <a href="/Documents/Download/${doc.documentId}" title="Download" style="display: inline-flex; padding: 4px; color: var(--wms-text-secondary); text-decoration: none;"><i class="ti ti-download" style="font-size: 14px;" aria-hidden="true"></i></a>
+                    <button type="button" class="docs-delete-btn" data-doc-id="${doc.documentId}" title="Delete" style="background: transparent; border: none; padding: 4px; cursor: pointer; color: var(--wms-text-secondary);"><i class="ti ti-trash" style="font-size: 14px;" aria-hidden="true"></i></button>
+                </td>`;
+            return tr;
+        };
+
+        const updateCount = () => {
+            const n = tbody.querySelectorAll('tr[data-doc-id]').length;
+            countEl.textContent = n + (n === 1 ? ' file' : ' files');
+            const empty = root.querySelector('.docs-empty-row');
+            if (n === 0 && !empty) {
+                tbody.innerHTML = '<tr class="docs-empty-row"><td colspan="6" style="padding: 40px; text-align: center; color: var(--wms-text-tertiary);">No documents yet. Upload your first file above.</td></tr>';
+            }
+        };
+
+        const refresh = async () => {
+            const url = `/Documents/List?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}`;
+            const res = await fetch(url, { credentials: 'same-origin' });
+            if (!res.ok) return;
+            const data = await res.json();
+            tbody.innerHTML = '';
+            if (!data.items.length) {
+                tbody.innerHTML = '<tr class="docs-empty-row"><td colspan="6" style="padding: 40px; text-align: center; color: var(--wms-text-tertiary);">No documents yet. Upload your first file above.</td></tr>';
+            } else {
+                data.items.forEach(d => tbody.appendChild(renderRow(d)));
+            }
+            countEl.textContent = data.total + (data.total === 1 ? ' file' : ' files');
+        };
+
+        const uploadOne = async file => {
+            progress.style.display = 'block';
+            progressTx.textContent = `Uploading ${file.name}…`;
+            const fd = new FormData();
+            fd.append('file', file);
+            fd.append('entityType', entityType);
+            fd.append('entityId', entityId);
+            fd.append('category', 'Document');
+            try {
+                const res = await fetch('/Documents/Upload', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    body: fd,
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    progressTx.textContent = `Failed: ${data.error || 'Upload error'}`;
+                    setTimeout(() => progress.style.display = 'none', 4000);
+                    return false;
+                }
+                return true;
+            } catch (e) {
+                progressTx.textContent = `Failed: ${e.message}`;
+                setTimeout(() => progress.style.display = 'none', 4000);
+                return false;
+            }
+        };
+
+        const uploadFiles = async fileList => {
+            if (!fileList || !fileList.length) return;
+            for (const f of fileList) {
+                await uploadOne(f);
+            }
+            progress.style.display = 'none';
+            await refresh();
+        };
+
+        // Click-to-browse: native <label> handles the click; just react to change.
+        fileInput.addEventListener('change', e => {
+            uploadFiles(e.target.files);
+            fileInput.value = '';
+        });
+
+        // Drag and drop on the whole panel.
+        ['dragenter', 'dragover'].forEach(ev =>
+            root.addEventListener(ev, e => {
+                e.preventDefault(); e.stopPropagation();
+                dropzone.style.borderColor = 'var(--wms-primary)';
+                dropzone.style.background = '#EEEDFE';
+            }));
+        ['dragleave', 'drop'].forEach(ev =>
+            root.addEventListener(ev, e => {
+                e.preventDefault(); e.stopPropagation();
+                dropzone.style.borderColor = 'var(--wms-border-secondary)';
+                dropzone.style.background = 'var(--wms-bg-page)';
+            }));
+        root.addEventListener('drop', e => {
+            uploadFiles(e.dataTransfer.files);
+        });
+
+        // Delegated delete handler.
+        tbody.addEventListener('click', async e => {
+            const btn = e.target.closest('.docs-delete-btn');
+            if (!btn) return;
+            if (!confirm('Delete this file?')) return;
+            const id = btn.dataset.docId;
+            const res = await fetch(`/Documents/${id}`, {
+                method: 'DELETE',
+                credentials: 'same-origin',
+            });
+            if (res.ok) {
+                btn.closest('tr')?.remove();
+                updateCount();
+            }
+        });
+
+        // Client-side search filter.
+        search.addEventListener('input', () => {
+            const q = search.value.trim().toLowerCase();
+            tbody.querySelectorAll('tr[data-doc-id]').forEach(tr => {
+                tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none';
+            });
+        });
+    })();
+</script>
