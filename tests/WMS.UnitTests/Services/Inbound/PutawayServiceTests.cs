@@ -76,6 +76,57 @@ public class PutawayServiceTests
     }
 
     [Fact]
+    public async Task PutawayStockAsync_PassesPutawayMovementType()
+    {
+        var sut = NewService(out var repo);
+        var sourceRow = NewStockRow(FromLocId, onHand: 25);
+        repo.Setup(r => r.GetByKeyAsync(It.IsAny<StockKey>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sourceRow);
+
+        StockMovementContext? captured = null;
+        repo.Setup(r => r.TransferStockAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                It.IsAny<StockMovementContext>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, Guid, decimal, StockMovementContext, CancellationToken>(
+                (_, _, _, ctx, _) => captured = ctx)
+            .ReturnsAsync((sourceRow, sourceRow));
+
+        await sut.PutawayStockAsync(
+            TestTenantId, NewRequest(quantity: 1), currentUserId: null);
+
+        Assert.NotNull(captured);
+        Assert.Equal(StockMovementType.Putaway, captured!.MovementType);
+    }
+
+    [Fact]
+    public async Task PutawayStockAsync_PassesNullReferenceId_TD004()
+    {
+        // Putaway has no header/line table yet (TD-004 — closes when
+        // ADR-004 hybrid template+scoring lands). Movements MUST NOT
+        // fabricate a Guid; ReferenceType='Putaway' is the only
+        // breadcrumb.
+        var sut = NewService(out var repo);
+        var sourceRow = NewStockRow(FromLocId, onHand: 25);
+        repo.Setup(r => r.GetByKeyAsync(It.IsAny<StockKey>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sourceRow);
+
+        StockMovementContext? captured = null;
+        repo.Setup(r => r.TransferStockAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                It.IsAny<StockMovementContext>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, Guid, decimal, StockMovementContext, CancellationToken>(
+                (_, _, _, ctx, _) => captured = ctx)
+            .ReturnsAsync((sourceRow, sourceRow));
+
+        await sut.PutawayStockAsync(
+            TestTenantId, NewRequest(quantity: 1), currentUserId: null);
+
+        Assert.NotNull(captured);
+        Assert.Equal("Putaway", captured!.ReferenceType);
+        Assert.Null(captured.ReferenceId);
+    }
+
+    [Fact]
     public async Task PutawayStockAsync_PassesCurrentUserIdThrough()
     {
         var sut = NewService(out var repo);
