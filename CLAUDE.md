@@ -316,8 +316,8 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Phase 6E — Warehouse Activity Feed shipped (v0.7.3-warehouse-activity)
-**Current Focus**: pending decision — candidates include TD-014 Customer half (blocked on Phase 7+ orders schema), TD-007/TD-008 (mobile PWA design-system styling pass), TD-013 (jQuery on `_AuthLayout`), TD-016 (putaway-pair grouping, naturally blocked on TD-004 / ADR-004)
+**Active Sprint**: Phase 6F — jQuery fix shipped (v0.7.4-jquery-fix)
+**Current Focus**: pending decision — candidates include TD-014 Customer half (blocked on Phase 7+ orders schema), TD-007/TD-008 (mobile PWA design-system styling pass), TD-016 (putaway-pair grouping, naturally blocked on TD-004 / ADR-004)
 **Blockers**: none
 
 Update this section weekly during standups.
@@ -665,6 +665,33 @@ Out of scope (logged):
   schemas (Phase 7+). Composition pattern from this phase ports
   cleanly when those land.
 
+### Day 6 — Phase 6F (jQuery Fix)
+
+**Branch**: `feat/td013-jquery-fix` → merged to `main` · **Tag**: `v0.7.4-jquery-fix` · **Closes**: TD-013
+
+One-line fix in `Views/Shared/_ValidationScriptsPartial.cshtml`:
+the partial loaded `jquery.validate.min.js` +
+`jquery.validate.unobtrusive.min.js` without jQuery itself,
+producing `$ is not defined` console errors on every page that
+rendered it. jQuery was already present at
+`wwwroot/lib/jquery/dist/jquery.min.js` (default ASP.NET Core MVC
+template artifact), just unreferenced — added a `<script>` tag
+ahead of the validate libs.
+
+The original TD-013 framing under-counted the blast radius —
+"jQuery missing on `_AuthLayout`" — but the partial is rendered by
+three views: `Auth/Login` (under `_AuthLayout`), `Receive/Index`
+and `Putaway/Index` (both under `_MobileLayout`). Fixing the
+partial cleared all three at once.
+
+Form submit was always functional because server-side
+ModelState validation handles the post; this was strictly a
+client-side console-error / client-validation-feedback gap.
+
+No tests touched — no controller / service / repo logic changed.
+Build green. Tests: 101 unit + 206 integration + 5 skipped —
+unchanged from Phase 6E.
+
 ---
 
 ## 🔑 Auth Architecture (Day 3 decisions)
@@ -796,5 +823,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-09 (Phase 6E — Warehouse Activity Feed)
-**Version**: 1.9
+**Last updated**: 2026-05-09 (Phase 6F — jQuery Fix)
+**Version**: 1.10
