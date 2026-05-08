@@ -486,4 +486,8 @@ $RECYCLE.BIN/
 # One-time implementation playbooks (not part of the codebase)
 PILOT_IMPLEMENTATION_BRIEF.md
 PHASE4_MASTER_DETAIL_BRIEF.md
+PHASE5_REAL_STORAGE_BRIEF.md
+
+# Local document storage root for IDocumentStorageService (Local provider)
+src/WMS.Web/App_Data/
 

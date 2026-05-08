@@ -46,6 +46,23 @@ public class MockDocumentStorageService : IDocumentStorageService
         }
     }
 
+    public Task<(Stream Stream, DocumentMetadata Metadata)?> GetStreamAsync(
+        Guid documentId, CancellationToken ct = default)
+    {
+        EnsureSeeded();
+        DocumentMetadata? meta;
+        lock (_lock) { _store.TryGetValue(documentId, out meta); }
+        if (meta is null)
+            return Task.FromResult<(Stream, DocumentMetadata)?>(null);
+
+        // No real bytes — return a tiny placeholder so callers can still
+        // exercise the download path in tests that wire the Mock provider.
+        var bytes = System.Text.Encoding.UTF8.GetBytes(
+            $"Mock content for {meta.FileName}");
+        return Task.FromResult<(Stream, DocumentMetadata)?>(
+            (new MemoryStream(bytes), meta));
+    }
+
     public Task<bool> DeleteAsync(Guid documentId, CancellationToken ct = default)
     {
         EnsureSeeded();

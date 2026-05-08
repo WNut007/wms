@@ -7,6 +7,7 @@ using WMS.Common.Multitenancy;
 using WMS.BLL.Services.Inbound;
 using WMS.BLL.Services.Inventory;
 using WMS.DAL.Multitenancy;
+using WMS.DAL.Repositories.Documents;
 using WMS.DAL.Repositories.Inbound;
 using WMS.DAL.Repositories.Inventory;
 using WMS.DAL.Repositories.Master;
@@ -107,10 +108,30 @@ builder.Services.AddSingleton<MockWarehouseDataService>();
 builder.Services.AddSingleton<MockProductDataService>();
 builder.Services.AddSingleton<MockCustomerDataService>();
 
-// Phase 4 storage abstraction — Mock keeps an in-memory store with seed
-// rows for Products / Warehouses / Customers detail pages. Replace with
-// LocalFileStorageService (Phase 5+) without changing controllers.
-builder.Services.AddSingleton<IDocumentStorageService, MockDocumentStorageService>();
+// Phase 5 document storage. "Local" writes bytes to disk under
+// Storage:Local:RootPath and persists metadata to documents.Files in the
+// tenant DB. "Mock" keeps the Phase 4 in-memory store (handy for tests
+// that don't want real I/O). Anything else is a config typo.
+//
+// LocalFileStorageService is Scoped because it captures ITenantContext
+// (which captures HttpContext) — a singleton would freeze the first
+// request's tenant for everyone.
+builder.Services.AddOptions<DocumentStorageOptions>()
+    .Bind(builder.Configuration.GetSection(DocumentStorageOptions.SectionName))
+    .ValidateOnStart();
+
+builder.Services.AddScoped<IDocumentRepositoryFactory, DocumentRepositoryFactory>();
+
+var storageProvider = builder.Configuration[$"{DocumentStorageOptions.SectionName}:Provider"]
+                      ?? "Local";
+if (storageProvider.Equals("Mock", StringComparison.OrdinalIgnoreCase))
+{
+    builder.Services.AddSingleton<IDocumentStorageService, MockDocumentStorageService>();
+}
+else
+{
+    builder.Services.AddScoped<IDocumentStorageService, LocalFileStorageService>();
+}
 
 // Tenant active-status reader — singleton so its IMemoryCache reference
 // is shared. TenantValidationMiddleware reads through this on every

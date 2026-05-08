@@ -14,6 +14,14 @@ public interface IDocumentStorageService
 
     Task<DocumentMetadata?> GetMetadataAsync(Guid documentId, CancellationToken ct = default);
 
+    // Opens a stream over the stored bytes plus returns the metadata so
+    // the controller can stamp Content-Disposition / Content-Type without
+    // a second round trip. Caller owns the stream — Mock returns
+    // MemoryStream, Local returns FileStream. Returns null when the
+    // metadata row exists but the bytes have gone missing on disk.
+    Task<(Stream Stream, DocumentMetadata Metadata)?> GetStreamAsync(
+        Guid documentId, CancellationToken ct = default);
+
     Task<bool> DeleteAsync(Guid documentId, CancellationToken ct = default);
 
     Task<List<DocumentMetadata>> ListByEntityAsync(
@@ -86,4 +94,12 @@ public class DocumentMetadata
             return "#0C447C";
         return "#5F5E5A";
     }
+}
+
+// Thrown by UploadAsync when an upload is rejected before any bytes hit
+// disk — extension not in the allowlist, file too large, etc. Surfaced
+// by DocumentsController as 400 Bad Request.
+public sealed class StorageValidationException : Exception
+{
+    public StorageValidationException(string message) : base(message) { }
 }
