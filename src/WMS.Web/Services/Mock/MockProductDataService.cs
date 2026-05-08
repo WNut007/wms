@@ -1,3 +1,5 @@
+using WMS.DAL.Common;
+
 namespace WMS.Web.Services.Mock;
 
 public class MockProductDataService

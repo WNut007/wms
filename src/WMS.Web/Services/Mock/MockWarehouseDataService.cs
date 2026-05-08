@@ -1,3 +1,5 @@
+using WMS.DAL.Common;
+
 namespace WMS.Web.Services.Mock;
 
 public class MockWarehouseDataService
@@ -113,12 +115,3 @@ public record WarehouseListItem(
     string Status,
     int LocationCount,
     DateTime UpdatedAt);
-
-public class PagedResult<T>
-{
-    public List<T> Items { get; set; } = new();
-    public int Total { get; set; }
-    public int Page { get; set; }
-    public int PageSize { get; set; }
-    public int TotalPages { get; set; }
-}
