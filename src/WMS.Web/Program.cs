@@ -14,7 +14,6 @@ using WMS.DAL.Repositories.Master;
 using WMS.DAL.Repositories.Security;
 using WMS.Web.Auth;
 using WMS.Web.Multitenancy;
-using WMS.Web.Services.Mock;
 using WMS.Web.Services.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -90,6 +89,8 @@ builder.Services.AddScoped<IStockRepositoryFactory, StockRepositoryFactory>();
 builder.Services.AddScoped<IStockMovementRepositoryFactory, StockMovementRepositoryFactory>();
 builder.Services.AddScoped<ILotRepositoryFactory, LotRepositoryFactory>();
 builder.Services.AddScoped<IPalletRepositoryFactory, PalletRepositoryFactory>();
+builder.Services.AddScoped<IProductRepositoryFactory, ProductRepositoryFactory>();
+builder.Services.AddScoped<ICustomerRepositoryFactory, CustomerRepositoryFactory>();
 builder.Services.AddScoped<IStockService, StockService>();
 builder.Services.AddScoped<IReceivingService, ReceivingService>();
 builder.Services.AddScoped<IPurchaseOrderRepositoryFactory, PurchaseOrderRepositoryFactory>();
@@ -102,12 +103,6 @@ builder.Services.AddScoped<IPutawayService, PutawayService>();
 // cache itself lives on IMemoryCache (Singleton), so per-request
 // instances cost nothing and survive the captive-dependency check.
 builder.Services.AddScoped<IPermissionService, PermissionService>();
-
-// Phase 3 mock — singleton because the seed is static. Will be retired
-// when the real warehouse repository lands.
-builder.Services.AddSingleton<MockWarehouseDataService>();
-builder.Services.AddSingleton<MockProductDataService>();
-builder.Services.AddSingleton<MockCustomerDataService>();
 
 // Phase 5 document storage. "Local" writes bytes to disk under
 // Storage:Local:RootPath and persists metadata to documents.Files in the

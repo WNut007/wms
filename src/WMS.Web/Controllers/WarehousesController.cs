@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using WMS.Common.Multitenancy;
+using WMS.DAL.Repositories.Master;
 using WMS.Web.Services;
-using WMS.Web.Services.Mock;
+using WMS.Web.Services.Mappers;
 using WMS.Web.Services.Storage;
 using WMS.Web.ViewModels.Detail;
 
@@ -11,12 +13,17 @@ namespace WMS.Web.Controllers;
 [Route("Warehouses")]
 public class WarehousesController : Controller
 {
-    private readonly MockWarehouseDataService _data;
+    private readonly IWarehouseRepositoryFactory _repos;
+    private readonly ITenantContext _tenant;
     private readonly IDocumentStorageService _docs;
 
-    public WarehousesController(MockWarehouseDataService data, IDocumentStorageService docs)
+    public WarehousesController(
+        IWarehouseRepositoryFactory repos,
+        ITenantContext tenant,
+        IDocumentStorageService docs)
     {
-        _data = data;
+        _repos = repos;
+        _tenant = tenant;
         _docs = docs;
     }
 
@@ -24,7 +31,7 @@ public class WarehousesController : Controller
     public IActionResult Index() => View();
 
     [HttpGet("Data")]
-    public IActionResult GetData(
+    public async Task<IActionResult> GetData(
         int page = 1,
         int pageSize = 20,
         string? search = null,
@@ -32,22 +39,52 @@ public class WarehousesController : Controller
         string? region = null,
         string? type = null,
         string sortBy = "name",
-        bool sortDesc = false)
+        bool sortDesc = false,
+        CancellationToken ct = default)
     {
-        var result = _data.GetWarehouses(page, pageSize, search, status, region, type, sortBy, sortDesc);
+        // Region filter has no schema column — silently absorbed
+        // (TD-009-adjacent). Frontend dropdown can keep emitting it;
+        // the page just ignores. Search hits Address so users can still
+        // narrow by city via the search box.
+        _ = region;
+
+        var filter = new WarehouseFilter(
+            Page: page,
+            PageSize: pageSize,
+            Search: search,
+            // Wire 'active'/'inactive' → bool. Mock 'maintenance' chip
+            // → null (= no filter), per TD-009.
+            IsActive: WarehouseStatusMapper.FromWire(status),
+            Type: NormaliseFilter(type),
+            SortBy: sortBy,
+            SortDesc: sortDesc);
+
+        var result = await _repos.For(_tenant.RequireTenantId())
+                                 .GetPagedAsync(filter, ct);
+
         return Json(new
         {
             items = result.Items.Select(w => new
             {
                 code              = w.Code,
                 name              = w.Name,
-                subtitle          = w.Subtitle,
-                region            = w.Region,
+                // Mock had a separate cosmetic Subtitle — schema has no
+                // such column. Sent as null; the JS list view guards
+                // with `${w.subtitle ? ... : ''}` so it just hides.
+                subtitle          = (string?)null,
+                // Mock had a Region column (e.g. "Bangkok, TH") — schema
+                // only has Address. Surface Address as the "region"
+                // wire field so the existing column header renders the
+                // value users expect. Phase 6B seed addresses already
+                // follow the "City, Country" shape.
+                region            = w.Address ?? "—",
                 type              = w.Type,
-                status            = w.Status,
+                status            = WarehouseStatusMapper.ToWire(w.IsActive),
                 locationCount     = w.LocationCount,
                 updatedAt         = w.UpdatedAt,
-                updatedAtRelative = RelativeTime.Format(w.UpdatedAt),
+                updatedAtRelative = w.UpdatedAt is null
+                    ? "—"
+                    : RelativeTime.Format(w.UpdatedAt.Value),
             }),
             total      = result.Total,
             page       = result.Page,
@@ -59,24 +96,25 @@ public class WarehousesController : Controller
     [HttpGet("Detail/{code}")]
     public async Task<IActionResult> Detail(string code, CancellationToken ct)
     {
-        var wh = _data.GetByCode(code);
-        if (wh == null) return NotFound();
+        var row = await _repos.For(_tenant.RequireTenantId())
+                              .GetListRowByCodeAsync(code, ct);
+        if (row is null) return NotFound();
 
         var docs = await _docs.ListByEntityAsync("Warehouse", code, ct);
 
-        var (statusLabel, statusVariant) = wh.Status switch
-        {
-            "active"      => ("Active", "success"),
-            "maintenance" => ("Maintenance", "warning"),
-            _             => ("Inactive", "neutral"),
-        };
+        var (statusLabel, statusVariant) = row.IsActive
+            ? ("Active", "success")
+            : ("Inactive", "neutral");
 
         var vm = new DetailPageViewModel
         {
             EntityType = "Warehouse",
-            EntityId = wh.Code,
-            Title = wh.Name,
-            Subtitle = $"{wh.Code} · {wh.Region} · {wh.Type}",
+            EntityId = row.Code,
+            Title = row.Name,
+            // Pull the city portion out of Address for the subtitle
+            // (e.g. "Bangkok, TH" → "Bangkok"). Matches the way the
+            // grid card derives its region label.
+            Subtitle = $"{row.Code} · {DeriveCity(row.Address)} · {row.Type}",
             IconClass = "ti-building-warehouse",
             IconBgColor = "#E6F1FB",
             IconFgColor = "#0C447C",
@@ -86,10 +124,14 @@ public class WarehousesController : Controller
             BreadcrumbParentUrl = "/Warehouses",
             Stats = new()
             {
-                new("Locations",   wh.LocationCount.ToString("N0")),
-                new("Capacity",    "78%"),
-                new("Active SKUs", "1,247"),
-                new("Avg dwell",   "3.2 d"),
+                new("Locations",   row.LocationCount.ToString("N0")),
+                // Capacity / Active SKUs / Avg dwell need inventory
+                // analytics that aren't materialised yet. Stubbed
+                // until Phase 7+ analytics. Same shape as
+                // Customer.TotalOrders → TD-011-adjacent.
+                new("Capacity",    "—"),
+                new("Active SKUs", "—"),
+                new("Avg dwell",   "—"),
             },
             ShowImagesTab = false,
             Documents = docs.Select(d => new DocumentItem(
@@ -106,6 +148,9 @@ public class WarehousesController : Controller
                 d.UploadedAt,
                 RelativeTime.Format(d.UploadedAt)
             )).ToList(),
+            // TD-010-style — Activity stays hardcoded until a real
+            // warehouse activity stream exists (cycle counts +
+            // receiving headers + putaway events).
             Activities = new()
             {
                 new("<span style=\"font-weight:500\">Maya Rodriguez</span> received shipment",
@@ -118,8 +163,8 @@ public class WarehousesController : Controller
                     "Floor_Plan.pdf · 1.8 MB", "ti-file-plus", "#534AB7",
                     DateTime.UtcNow.AddDays(-45), "1 mo ago", "1 month ago"),
                 new("<span style=\"font-weight:500\">System Admin</span> created warehouse",
-                    $"{wh.Code} added to network", "ti-plus", "#888780",
-                    DateTime.UtcNow.AddDays(-365), "1 y ago", "1 year ago"),
+                    $"{row.Code} added to network", "ti-plus", "#888780",
+                    row.CreatedAt, RelativeTime.Format(row.CreatedAt), "Earlier"),
             },
             QuickActions = new()
             {
@@ -129,22 +174,38 @@ public class WarehousesController : Controller
             },
             OverviewFields = new()
             {
-                new("Code",      $"<span style=\"font-family: var(--wms-font-mono);\">{wh.Code}</span>"),
-                new("Type",      System.Net.WebUtility.HtmlEncode(wh.Type)),
-                new("Region",    System.Net.WebUtility.HtmlEncode(wh.Region)),
-                new("Locations", wh.LocationCount.ToString("N0")),
-                new("Manager",   "Maya Rodriguez"),
-                new("Phone",     "+66 2 555 0123"),
+                new("Code",      $"<span style=\"font-family: var(--wms-font-mono);\">{System.Net.WebUtility.HtmlEncode(row.Code)}</span>"),
+                new("Type",      System.Net.WebUtility.HtmlEncode(row.Type)),
+                new("Address",   System.Net.WebUtility.HtmlEncode(row.Address ?? "—")),
+                new("Locations", row.LocationCount.ToString("N0")),
+                new("Manager",   System.Net.WebUtility.HtmlEncode(row.ManagerName ?? "—")),
+                new("Phone",     System.Net.WebUtility.HtmlEncode(row.PhoneNumber ?? "—")),
             },
             Properties = new()
             {
-                new("Created", "1 y ago"),
-                new("Updated", RelativeTime.Format(wh.UpdatedAt)),
+                new("Created", RelativeTime.Format(row.CreatedAt)),
+                new("Updated", row.UpdatedAt is null ? "—" : RelativeTime.Format(row.UpdatedAt.Value)),
                 new("Owner",   "Operations"),
             }
         };
 
         return View("~/Views/Shared/_DetailLayout.cshtml", vm);
+    }
+
+    // 'all' / null / whitespace → null.
+    private static string? NormaliseFilter(string? value) =>
+        string.IsNullOrWhiteSpace(value) || value.Equals("all", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : value;
+
+    // Best-effort city extraction from a "City, Country" address.
+    // Falls back to the full address (or em dash) when the string
+    // has no comma.
+    private static string DeriveCity(string? address)
+    {
+        if (string.IsNullOrWhiteSpace(address)) return "—";
+        var idx = address.IndexOf(',');
+        return idx > 0 ? address[..idx].Trim() : address.Trim();
     }
 
     private static string CategoryColorBg(string cat) => cat switch

@@ -316,8 +316,8 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Phase 6A — Stock Movement Log shipped (v0.6.0-movement-log)
-**Current Focus**: Phase 6B (Real Master Data + Activity tab wiring)
+**Active Sprint**: Phase 6B — Real Master Data shipped (v0.7.0-real-master-data)
+**Current Focus**: Phase 6C (Activity tab live wiring — TD-010)
 **Blockers**: none
 
 Update this section weekly during standups.
@@ -457,7 +457,52 @@ Forward-only — pre-existing Stock rows synthesized no history. New TD-004 (Put
 ReferenceId null), TD-005 (ADR-004 missing), TD-006 (write-path test fixture) logged.
 
 Foundation for: ADR-013 Adjustment, ADR-012 Transfer, future Pick/Pack, Cycle Count,
-Activity tab (Phase 6B — wires `_ActivityPanel` to `GetByProductAsync`).
+Activity tab (Phase 6C — wires `_ActivityPanel` to `GetByProductAsync`).
+
+### Day 6 — Phase 6B (Real Master Data)
+
+**Branch**: `feat/master-data-impl` → merged to `main` · **Tag**: `v0.7.0-real-master-data`
+
+Components:
+- Migrations `20260508_003-007`: `Brand` column on `master.Products`, `Country` column
+  on `master.Customers`, then 24 + 25 + 24 idempotent seed rows for Products / Customers /
+  Warehouses (codes `PROD-0001..0024`, `CUST-0001..0025`, `WH-DM01..DM24` — disjoint from
+  `DEMO-001` and `WH-MAIN` already seeded by migrations 052/046).
+- Domain entities: `Product`, `Customer`, `Warehouse` under `WMS.Domain.Entities.Master`.
+  All inherit `BaseEntity`; master tables have no `Version` column so repos omit it from SQL.
+- List-row DTOs (`ProductListRow`, `CustomerListRow`, `WarehouseListRow`) carry JOIN-derived
+  columns (`StockOnHand`, `LocationCount`, `CategoryCode`) without polluting the entity surface.
+- Repos: `IProductRepository`, `ICustomerRepository`, plus `IWarehouseRepository` extended
+  with `GetPagedAsync` / `GetByCodeAsync` / `GetByIdAsync` / `GetListRowByCodeAsync`. The
+  existing 3-field `GetActiveAsync` projection used by the login picker stays untouched.
+  Read-only — Insert/Update/Archive deferred to Phase 7+ admin CRUD.
+- Sort whitelists per repo (`ProductSortMapper` / `CustomerSortMapper` / `WarehouseSortMapper`)
+  are the SQL-injection defence: closed-set dictionary maps trusted keys to columns; unknown
+  / hostile sortBy falls through to `Name ASC`.
+- Boundary mappers in `WMS.Web.Services.Mappers`: `ProductStatusMapper`, `CustomerStatusMapper`,
+  `WarehouseStatusMapper` translate PascalCase ↔ lowercase wire format. Mock vocabulary
+  preserved where round-trippable (`pending` ↔ Customer.Draft); irreconcilable values
+  (`out_of_stock`, `maintenance`) drop to no-filter silently.
+- `CategoryIconResolver` + `CustomerAvatar` compute display-only fields (icon/color from
+  category code; deterministic FNV-1a-flavoured initials/color hash) the schema doesn't
+  carry. Lifted from the deleted Mock services so the visual language stays identical.
+- `PagedResult<T>` relocated `WMS.Web.Services.Mock` → `WMS.DAL.Common` so repos and the
+  cutover-era mocks shared the type during T2-T10.
+- `MockProductDataService` / `MockCustomerDataService` / `MockWarehouseDataService` deleted
+  (T11). All three controllers now read from real Dapper repos. `MockDocumentStorageService`
+  unrelated — kept for tests.
+
+Test posture: 101 unit (+57 sort-mapper cases) + 150 integration (+79 mapper / +49 controller
+tests) + 5 skipped (TD-006, unchanged). Pure-function helpers + controller tests live in
+`WMS.IntegrationTests` because `WMS.Web` targets net8.0-windows; `WMS.UnitTests` (net8.0)
+can't reference Web types.
+
+UX gap honoured: `master.Warehouses` is bool-only — mock's "maintenance" intermediate state
+dropped (TD-009). Activity tab on Products kept on hardcoded entries (TD-010). Customer
+order metrics stubbed `"—"` (TD-011). Product price column dropped — pricing is
+owner-scoped on `ProductOwners.SettlementPrice` (TD-012).
+
+Foundation for: Phase 6C activity-tab wiring, Phase 7+ admin CRUD on master entities.
 
 ---
 
@@ -590,5 +635,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-08 (Phase 6A — Stock Movement Log)
-**Version**: 1.5
+**Last updated**: 2026-05-09 (Phase 6B — Real Master Data)
+**Version**: 1.6
