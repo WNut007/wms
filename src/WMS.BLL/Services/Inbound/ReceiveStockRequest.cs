@@ -14,7 +14,13 @@ public sealed record ReceiveStockRequest(
     Guid UomId,
     decimal Quantity,
     LotInfo? Lot = null,
-    PalletInfo? Pallet = null);
+    PalletInfo? Pallet = null,
+    // Optional ReceivingLine.Id when this receive is part of an
+    // orchestrated header/line flow. Threaded into StockMovements as
+    // (ReferenceType='ReceivingLine', ReferenceId=<this guid>) so the
+    // movement traces back to its line. Direct receives (no header)
+    // pass null and the movement carries no reference.
+    Guid? ReceivingLineId = null);
 
 // Lot identifiers + dates supplied at receive time. Existing lots
 // (re-received after partial outbound) keep the dates they were

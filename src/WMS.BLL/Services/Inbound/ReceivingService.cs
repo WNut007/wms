@@ -70,8 +70,19 @@ public sealed class ReceivingService : IReceivingService
             request.OwnerId,
             request.UomId);
 
+        // ReferenceType is non-null only when we have a ReceivingLine
+        // to point at — direct receives (no header orchestration) leave
+        // both null. Putaway-style "no reference" rows use 'Putaway' as
+        // their ReferenceType + null Id; we follow the same shape: no
+        // line means no provenance recorded, full stop.
+        var movementCtx = new StockMovementContext(
+            MovementType: StockMovementType.Receive,
+            PerformedBy:  currentUserId,
+            ReferenceType: request.ReceivingLineId is null ? null : "ReceivingLine",
+            ReferenceId:   request.ReceivingLineId);
+
         var stock = await _stockRepoFactory.For(tenantId)
-            .UpsertOnHandAsync(key, request.Quantity, currentUserId, ct);
+            .UpsertOnHandAsync(key, request.Quantity, movementCtx, ct);
 
         _logger.LogInformation(
             "Received {Qty} of product {ProductId} at location {LocationId} " +
