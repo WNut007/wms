@@ -317,8 +317,8 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Phase 9B — Desktop Goods Receipt shipped (v0.9.1-goods-receipt)
-**Current Focus**: Phase 9C — GR list / detail / print (rounds out the inbound MVP)
+**Active Sprint**: Phase 9C shipped + **v1.0.0-inbound-mvp milestone reached** 🎉
+**Current Focus**: Phase 10+ direction TBD — candidates include TD-022 (TransactionScope wrapper), TD-023 (GR cancellation), TD-027 (Edit-Draft-Promote), Outbound module, Mobile PWA polish (TD-007/008)
 **Blockers**: none
 
 Update this section weekly during standups.
@@ -692,6 +692,50 @@ client-side console-error / client-validation-feedback gap.
 No tests touched — no controller / service / repo logic changed.
 Build green. Tests: 101 unit + 206 integration + 5 skipped —
 unchanged from Phase 6E.
+
+### Day 9 — Phase 9C (GR List + Detail + GRN Print) · **v1.0.0-inbound-mvp milestone**
+
+**Branch**: `feat/phase9c-receiving-list` → merged to `main` · **Tags**: `v0.9.2-receiving-list` AND `v1.0.0-inbound-mvp` (same commit) · **Closes**: rounds out Phase 9 inbound module — Phase 9 done end-to-end on Day 9.
+
+Three new surfaces under `/Receiving` finishing the inbound MVP:
+
+**Data layer**:
+- `ReceivingListRow` + `ReceivingFilter` + `ReceivingSortMapper` (Phase 9A trio mirror).
+- `IReceivingHeaderRepository.GetPagedAsync` — LEFT JOINs PurchaseOrders + Owners (both nullable for blind receipts) + Warehouses + per-header line aggregate. Search matches ReceivingNumber OR PoNumber.
+- `IStockMovementRepository.GetByReceivingHeaderAsync` — single SQL query joining `StockMovements ↔ ReceivingLines` via `(ReferenceType='ReceivingLine', ReferenceId=line.Id)` for the Detail Activity tab feed. Returns `StockMovementListRow` (resolved PerformedByName + From/To codes).
+- `ReceivingStatusMapper` — wire ↔ DB (draft|posted|cancelled).
+
+**Surfaces**:
+- `/Receiving` — Alpine list. Filter chips (All/Draft/Posted/Cancelled), search by number-or-PO, sortable columns, pagination. JSON data endpoint at `/Receiving/Data`.
+- `/Receiving/Detail/{number}` — shared `_DetailLayout`. 4 stat tiles (Lines / Received qty / PO link / Status); Activity tab pulls per-receipt movements via the new repo method. Quick Actions: Print GRN (active), View PO (gated on `HasPo`), Edit draft (disabled — TD-027), Cancel receipt (disabled — TD-023).
+- `/Receiving/Print/{number}` — standalone GRN page. `Layout = null`; self-contained `@media print` stylesheet. Letter-style header, 4-block info dl, Lines table, total qty footer, Received-by/Verified-by signatures section. Browser-print via `window.print()` button — no PDF library dependency.
+
+**Sidebar**: Inbound submenu now has 4 entries — Purchase Orders / Goods Receipt (new) / **Receipts** (this list) / Receive (mobile). Inbound stays active across all four contexts.
+
+**Tests**: 11 `ReceivingControllerTests` (Index/GetData/Detail/Print happy + 404 + filter mapping + blind-receipt quick-action gating + status mapper Theory). Test posture: **381 passing** (was 370). 101 unit + 275 integration + 5 skipped.
+
+**v1.0.0-inbound-mvp milestone summary**:
+- ✅ Phase 1 — Auth (3-step login, BCrypt, multi-tenant)
+- ✅ Phase 6B — Master Data (Products / Customers / Warehouses)
+- ✅ Phase 7 — Master admin CRUD
+- ✅ Phase 8 + 8.5 — UI polish + picker + hover
+- ✅ Phase 9A — PO admin CRUD
+- ✅ Phase 9B — Desktop Goods Receipt
+- ✅ Phase 9C — GR list/detail/print
+- ✅ Movement Log + status auto-transitions
+- ✅ Phase 5 storage (documents)
+
+**Pending** (post-MVP):
+- Outbound (sales orders, picking, packing) — Phase 11+
+- Mobile PWA polish (TD-007/008) — Phase 10
+- Reports / dashboards
+- Adjustment + cycle count flows — Phase 10/11
+- ASN layer (TD-024) — Phase 11+
+- Vendor master formal (TD-025) — Phase 12+
+- TransactionScope wrapper (TD-022) — Phase 10
+- GR cancellation (TD-023) + Edit-Draft-Promote (TD-027) — Phase 10
+
+= **MVP B2B WMS ready** for Phase 10+.
 
 ### Day 9 — Phase 9B (Desktop Goods Receipt)
 
@@ -1100,5 +1144,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-09 (Phase 9B — Desktop Goods Receipt)
-**Version**: 1.15
+**Last updated**: 2026-05-09 (Phase 9C + v1.0.0-inbound-mvp milestone)
+**Version**: 1.16
