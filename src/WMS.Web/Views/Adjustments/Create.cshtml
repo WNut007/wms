@@ -1,0 +1,236 @@
+@model WMS.Web.Models.Inventory.AdjustmentCreateViewModel
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "New stock adjustment";
+
+    var locationsJson = System.Text.Json.JsonSerializer.Serialize(
+        Model.Locations.Select(l => new { id = l.Id, code = l.Code, name = l.Name }));
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">New adjustment</p>
+        <div class="wms-breadcrumb">
+            <span>Operations</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span>Inventory</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <a asp-action="Index">Adjustments</a>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">New</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <a asp-action="Index" class="wms-btn">
+            <i class="ti ti-arrow-left" aria-hidden="true"></i>
+            Cancel
+        </a>
+    </div>
+</div>
+
+<form asp-controller="Adjustments" asp-action="Create" method="post"
+      x-data="adjustmentForm({
+          warehouseId: '@(Model.WarehouseId == Guid.Empty ? "" : Model.WarehouseId.ToString())',
+          initialLocations: @Html.Raw(locationsJson)
+      })">
+    @Html.AntiForgeryToken()
+
+    @if (ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div style="padding: 10px 14px; margin-bottom: 12px; background: #FCEBEB; color: #A32D2D; border-radius: 8px; font-size: 13px;">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px;">
+
+        @* === Left column: Stock target + Adjustment === *@
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+
+            <div class="wms-card" style="padding: 18px;">
+                <h3 style="margin: 0 0 4px; font-size: 14px; font-weight: 500;">
+                    <i class="ti ti-package" style="color: #534AB7; margin-right: 6px;"></i>
+                    Stock target
+                </h3>
+                <p style="margin: 0 0 16px; font-size: 12px; color: var(--wms-text-secondary);">
+                    Choose which Stock row to adjust. Lot and Pallet are optional.
+                </p>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div>
+                        <label asp-for="WarehouseId" style="display:block;font-size:12px;font-weight:500;margin-bottom:4px;">Warehouse *</label>
+                        <select asp-for="WarehouseId" class="wms-input" required
+                                @@change="onWarehouseChanged($event.target.value)">
+                            <option value="">— Select —</option>
+                            @foreach (var w in Model.Warehouses)
+                            {
+                                <option value="@w.Id">@w.Code · @w.Name</option>
+                            }
+                        </select>
+                        <span asp-validation-for="WarehouseId" style="color:#A32D2D;font-size:11px;"></span>
+                    </div>
+
+                    <div>
+                        <label asp-for="LocationId" style="display:block;font-size:12px;font-weight:500;margin-bottom:4px;">Location *</label>
+                        <select asp-for="LocationId" class="wms-input" required
+                                :disabled="!warehouseId">
+                            <option value="">— Select warehouse first —</option>
+                            <template x-for="loc in locations" :key="loc.id">
+                                <option :value="loc.id" x-text="loc.code + ' · ' + loc.name"
+                                        :selected="loc.id === '@(Model.LocationId == Guid.Empty ? "" : Model.LocationId.ToString())'"></option>
+                            </template>
+                        </select>
+                        <span asp-validation-for="LocationId" style="color:#A32D2D;font-size:11px;"></span>
+                    </div>
+
+                    <div>
+                        <label asp-for="ProductId" style="display:block;font-size:12px;font-weight:500;margin-bottom:4px;">Product *</label>
+                        <select asp-for="ProductId" class="wms-input" required>
+                            <option value="">— Select —</option>
+                            @foreach (var p in Model.Products)
+                            {
+                                <option value="@p.Id">@p.Code · @p.Name</option>
+                            }
+                        </select>
+                        <span asp-validation-for="ProductId" style="color:#A32D2D;font-size:11px;"></span>
+                    </div>
+
+                    <div>
+                        <label asp-for="UomId" style="display:block;font-size:12px;font-weight:500;margin-bottom:4px;">Unit of measure *</label>
+                        <select asp-for="UomId" class="wms-input" required>
+                            <option value="">— Select —</option>
+                            @foreach (var u in Model.Uoms)
+                            {
+                                <option value="@u.Id">@u.Code · @u.Name</option>
+                            }
+                        </select>
+                        <span asp-validation-for="UomId" style="color:#A32D2D;font-size:11px;"></span>
+                    </div>
+
+                    <div>
+                        <label asp-for="OwnerId" style="display:block;font-size:12px;font-weight:500;margin-bottom:4px;">Owner *</label>
+                        <select asp-for="OwnerId" class="wms-input" required>
+                            <option value="">— Select —</option>
+                            @foreach (var o in Model.Owners)
+                            {
+                                <option value="@o.Id">@o.Code · @o.Name</option>
+                            }
+                        </select>
+                        <span asp-validation-for="OwnerId" style="color:#A32D2D;font-size:11px;"></span>
+                    </div>
+
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:500;margin-bottom:4px;">
+                            <input asp-for="AllowCreateNew" type="checkbox" style="margin-right:6px;" />
+                            Allow new Stock row
+                        </label>
+                        <p style="font-size:11px;color:var(--wms-text-secondary);margin:0;">
+                            Confirm adjustment may create a new Stock row (e.g. "Found" scenario).
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="wms-card" style="padding: 18px;">
+                <h3 style="margin: 0 0 4px; font-size: 14px; font-weight: 500;">
+                    <i class="ti ti-edit" style="color: #534AB7; margin-right: 6px;"></i>
+                    Adjustment
+                </h3>
+                <p style="margin: 0 0 16px; font-size: 12px; color: var(--wms-text-secondary);">
+                    Signed delta. Negative for write-off (damaged/lost); positive for found / over-count.
+                </p>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div>
+                        <label asp-for="QuantityDelta" style="display:block;font-size:12px;font-weight:500;margin-bottom:4px;">Quantity delta *</label>
+                        <input asp-for="QuantityDelta" type="number" step="0.01" class="wms-input" required />
+                        <span asp-validation-for="QuantityDelta" style="color:#A32D2D;font-size:11px;"></span>
+                    </div>
+
+                    <div>
+                        <label asp-for="Reason" style="display:block;font-size:12px;font-weight:500;margin-bottom:4px;">Reason *</label>
+                        <select asp-for="Reason" class="wms-input" required>
+                            <option value="">— Select —</option>
+                            @foreach (var r in WMS.Web.Models.Inventory.AdjustmentCreateViewModel.AllReasons)
+                            {
+                                <option value="@r">@r</option>
+                            }
+                        </select>
+                        <span asp-validation-for="Reason" style="color:#A32D2D;font-size:11px;"></span>
+                    </div>
+
+                    <div style="grid-column: 1 / -1;">
+                        <label asp-for="Notes" style="display:block;font-size:12px;font-weight:500;margin-bottom:4px;">
+                            Notes
+                            <span style="color:#A32D2D;font-weight:400;" x-show="$root.querySelector('select[name=&quot;Reason&quot;]')?.value === 'Other'">
+                                (required for "Other")
+                            </span>
+                        </label>
+                        <textarea asp-for="Notes" class="wms-input" rows="3" maxlength="1000"
+                                  placeholder="Optional context — required when Reason is 'Other'"></textarea>
+                        <span asp-validation-for="Notes" style="color:#A32D2D;font-size:11px;"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* === Right column: Submit + summary === *@
+        <aside style="display: flex; flex-direction: column; gap: 12px;">
+            <div class="wms-card" style="padding: 16px;">
+                <p style="margin: 0 0 12px; font-size: 12px; color: var(--wms-text-secondary);">
+                    On submit, this adjustment lands as <strong>Pending</strong>.
+                    Another user (not you) approves to apply it.
+                </p>
+                <button type="submit" class="wms-btn wms-btn-purple" style="width: 100%;">
+                    <i class="ti ti-check" style="margin-right: 6px;"></i>
+                    Submit for approval
+                </button>
+                <a asp-action="Index" class="wms-btn" style="width: 100%; display:block; text-align:center; margin-top: 8px;">
+                    Cancel
+                </a>
+            </div>
+
+            <div class="wms-card" style="padding: 16px;">
+                <p style="font-size: 11px; color: var(--wms-text-secondary); margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.4px;">Reason guide</p>
+                <ul style="font-size: 12px; color: var(--wms-text-secondary); padding-left: 18px; margin: 0;">
+                    <li><strong>Damaged</strong> — broken in handling</li>
+                    <li><strong>Expired</strong> — past use-by date</li>
+                    <li><strong>Lost</strong> — can't be located</li>
+                    <li><strong>Found</strong> — overcount, positive delta</li>
+                    <li><strong>ReturnedToSupplier</strong> — RMA out</li>
+                    <li><strong>Sample</strong> — given to a customer</li>
+                    <li><strong>Other</strong> — Notes required</li>
+                </ul>
+            </div>
+        </aside>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        function adjustmentForm(opts) {
+            return {
+                warehouseId: opts.warehouseId,
+                locations: opts.initialLocations || [],
+                async onWarehouseChanged(newId) {
+                    this.warehouseId = newId;
+                    if (!newId) {
+                        this.locations = [];
+                        return;
+                    }
+                    try {
+                        const r = await fetch(`/Adjustments/Locations/${newId}`);
+                        this.locations = await r.json();
+                    } catch (e) {
+                        console.error('Failed to fetch locations:', e);
+                        this.locations = [];
+                    }
+                },
+            };
+        }
+    </script>
+}
