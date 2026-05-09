@@ -15,7 +15,7 @@ public sealed record PurchaseOrderListRow(
     string OwnerName,
     Guid WarehouseId,
     string WarehouseCode,
-    DateTime? ExpectedDate,
+    DateOnly? ExpectedDate,
     string Status,
     int LineCount,
     decimal TotalExpectedQty,
