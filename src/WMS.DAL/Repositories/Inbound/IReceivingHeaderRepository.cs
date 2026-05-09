@@ -50,4 +50,10 @@ public interface IReceivingHeaderRepository
         Guid purchaseOrderId,
         int limit = 20,
         CancellationToken ct = default);
+
+    // Phase 9C — list-page query. LEFT JOINs PurchaseOrders + Owners
+    // (both nullable for blind receipts) + Warehouses + per-header
+    // line aggregate. Returns paged rows + total in one round-trip.
+    Task<WMS.DAL.Common.PagedResult<ReceivingListRow>> GetPagedAsync(
+        ReceivingFilter filter, CancellationToken ct = default);
 }

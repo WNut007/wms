@@ -134,4 +134,36 @@ internal sealed class StockMovementRepository : IStockMovementRepository
             cancellationToken: ct));
         return rows.AsList();
     }
+
+    public async Task<IReadOnlyList<StockMovementListRow>> GetByReceivingHeaderAsync(
+        Guid receivingHeaderId, int limit = 100, CancellationToken ct = default)
+    {
+        // Movement → ReceivingLine via the ReferenceType + ReferenceId
+        // pair (ADR-014). Filtered to lines on this specific
+        // ReceivingHeader. Same display-resolution LEFT JOINs as
+        // GetByProductAsync.
+        var rows = await _connection.QueryAsync<StockMovementListRow>(new CommandDefinition(
+            @"SELECT m.Id,
+                     m.MovementType,
+                     m.QuantityDelta,
+                     fl.Code AS FromLocationCode,
+                     tl.Code AS ToLocationCode,
+                     m.ReferenceType,
+                     m.Notes,
+                     COALESCE(u.FullName, u.Email, 'System') AS PerformedByName,
+                     m.PerformedAt
+              FROM inventory.StockMovements m
+              JOIN inbound.ReceivingLines rl
+                ON rl.Id = m.ReferenceId
+                AND m.ReferenceType = 'ReceivingLine'
+              LEFT JOIN master.Locations fl ON fl.Id = m.FromLocationId
+              LEFT JOIN master.Locations tl ON tl.Id = m.ToLocationId
+              LEFT JOIN security.Users u    ON u.Id  = m.PerformedBy
+              WHERE rl.ReceivingHeaderId = @receivingHeaderId
+              ORDER BY m.PerformedAt DESC
+              OFFSET 0 ROWS FETCH NEXT @limit ROWS ONLY",
+            new { receivingHeaderId, limit },
+            cancellationToken: ct));
+        return rows.AsList();
+    }
 }

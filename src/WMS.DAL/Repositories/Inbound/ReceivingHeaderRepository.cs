@@ -1,6 +1,7 @@
 using System.Data;
 using Dapper;
 using Microsoft.Data.SqlClient;
+using WMS.DAL.Common;
 using WMS.Domain.Entities.Inbound;
 
 namespace WMS.DAL.Repositories.Inbound;
@@ -158,6 +159,85 @@ internal sealed class ReceivingHeaderRepository : IReceivingHeaderRepository
 
         var lines = (await multi.ReadAsync<ReceivingLine>()).AsList();
         return new ReceivingDetail(header, lines);
+    }
+
+    public async Task<PagedResult<ReceivingListRow>> GetPagedAsync(
+        ReceivingFilter f, CancellationToken ct = default)
+    {
+        var orderBy   = ReceivingSortMapper.ToOrderByClause(f.SortBy, f.SortDesc);
+        var skip      = (f.Page - 1) * f.PageSize;
+        var take      = f.PageSize;
+        var searchLike = string.IsNullOrWhiteSpace(f.Search)
+            ? null
+            : $"%{f.Search.Trim()}%";
+
+        // CTE materialises the per-header line aggregate once. LEFT
+        // JOINs to PurchaseOrders + Owners (both nullable for blind
+        // receipts).
+        const string whereClause = @"
+WHERE (@Status IS NULL OR h.Status = @Status)
+  AND (@WarehouseCode IS NULL OR wh.Code = @WarehouseCode)
+  AND (@SearchLike IS NULL
+       OR h.ReceivingNumber LIKE @SearchLike
+       OR po.PoNumber LIKE @SearchLike)";
+
+        var sql = $@"
+WITH agg AS (
+    SELECT ReceivingHeaderId,
+           COUNT(*) AS LineCount,
+           SUM(ReceivedQuantity) AS TotalReceivedQty
+    FROM inbound.ReceivingLines
+    GROUP BY ReceivingHeaderId
+)
+SELECT
+    h.Id, h.ReceivingNumber,
+    h.PurchaseOrderId,
+    po.PoNumber AS PoNumber,
+    ow.Code AS VendorCode,
+    ow.Name AS VendorName,
+    h.WarehouseId, wh.Code AS WarehouseCode,
+    h.ReceivedAt, h.Status,
+    ISNULL(agg.LineCount,        0) AS LineCount,
+    ISNULL(agg.TotalReceivedQty, 0) AS TotalReceivedQty,
+    h.CreatedAt
+FROM inbound.ReceivingHeaders h
+LEFT JOIN inbound.PurchaseOrders po ON po.Id = h.PurchaseOrderId
+LEFT JOIN master.Owners          ow ON ow.Id = po.OwnerId
+JOIN      master.Warehouses      wh ON wh.Id = h.WarehouseId
+LEFT JOIN agg                       ON agg.ReceivingHeaderId = h.Id
+{whereClause}
+ORDER BY {orderBy}
+OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY;
+
+SELECT COUNT(*)
+FROM inbound.ReceivingHeaders h
+LEFT JOIN inbound.PurchaseOrders po ON po.Id = h.PurchaseOrderId
+JOIN      master.Warehouses      wh ON wh.Id = h.WarehouseId
+{whereClause};";
+
+        var args = new
+        {
+            f.Status,
+            f.WarehouseCode,
+            SearchLike = searchLike,
+            Skip = skip,
+            Take = take,
+        };
+
+        using var multi = await _connection.QueryMultipleAsync(new CommandDefinition(
+            sql, args, cancellationToken: ct));
+
+        var items = (await multi.ReadAsync<ReceivingListRow>()).AsList();
+        var total = await multi.ReadSingleAsync<int>();
+
+        return new PagedResult<ReceivingListRow>
+        {
+            Items = items,
+            Total = total,
+            Page = f.Page,
+            PageSize = f.PageSize,
+            TotalPages = (int)Math.Ceiling(total / (double)f.PageSize),
+        };
     }
 
     public async Task<IReadOnlyList<ReceivingActivityRow>> GetActivityByPoAsync(
