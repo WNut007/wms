@@ -47,4 +47,14 @@ public interface IStockMovementRepository
         DateTime? since = null,
         int limit = 20,
         CancellationToken ct = default);
+
+    // Phase 9C — per-receipt activity feed for /Receiving/Detail.
+    // Joins through inbound.ReceivingLines: every movement with
+    // ReferenceType='ReceivingLine' whose ReferenceId points at a
+    // line on this header. Same display-resolution LEFT JOINs as
+    // GetByProductAsync (Users + Locations × 2).
+    Task<IReadOnlyList<StockMovementListRow>> GetByReceivingHeaderAsync(
+        Guid receivingHeaderId,
+        int limit = 100,
+        CancellationToken ct = default);
 }

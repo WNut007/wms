@@ -1,0 +1,250 @@
+@model WMS.DAL.Repositories.Inbound.ReceivingDetail
+@{
+    Layout = null;  // Standalone print page — no app shell.
+    ViewData["Title"] = $"GRN {Model.Header.ReceivingNumber}";
+
+    var totalQty = Model.Lines.Sum(l => l.ReceivedQuantity);
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>@ViewData["Title"]</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@@400;500;600&family=JetBrains+Mono:wght@@400;500&display=swap" rel="stylesheet" />
+    <style>
+        @* === Screen + print common === *@
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', sans-serif;
+            font-size: 12px;
+            color: #111;
+            background: #f5f4f8;
+            padding: 24px;
+            line-height: 1.5;
+        }
+        .grn {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 36px 40px;
+            border: 0.5px solid #ddd;
+            border-radius: 6px;
+        }
+        .grn-actions {
+            max-width: 800px;
+            margin: 0 auto 14px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+        .grn-btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: 500;
+            background: #534AB7;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .grn-btn-secondary {
+            background: white;
+            color: #534AB7;
+            border: 0.5px solid #534AB7;
+        }
+
+        .grn-head {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 16px;
+            border-bottom: 1.5px solid #111;
+            padding-bottom: 18px;
+            margin-bottom: 24px;
+        }
+        .grn-head h1 {
+            font-size: 20px;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+            margin-bottom: 4px;
+        }
+        .grn-head .meta {
+            font-size: 11px;
+            color: #555;
+        }
+        .grn-doc-num {
+            text-align: right;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .grn-doc-num .label {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: #777;
+        }
+        .grn-doc-num .num {
+            font-size: 16px;
+            font-weight: 500;
+            margin-top: 2px;
+        }
+
+        .grn-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px 24px;
+            margin-bottom: 24px;
+        }
+        .grn-info-block dt {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: #777;
+            font-weight: 600;
+            margin-bottom: 3px;
+        }
+        .grn-info-block dd {
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        table.grn-lines {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 24px;
+        }
+        .grn-lines th, .grn-lines td {
+            padding: 8px 10px;
+            text-align: left;
+            border-bottom: 0.5px solid #ccc;
+        }
+        .grn-lines thead th {
+            background: #f5f4f8;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: #555;
+            border-bottom: 1px solid #777;
+        }
+        .grn-lines td.num {
+            text-align: right;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .grn-lines tfoot td {
+            font-weight: 600;
+            border-top: 1px solid #777;
+            border-bottom: none;
+        }
+
+        .grn-sigs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 36px;
+            margin-top: 36px;
+            padding-top: 24px;
+            border-top: 0.5px solid #ddd;
+        }
+        .grn-sig {
+            text-align: center;
+            font-size: 10px;
+            color: #555;
+        }
+        .grn-sig-line {
+            border-top: 1px solid #111;
+            padding-top: 6px;
+            margin-top: 36px;
+        }
+
+        @@media print {
+            body { background: white; padding: 0; }
+            .grn { border: none; box-shadow: none; max-width: 100%; padding: 16mm; }
+            .grn-actions { display: none; }
+            @@page { size: A4; margin: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="grn-actions">
+        <a href="/Receiving/Detail/@Uri.EscapeDataString(Model.Header.ReceivingNumber)" class="grn-btn grn-btn-secondary">
+            ← Back to detail
+        </a>
+        <button type="button" class="grn-btn" onclick="window.print()">
+            Print
+        </button>
+    </div>
+
+    <div class="grn">
+        <header class="grn-head">
+            <div>
+                <h1>Goods Received Note</h1>
+                <p class="meta">WMS · Inbound receipt</p>
+            </div>
+            <div class="grn-doc-num">
+                <p class="label">Receiving #</p>
+                <p class="num">@Model.Header.ReceivingNumber</p>
+            </div>
+        </header>
+
+        <dl class="grn-info">
+            <div class="grn-info-block">
+                <dt>Received at</dt>
+                <dd>@Model.Header.ReceivedAt.ToString("yyyy-MM-dd HH:mm") UTC</dd>
+            </div>
+            <div class="grn-info-block">
+                <dt>Status</dt>
+                <dd>@Model.Header.Status</dd>
+            </div>
+            <div class="grn-info-block">
+                <dt>Purchase order</dt>
+                <dd>
+                    @(Model.Header.PurchaseOrderId.HasValue ? "Linked" : "Blind receipt")
+                </dd>
+            </div>
+            <div class="grn-info-block">
+                <dt>Notes</dt>
+                <dd>@(string.IsNullOrWhiteSpace(Model.Header.Notes) ? "—" : Model.Header.Notes)</dd>
+            </div>
+        </dl>
+
+        <table class="grn-lines">
+            <thead>
+                <tr>
+                    <th style="width: 40px;">#</th>
+                    <th>Product</th>
+                    <th>Lot</th>
+                    <th>Pallet</th>
+                    <th class="num" style="width: 100px;">Quantity</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var line in Model.Lines.OrderBy(l => l.LineNumber))
+                {
+                    <tr>
+                        <td>@line.LineNumber</td>
+                        <td><span style="font-family: 'JetBrains Mono', monospace;">@line.ProductId.ToString()[..8]</span></td>
+                        <td>@(string.IsNullOrEmpty(line.LotNumber) ? "—" : line.LotNumber)</td>
+                        <td>@(string.IsNullOrEmpty(line.PalletNumber) ? "—" : line.PalletNumber)</td>
+                        <td class="num">@line.ReceivedQuantity.ToString("N2")</td>
+                    </tr>
+                }
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="4" style="text-align: right;">Total received qty</td>
+                    <td class="num">@totalQty.ToString("N2")</td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <div class="grn-sigs">
+            <div class="grn-sig">
+                <div class="grn-sig-line">Received by</div>
+            </div>
+            <div class="grn-sig">
+                <div class="grn-sig-line">Verified by</div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
