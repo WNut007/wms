@@ -10,9 +10,16 @@
     <title>@ViewData["Title"] - WMS</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@@400;500;600&family=JetBrains+Mono:wght@@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@@tabler/icons-webfont@@latest/dist/tabler-icons.min.css" />
     <link rel="stylesheet" href="~/css/wms-custom.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/wms-picker.css" asp-append-version="true" />
+
+    @* Phase 8.5 — Alpine for the warehouse picker's client-side
+       filter (search + region chips). Login + tenant-select pages
+       don't need it but the cost is tiny and keeps _AuthLayout
+       uniform across the 3 auth steps. *@
+    <script defer src="https://unpkg.com/alpinejs@@3.14.1/dist/cdn.min.js"></script>
 </head>
 <body>
     @RenderBody()
