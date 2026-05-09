@@ -60,6 +60,88 @@ WHERE p.Code = @code",
             new { code },
             cancellationToken: ct));
 
+    public async Task<Guid> InsertAsync(
+        Product entity, Guid? userId, CancellationToken ct = default)
+    {
+        // Caller-assigned Id wins; otherwise generate one client-side
+        // so subsequent reads (e.g. redirect to /Products/Detail/{code})
+        // don't need a follow-up SELECT to discover it. Mirrors
+        // DocumentRepository.InsertAsync.
+        if (entity.Id == Guid.Empty) entity.Id = Guid.NewGuid();
+
+        // CreatedAt set server-side via SYSUTCDATETIME() so all rows
+        // share a consistent clock; UpdatedAt left NULL on insert
+        // (signals "never edited"). No Version column on master.Products.
+        const string sql = @"
+INSERT INTO master.Products
+    (Id, Code, Name, CategoryId, BaseUomId,
+     TrackingMethod, VelocityClass, UseCatchWeight, Status, Brand,
+     CreatedAt, CreatedBy)
+VALUES
+    (@Id, @Code, @Name, @CategoryId, @BaseUomId,
+     @TrackingMethod, @VelocityClass, @UseCatchWeight, @Status, @Brand,
+     SYSUTCDATETIME(), @UserId);";
+
+        await _connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            new
+            {
+                entity.Id,
+                entity.Code,
+                entity.Name,
+                entity.CategoryId,
+                entity.BaseUomId,
+                entity.TrackingMethod,
+                entity.VelocityClass,
+                entity.UseCatchWeight,
+                entity.Status,
+                entity.Brand,
+                UserId = userId,
+            },
+            cancellationToken: ct));
+        return entity.Id;
+    }
+
+    public async Task<bool> UpdateAsync(
+        Product entity, Guid? userId, CancellationToken ct = default)
+    {
+        // Code intentionally omitted from SET — read-only on Edit per
+        // Phase 7 brief. Changing it would orphan inventory.Stock,
+        // billing, and movement-log references that key on ProductId
+        // but display Code in audit trails.
+        const string sql = @"
+UPDATE master.Products SET
+    Name           = @Name,
+    CategoryId     = @CategoryId,
+    BaseUomId      = @BaseUomId,
+    TrackingMethod = @TrackingMethod,
+    VelocityClass  = @VelocityClass,
+    UseCatchWeight = @UseCatchWeight,
+    Status         = @Status,
+    Brand          = @Brand,
+    UpdatedAt      = SYSUTCDATETIME(),
+    UpdatedBy      = @UserId
+WHERE Id = @Id;";
+
+        var rows = await _connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            new
+            {
+                entity.Id,
+                entity.Name,
+                entity.CategoryId,
+                entity.BaseUomId,
+                entity.TrackingMethod,
+                entity.VelocityClass,
+                entity.UseCatchWeight,
+                entity.Status,
+                entity.Brand,
+                UserId = userId,
+            },
+            cancellationToken: ct));
+        return rows > 0;
+    }
+
     public async Task<PagedResult<ProductListRow>> GetPagedAsync(
         ProductFilter f, CancellationToken ct = default)
     {

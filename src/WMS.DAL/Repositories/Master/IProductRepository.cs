@@ -3,12 +3,15 @@ using WMS.Domain.Entities.Master;
 
 namespace WMS.DAL.Repositories.Master;
 
-// Tenant-scoped reads against master.Products. Bound to a single tenant
-// DB connection — get an instance via IProductRepositoryFactory.
+// Tenant-scoped reads + writes against master.Products. Bound to a
+// single tenant DB connection — get an instance via
+// IProductRepositoryFactory.
 //
-// Phase 6B is read-only; Insert/Update/Archive belong to a future admin-
-// CRUD surface (Phase 7+) and are intentionally absent — interface stays
-// small, no untested write methods shipped.
+// Writes added in Phase 7 (admin Create / Edit). master.Products has no
+// Version column (low-churn metadata; ADR-014 audit confirms optimistic
+// concurrency intentionally not used) — UpdateAsync therefore does NOT
+// include `Version = Version + 1` or `WHERE Version = @originalVersion`.
+// Concurrent edits are last-write-wins; acceptable for master metadata.
 public interface IProductRepository
 {
     // List-page query. Returns the paged rows + total count in a single
@@ -29,4 +32,22 @@ public interface IProductRepository
     // its hero stats and badges from a single round-trip without a
     // separate Stock query.
     Task<ProductListRow?> GetListRowByCodeAsync(string code, CancellationToken ct = default);
+
+    // Inserts a new product. Caller may pre-assign Id; if Guid.Empty,
+    // the repo generates one. CreatedAt is set to SYSUTCDATETIME() on
+    // the server so all rows share a consistent clock. CreatedBy comes
+    // from the controller's CurrentUser.UserId (or null for system
+    // writes — same convention as PurchaseOrderRepository.CreateAsync).
+    //
+    // Throws SqlException 2627 (UNIQUE KEY violation) if Code is already
+    // taken — the controller catches this and surfaces a field-level
+    // ModelState error on Code.
+    Task<Guid> InsertAsync(Product entity, Guid? userId, CancellationToken ct = default);
+
+    // Updates a product. Code is NOT updated (read-only on the Edit
+    // form per Phase 7 brief — changing it would orphan FK references
+    // from inventory.Stock, billing, etc.). UpdatedAt set server-side;
+    // UpdatedBy from controller's CurrentUser.UserId. No Version
+    // increment (no Version column on master.Products).
+    Task<bool> UpdateAsync(Product entity, Guid? userId, CancellationToken ct = default);
 }
