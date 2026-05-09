@@ -63,8 +63,9 @@ public sealed class ReceivingController : Controller
             SortBy: sortBy,
             SortDesc: sortDesc);
 
-        var result = await _repos.For(_tenant.RequireTenantId())
-                                 .GetPagedAsync(filter, ct);
+        var repo = _repos.For(_tenant.RequireTenantId());
+        var result = await repo.GetPagedAsync(filter, ct);
+        var counts = await repo.GetStatusCountsAsync(filter, ct);  // TD-028
 
         return Json(new
         {
@@ -88,6 +89,13 @@ public sealed class ReceivingController : Controller
             page       = result.Page,
             pageSize   = result.PageSize,
             totalPages = result.TotalPages,
+            counts     = new
+            {
+                all       = counts.All,
+                draft     = counts.Draft,
+                posted    = counts.Posted,
+                cancelled = counts.Cancelled,
+            },
         });
     }
 

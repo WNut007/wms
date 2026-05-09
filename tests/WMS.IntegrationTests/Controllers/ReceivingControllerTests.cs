@@ -39,6 +39,13 @@ public class ReceivingControllerTests
                 It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<StockMovementListRow>());
 
+        // TD-028 — chip-count aggregates. Default zero-counts so GetData
+        // tests that don't care about counts still get a populated
+        // ReceivingStatusCounts (controller dereferences it).
+        repo.Setup(r => r.GetStatusCountsAsync(
+                It.IsAny<ReceivingFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReceivingStatusCounts(0, 0, 0, 0));
+
         var tenant = new Mock<ITenantContext>();
         tenant.Setup(t => t.RequireTenantId()).Returns(TenantId);
 
@@ -195,5 +202,54 @@ public class ReceivingControllerTests
     {
         Assert.Equal(wire, WMS.Web.Services.Mappers.ReceivingStatusMapper.ToWire(db));
         Assert.Equal(db, WMS.Web.Services.Mappers.ReceivingStatusMapper.FromWire(wire));
+    }
+
+    // TD-028 — chip counts surface on the JSON envelope.
+    [Fact]
+    public async Task GetData_ReturnsCountsAlongsideRows()
+    {
+        var b = BuildController();
+        b.Repo.Setup(r => r.GetStatusCountsAsync(
+                It.IsAny<ReceivingFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReceivingStatusCounts(
+                All: 12, Draft: 3, Posted: 7, Cancelled: 2));
+        b.Repo.Setup(r => r.GetPagedAsync(
+                It.IsAny<ReceivingFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PagedResult<ReceivingListRow>
+            {
+                Items = new(), Total = 12, Page = 1, PageSize = 20, TotalPages = 1,
+            });
+
+        var json = Assert.IsType<JsonResult>(await b.Controller.GetData());
+        var envelope = json.Value!;
+        var counts = envelope.GetType().GetProperty("counts")!.GetValue(envelope)!;
+        Assert.Equal(12, counts.GetType().GetProperty("all")!.GetValue(counts));
+        Assert.Equal(3,  counts.GetType().GetProperty("draft")!.GetValue(counts));
+        Assert.Equal(7,  counts.GetType().GetProperty("posted")!.GetValue(counts));
+        Assert.Equal(2,  counts.GetType().GetProperty("cancelled")!.GetValue(counts));
+    }
+
+    // TD-028 — counts request shares the same filter as the rows query
+    // (so search is honoured); but per repo contract the counts query
+    // ignores Status. Confirms the controller passes the filter through.
+    [Fact]
+    public async Task GetData_PassesSameFilterToCountsAsToRows()
+    {
+        var b = BuildController();
+        ReceivingFilter? capturedRows = null;
+        ReceivingFilter? capturedCounts = null;
+        b.Repo.Setup(r => r.GetPagedAsync(It.IsAny<ReceivingFilter>(), It.IsAny<CancellationToken>()))
+            .Callback<ReceivingFilter, CancellationToken>((f, _) => capturedRows = f)
+            .ReturnsAsync(new PagedResult<ReceivingListRow>());
+        b.Repo.Setup(r => r.GetStatusCountsAsync(It.IsAny<ReceivingFilter>(), It.IsAny<CancellationToken>()))
+            .Callback<ReceivingFilter, CancellationToken>((f, _) => capturedCounts = f)
+            .ReturnsAsync(new ReceivingStatusCounts(0, 0, 0, 0));
+
+        await b.Controller.GetData(search: "GR-7", status: "posted");
+
+        Assert.NotNull(capturedRows);
+        Assert.NotNull(capturedCounts);
+        Assert.Equal(capturedRows!.Search, capturedCounts!.Search);
+        Assert.Equal(capturedRows.Status,  capturedCounts.Status);
     }
 }

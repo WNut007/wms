@@ -103,4 +103,18 @@ public interface IPurchaseOrderRepository
     // Received lines flip to Cancelled.
     Task CancelOpenLinesAsync(
         Guid purchaseOrderId, Guid? userId, CancellationToken ct = default);
+
+    // Phase 10A (TD-029) — resolves product code+name + UoM code via
+    // JOIN for the PO Detail Lines tab. Replaces the raw entity list
+    // (which carries Guid-only FKs) for any read surface that needs to
+    // display human-readable identifiers.
+    Task<IReadOnlyList<PurchaseOrderLineRow>> GetLineRowsByIdAsync(
+        Guid purchaseOrderId, CancellationToken ct = default);
+
+    // Phase 10A (TD-028) — chip-count aggregates for the list page.
+    // Returns one row of per-status counts that respects the search
+    // filter but ignores the status filter (so all chips can render
+    // their counts in one round-trip alongside the rows + total).
+    Task<PurchaseOrderStatusCounts> GetStatusCountsAsync(
+        PurchaseOrderFilter filter, CancellationToken ct = default);
 }

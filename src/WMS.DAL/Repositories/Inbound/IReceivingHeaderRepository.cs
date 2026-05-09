@@ -56,4 +56,18 @@ public interface IReceivingHeaderRepository
     // line aggregate. Returns paged rows + total in one round-trip.
     Task<WMS.DAL.Common.PagedResult<ReceivingListRow>> GetPagedAsync(
         ReceivingFilter filter, CancellationToken ct = default);
+
+    // Phase 10A (TD-030) — structured receipts feed for the PO Detail
+    // Receipts tab. Distinct from GetActivityByPoAsync (which returns
+    // the chronological activity-feed shape with PerformedByName) —
+    // this carries the TotalReceivedQty column the table renders.
+    // Newest first.
+    Task<IReadOnlyList<PoReceiptRow>> GetReceiptsByPoIdAsync(
+        Guid purchaseOrderId, CancellationToken ct = default);
+
+    // Phase 10A (TD-028) — chip-count aggregates for /Receiving list.
+    // Same shape as PurchaseOrderRepository.GetStatusCountsAsync —
+    // counts respect search + warehouse filter, ignore status.
+    Task<ReceivingStatusCounts> GetStatusCountsAsync(
+        ReceivingFilter filter, CancellationToken ct = default);
 }

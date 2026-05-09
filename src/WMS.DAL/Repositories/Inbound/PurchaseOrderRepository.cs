@@ -388,4 +388,68 @@ SELECT CASE WHEN EXISTS (
                 AND Status IN ('Open', 'PartiallyReceived');",
             new { poId = purchaseOrderId, UserId = userId },
             cancellationToken: ct));
+
+    // ================================================================
+    // Phase 10A — PO Detail Lines tab + chip-count aggregates
+    // ================================================================
+
+    public async Task<IReadOnlyList<PurchaseOrderLineRow>> GetLineRowsByIdAsync(
+        Guid purchaseOrderId, CancellationToken ct = default)
+    {
+        // INNER JOINs — Product + UoM are required FKs on the line; no
+        // null-row risk. Sorted by LineNumber to match the on-paper view.
+        const string sql = @"
+SELECT
+    pol.Id,
+    pol.LineNumber,
+    pol.ProductId,
+    p.Code        AS ProductCode,
+    p.Name        AS ProductName,
+    pol.UomId,
+    u.Code        AS UomCode,
+    pol.ExpectedQuantity,
+    pol.ReceivedQuantity,
+    pol.Status
+FROM inbound.PurchaseOrderLines pol
+JOIN master.Products        p ON p.Id = pol.ProductId
+JOIN master.UnitsOfMeasure  u ON u.Id = pol.UomId
+WHERE pol.PurchaseOrderId = @poId
+ORDER BY pol.LineNumber;";
+
+        var rows = await _connection.QueryAsync<PurchaseOrderLineRow>(new CommandDefinition(
+            sql, new { poId = purchaseOrderId }, cancellationToken: ct));
+        return rows.AsList();
+    }
+
+    public async Task<PurchaseOrderStatusCounts> GetStatusCountsAsync(
+        PurchaseOrderFilter f, CancellationToken ct = default)
+    {
+        // Single SUM(CASE WHEN) round-trip. Same WHERE shape as
+        // GetPagedAsync EXCEPT @Status is intentionally absent — counts
+        // are per-status; the chips need totals across all statuses to
+        // render even when the user has narrowed via a status chip.
+        var searchLike = string.IsNullOrWhiteSpace(f.Search)
+            ? null
+            : $"%{f.Search.Trim()}%";
+
+        const string sql = @"
+SELECT
+    COUNT(*)                                                           AS [All],
+    SUM(CASE WHEN po.Status = 'Open'      THEN 1 ELSE 0 END)           AS [Open],
+    SUM(CASE WHEN po.Status = 'Receiving' THEN 1 ELSE 0 END)           AS Receiving,
+    SUM(CASE WHEN po.Status = 'Closed'    THEN 1 ELSE 0 END)           AS Closed,
+    SUM(CASE WHEN po.Status = 'Cancelled' THEN 1 ELSE 0 END)           AS Cancelled
+FROM inbound.PurchaseOrders po
+JOIN master.Owners     ow ON ow.Id = po.OwnerId
+JOIN master.Warehouses wh ON wh.Id = po.WarehouseId
+WHERE (@OwnerCode     IS NULL OR ow.Code     = @OwnerCode)
+  AND (@WarehouseCode IS NULL OR wh.Code     = @WarehouseCode)
+  AND (@SearchLike    IS NULL OR po.PoNumber LIKE @SearchLike);";
+
+        return await _connection.QuerySingleAsync<PurchaseOrderStatusCounts>(
+            new CommandDefinition(
+                sql,
+                new { f.OwnerCode, f.WarehouseCode, SearchLike = searchLike },
+                cancellationToken: ct));
+    }
 }

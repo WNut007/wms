@@ -1,0 +1,56 @@
+@model WMS.Web.ViewModels.Detail.DetailPageViewModel
+@{
+    var receipts = ViewBag.PoReceipts as IReadOnlyList<WMS.DAL.Repositories.Inbound.PoReceiptRow>
+                   ?? new List<WMS.DAL.Repositories.Inbound.PoReceiptRow>();
+}
+
+<section class="wmsd-section">
+    <p class="wmsd-section-eyebrow">— Receipts</p>
+    <h2>Goods receipts</h2>
+
+    @if (receipts.Count == 0)
+    {
+        <p style="text-align: center; padding: 40px; color: var(--wms-text-tertiary); font-size: 12px;">
+            No receipts posted yet for this PO.
+        </p>
+    }
+    else
+    {
+        <div style="overflow-x: auto;">
+            <table class="wms-table" style="width: 100%;">
+                <thead>
+                    <tr>
+                        <th>Receiving #</th>
+                        <th>Received at</th>
+                        <th style="width: 120px;">Status</th>
+                        <th style="width: 80px; text-align: right;">Lines</th>
+                        <th style="width: 130px; text-align: right;">Total qty</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in receipts)
+                    {
+                        var statusVariant = r.Status switch
+                        {
+                            "Draft"     => "s-warning",
+                            "Posted"    => "s-success",
+                            "Cancelled" => "s-neutral",
+                            _           => "s-neutral",
+                        };
+                        var url = $"/Receiving/Detail/{System.Uri.EscapeDataString(r.ReceivingNumber)}";
+                        <tr style="cursor: pointer;" onclick="window.location.href='@url'">
+                            <td><a href="@url" class="mono" style="font-weight: 500;">@r.ReceivingNumber</a></td>
+                            <td>
+                                <span>@r.ReceivedAt.ToString("yyyy-MM-dd HH:mm")</span>
+                                <span style="font-size: 11px; color: var(--wms-text-secondary); display: block;">@WMS.Web.Services.RelativeTime.Format(r.ReceivedAt)</span>
+                            </td>
+                            <td><span class="wmsd-badge @statusVariant">@r.Status</span></td>
+                            <td style="text-align: right;">@r.LineCount</td>
+                            <td style="text-align: right;">@r.TotalReceivedQty.ToString("N2")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
