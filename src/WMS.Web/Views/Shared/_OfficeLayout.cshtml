@@ -21,6 +21,11 @@
        new --wmsf-/--wmsd- token systems and component classes win. *@
     <link rel="stylesheet" href="~/css/wms-forms.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/wms-detail.css" asp-append-version="true" />
+    @* Phase 9 hotfix — wms-picker.css carries the .wmsp-chip pill
+       styles used by /PurchaseOrders + /Receiving + (originally) the
+       Auth picker. Was only loaded from _AuthLayout, leaving Phase 9A
+       and 9C list pages with unstyled buttons. *@
+    <link rel="stylesheet" href="~/css/wms-picker.css" asp-append-version="true" />
 
     <script defer src="https://unpkg.com/htmx.org@@2.0.4"></script>
     <script defer src="https://unpkg.com/alpinejs@@3.14.1/dist/cdn.min.js"></script>
