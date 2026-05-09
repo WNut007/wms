@@ -1,10 +1,13 @@
+using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
+using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
 using WMS.DAL.Common;
 using WMS.DAL.Repositories.Master;
 using WMS.Domain.Entities.Master;
 using WMS.Web.Controllers;
+using WMS.Web.Models.Master;
 using WMS.Web.Services.Storage;
 using WMS.Web.ViewModels.Detail;
 
@@ -28,7 +31,36 @@ public class CustomersControllerTests
             d.ListByEntityAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())
                 == Task.FromResult(new List<DocumentMetadata>()));
 
-        return (new CustomersController(factory.Object, tenant.Object, docs), repo);
+        // Phase 7 admin write-side dependencies — defaulted for read-side
+        // tests; Phase 7F admin tests will introduce richer setup.
+        var carrierRepo = new Mock<ICarrierRepository>();
+        carrierRepo.Setup(r => r.GetActiveAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<LookupItem>());
+        var carrierFactory = new Mock<ICarrierRepositoryFactory>();
+        carrierFactory.Setup(f => f.For(It.IsAny<Guid>())).Returns(carrierRepo.Object);
+
+        var createValidator = new Mock<IValidator<CustomerCreateViewModel>>();
+        createValidator
+            .Setup(v => v.ValidateAsync(It.IsAny<CustomerCreateViewModel>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FluentValidation.Results.ValidationResult());
+
+        var editValidator = new Mock<IValidator<CustomerEditViewModel>>();
+        editValidator
+            .Setup(v => v.ValidateAsync(It.IsAny<CustomerEditViewModel>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FluentValidation.Results.ValidationResult());
+
+        var currentUser = new Mock<ICurrentUser>();
+        currentUser.SetupGet(u => u.UserId).Returns(Guid.NewGuid());
+
+        return (new CustomersController(
+                    factory.Object,
+                    tenant.Object,
+                    docs,
+                    carrierFactory.Object,
+                    createValidator.Object,
+                    editValidator.Object,
+                    currentUser.Object),
+                repo);
     }
 
     private static CustomerListRow Row(string code, string status = "Active",

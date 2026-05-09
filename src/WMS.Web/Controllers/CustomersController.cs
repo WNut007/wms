@@ -1,7 +1,10 @@
+using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
 using WMS.DAL.Repositories.Master;
+using WMS.Web.Models.Master;
 using WMS.Web.Services;
 using WMS.Web.Services.Mappers;
 using WMS.Web.Services.Storage;
@@ -9,22 +12,36 @@ using WMS.Web.ViewModels.Detail;
 
 namespace WMS.Web.Controllers;
 
+// Read-side here; admin Create / Edit lives in
+// CustomersController.Admin.cs (partial).
 [Authorize]
 [Route("Customers")]
-public class CustomersController : Controller
+public partial class CustomersController : Controller
 {
     private readonly ICustomerRepositoryFactory _repos;
     private readonly ITenantContext _tenant;
     private readonly IDocumentStorageService _docs;
+    private readonly ICarrierRepositoryFactory _carrierRepos;
+    private readonly IValidator<CustomerCreateViewModel> _createValidator;
+    private readonly IValidator<CustomerEditViewModel> _editValidator;
+    private readonly ICurrentUser _currentUser;
 
     public CustomersController(
         ICustomerRepositoryFactory repos,
         ITenantContext tenant,
-        IDocumentStorageService docs)
+        IDocumentStorageService docs,
+        ICarrierRepositoryFactory carrierRepos,
+        IValidator<CustomerCreateViewModel> createValidator,
+        IValidator<CustomerEditViewModel> editValidator,
+        ICurrentUser currentUser)
     {
         _repos = repos;
         _tenant = tenant;
         _docs = docs;
+        _carrierRepos = carrierRepos;
+        _createValidator = createValidator;
+        _editValidator = editValidator;
+        _currentUser = currentUser;
     }
 
     [HttpGet("")]
