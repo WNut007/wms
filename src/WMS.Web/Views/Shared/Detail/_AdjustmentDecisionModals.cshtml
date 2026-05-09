@@ -1,0 +1,160 @@
+@*
+    Phase 11A — Approve / Reject confirmation modals for Adjustment
+    Detail. CSS-only :target activation, same stateless pattern as
+    Phase 10B's _CancelReceiptModal. Two separate overlays with
+    distinct ids (#approve-modal / #reject-modal).
+
+    Rendered conditionally by _DetailLayout when ViewBag.HeaderId is
+    set AND ViewBag.CanDecide is true. The "self-approval blocked"
+    notice renders separately via the SelfApproval flag (so the
+    requester sees WHY their Approve buttons are disabled).
+*@
+
+<style>
+    .wms-adj-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        z-index: 9999;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+    }
+    .wms-adj-overlay:target { display: flex; }
+
+    .wms-adj-modal {
+        background: #fff;
+        border-radius: 12px;
+        max-width: 460px;
+        width: 100%;
+        padding: 24px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+    }
+    .wms-adj-modal h2 {
+        margin: 0 0 6px;
+        font-size: 18px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .wms-adj-modal h2.is-approve { color: #0F6E56; }
+    .wms-adj-modal h2.is-reject  { color: #A32D2D; }
+    .wms-adj-modal p.lead {
+        margin: 0 0 16px;
+        font-size: 13px;
+        color: var(--wmsd-text-secondary, #6B7280);
+    }
+    .wms-adj-modal label {
+        display: block;
+        margin: 0 0 4px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+    .wms-adj-modal textarea {
+        width: 100%;
+        min-height: 84px;
+        padding: 8px 10px;
+        font-size: 13px;
+        font-family: inherit;
+        border: 1px solid #D1D5DB;
+        border-radius: 6px;
+        resize: vertical;
+        box-sizing: border-box;
+    }
+    .wms-adj-modal textarea:focus {
+        outline: none;
+        border-color: #534AB7;
+        box-shadow: 0 0 0 3px rgba(83, 74, 183, 0.15);
+    }
+    .wms-adj-modal .wms-adj-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 16px;
+    }
+    .wms-adj-btn {
+        padding: 8px 16px;
+        font-size: 13px;
+        font-weight: 500;
+        border-radius: 6px;
+        border: 0.5px solid #D1D5DB;
+        background: #fff;
+        color: #374151;
+        cursor: pointer;
+        text-decoration: none;
+        line-height: 1;
+    }
+    .wms-adj-btn:hover { background: #F3F4F6; }
+    .wms-adj-btn.is-approve {
+        background: #0F6E56;
+        border-color: #0F6E56;
+        color: #fff;
+    }
+    .wms-adj-btn.is-approve:hover { background: #0B5A47; }
+    .wms-adj-btn.is-reject {
+        background: #A32D2D;
+        border-color: #A32D2D;
+        color: #fff;
+    }
+    .wms-adj-btn.is-reject:hover { background: #8B2424; }
+</style>
+
+@* === Approve modal === *@
+<div id="approve-modal" class="wms-adj-overlay">
+    <div class="wms-adj-modal" role="dialog" aria-labelledby="approve-modal-title">
+        <h2 id="approve-modal-title" class="is-approve">
+            <i class="ti ti-check" aria-hidden="true"></i>
+            Approve & apply
+        </h2>
+        <p class="lead">
+            This writes the stock change immediately, paired with a Movement Log entry.
+            The action is logged with you as approver and cannot be reversed (a separate
+            cancellation adjustment is the path forward).
+        </p>
+
+        <form asp-controller="Adjustments" asp-action="Approve"
+              asp-route-id="@ViewBag.HeaderId" method="post">
+            @Html.AntiForgeryToken()
+
+            <div class="wms-adj-actions">
+                <a href="#" class="wms-adj-btn">Cancel</a>
+                <button type="submit" class="wms-adj-btn is-approve">
+                    Confirm approval
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+@* === Reject modal === *@
+<div id="reject-modal" class="wms-adj-overlay">
+    <div class="wms-adj-modal" role="dialog" aria-labelledby="reject-modal-title">
+        <h2 id="reject-modal-title" class="is-reject">
+            <i class="ti ti-x" aria-hidden="true"></i>
+            Reject adjustment
+        </h2>
+        <p class="lead">
+            This terminates the request. Stock is unchanged. The rejection reason is
+            saved for audit.
+        </p>
+
+        <form asp-controller="Adjustments" asp-action="Reject"
+              asp-route-id="@ViewBag.HeaderId" method="post">
+            @Html.AntiForgeryToken()
+
+            <label for="reject-reason">Reason (required, 3–500 chars)</label>
+            <textarea id="reject-reason" name="Reason"
+                      required minlength="3" maxlength="500"
+                      placeholder="e.g. delta doesn't match physical recount; please redo"></textarea>
+
+            <div class="wms-adj-actions">
+                <a href="#" class="wms-adj-btn">Cancel</a>
+                <button type="submit" class="wms-adj-btn is-reject">
+                    Confirm rejection
+                </button>
+            </div>
+        </form>
+    </div>
+</div>

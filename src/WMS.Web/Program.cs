@@ -105,6 +105,10 @@ builder.Services.AddScoped<IReceivingHeaderRepositoryFactory, ReceivingHeaderRep
 builder.Services.AddScoped<IReceivingHeaderService, ReceivingHeaderService>();
 builder.Services.AddScoped<IPutawayService, PutawayService>();
 
+// Phase 11A — Stock Adjustments (ADR-013).
+builder.Services.AddScoped<IAdjustmentRepositoryFactory, AdjustmentRepositoryFactory>();
+builder.Services.AddScoped<IAdjustmentService, AdjustmentService>();
+
 // PermissionService — Scoped to match the (Scoped) factory dep. The
 // cache itself lives on IMemoryCache (Singleton), so per-request
 // instances cost nothing and survive the captive-dependency check.

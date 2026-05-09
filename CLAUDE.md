@@ -317,11 +317,46 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Day 10 · Phase 10A + 10B shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened`
-**Current Focus**: Phase 11 direction TBD — Adjustment workflow (ADR-013) most likely candidate now that inbound is production-grade
-**Blockers**: none — user must run `dotnet run --project tools/WMS.Migrate` to apply migration 20260510_008 (Cancelled* audit fields)
+**Active Sprint**: Day 10 · Phase 10A + 10B + 11A shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments`
+**Current Focus**: Phase 12 direction TBD — Outbound MVP (sales orders → pick) most likely candidate now that inbound + inventory ops are solid
+**Blockers**: none — migrations 20260510_008 + 20260510_009 already applied to dev tenant
 
 Update this section weekly during standups.
+
+### Day 10 — Phase 11A (Stock Adjustment Workflow — ADR-013)
+
+**Branch**: `feat/adjustment-workflow` → merged to `main` · **Tag**: `v1.1.0-adjustments` · **Implements**: ADR-013
+
+First net-new operational feature post-MVP. Daily-ops gap closer (cycle-count discrepancies, breakage write-offs, found stock, return-to-supplier).
+
+**Schema** (`inventory.Adjustments`, migration `20260510_009`):
+- Single-line per ADR (cycle counts use future `counts.CountAdjustments` table).
+- Flat 3-state machine: Pending → (Applied | Rejected). Apply atomic with approval — no intermediate Approved state.
+- 6-tuple stock target denormalised (LocationId / ProductId / LotId / PalletId / OwnerId / UomId + WarehouseId for filter). `StockId` nullable: NULL on Pending; populated to resolved row on Apply.
+- Audit trio per terminal state: `RequestedBy/At` (always set), `ApprovedBy/At` + `AppliedAt` (Applied), `RejectedBy/At` + `RejectionReason` (Rejected). `CK_Adjustments_AuditMatchesStatus` enforces the per-status invariant.
+- 4 CHECK constraints: status enum (`Pending|Applied|Rejected`), reason enum (`Damaged|Expired|Lost|Found|ReturnedToSupplier|Sample|Other`), QuantityDelta non-zero, audit-status invariant.
+- 3 indexes: per-status pending queue, per-warehouse list, per-stock partial (filtered to `WHERE StockId IS NOT NULL`).
+
+**Service** (`IAdjustmentService`):
+- `CreateAsync` — validates 6-tuple + reason + non-zero delta + non-empty user; assigns `ADJ-YYYYMMDD-NNNN` via repo's `CountForDatePrefixAsync`. Lands as Pending with `StockId=null`.
+- `ApproveAsync` — TransactionScope-wrapped (same pattern as Phase 10B cancel; multi-connection → MSDTC promotion accepted). Steps: (1) `IStockRepository.UpsertOnHandAsync(key, delta, ctx)` with `MovementType=Adjust` + `ReferenceType='Adjustment'` + `ReferenceId=adjustment.Id` + Notes carrying `"{Reason}: {AdjustmentNumber}"`; (2) `SetAppliedAsync(id, stockId, approverId)` flips status + populates audit trio + stamps StockId. Idempotent on already-Applied (returns false). Throws on Rejected, on requester==approver (separation of duties), on InvalidOperationException from CK_Stock_OnHand_NonNegative (operator already consumed stock).
+- `RejectAsync` — atomic status flip with rejection reason. Same idempotency + self-rejection rule as Approve.
+- WHEN NOT MATCHED on UpsertOnHand creates a new Stock row when no 6-tuple match exists — fine for Found scenarios (positive delta); negative delta on a non-existent row fails CK_Stock_OnHand_NonNegative naturally.
+
+**UI**:
+- `/Adjustments` — Alpine list with chip counts (`All N · Pending N · Applied N · Rejected N`) reusing Phase 10A pattern. 8-col table with signed-delta color (green +, red −) and per-row UoM.
+- `/Adjustments/Create` — single-page form with 2-card grid layout (Stock target + Adjustment + Reason guide sidebar). Cascading Warehouse → Location dropdown (AJAX `GET /Adjustments/Locations/{whId}` populates after warehouse pick). Closed-list reason dropdown. AllowCreateNew checkbox for Found-style scenarios. "Notes required when Reason='Other'" enforced server-side via FluentValidation `When` rule.
+- `/Adjustments/Detail/{id}` — `_DetailLayout` with status-driven Quick Actions. Approve & Reject buttons enabled only when (a) status=Pending AND (b) currentUser != requester (separation of duties). Self-approval banner explains the gating to the requester.
+- Approve / Reject modals — CSS-only `:target` pattern reused from Phase 10B. Approve: simple confirm. Reject: required reason textarea (3-500 chars).
+- Sidebar — Inventory module now expands to Adjustments submenu (matches Inbound + Master pattern). `INVENTORY.ADJUSTMENTS` permission already seeded by migration 042; the sidebar appears for users with any INVENTORY.* perm.
+- TempData banner generalised in `_DetailLayout` — accepts both `CancelMessage/Error` (Phase 10B) and `AdjustmentMessage/Error` (Phase 11A) without duplication.
+
+**Movement Log integration**:
+- Apply writes `inventory.StockMovements` row inside the same TX as the Stock UPDATE (per ADR-014). `ReferenceType='Adjustment'`, `ReferenceId=adjustment.Id`, `Notes` carrying reason + adjustment number. Existing `MovementActivityMapper.Map` renders these via the `Adjust+/Adjust-` variants on Stock / Product / Warehouse Activity feeds — no mapper change needed.
+
+**Tests**: +29 net (13 service unit + 16 controller integration including 3 status-mapper Theory cases). Test posture: **423 passing** (was 394). 119 unit + 304 integration + 5 skipped.
+
+**Out of scope** (logged as TD-031): threshold-based auto-approval, role-based approval bypass, multi-line adjustments, Stock-detail-page entry point, billing hooks. Each is independent and can land separately.
 
 ### Day 10 — Phase 10B (Inbound Hardening — TransactionScope + GR Cancellation)
 
@@ -1249,5 +1284,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-10 (Day 10 — Phase 10B Inbound Hardening; v1.0.2-inbound-hardened)
-**Version**: 1.19
+**Last updated**: 2026-05-10 (Day 10 — Phase 11A Adjustment Workflow; v1.1.0-adjustments)
+**Version**: 1.20

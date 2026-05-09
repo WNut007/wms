@@ -1,0 +1,158 @@
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Stock Adjustments";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Stock Adjustments</p>
+        <div class="wms-breadcrumb">
+            <span>Operations</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span>Inventory</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Adjustments</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <a asp-controller="Adjustments" asp-action="Create" class="wms-btn wms-btn-purple">
+            <i class="ti ti-plus" style="font-size: 14px;" aria-hidden="true"></i>
+            New adjustment
+        </a>
+    </div>
+</div>
+
+<div class="wms-card" style="padding: 0;" x-data="adjustmentList()">
+    <div class="wms-filter-bar">
+        <div class="wms-filter-search">
+            <i class="ti ti-search wms-filter-search-icon" aria-hidden="true"></i>
+            <input type="text" class="wms-input"
+                   placeholder="Search by number or product code..."
+                   x-model.debounce.250ms="search"
+                   @@input="reload()" />
+        </div>
+
+        <div class="wmsp-chips" style="margin-left: 8px;">
+            <template x-for="s in statuses" :key="s.value">
+                <button type="button"
+                        class="wmsp-chip"
+                        :class="{ 'is-active': status === s.value }"
+                        @@click="status = s.value; reload()">
+                    <span x-text="s.label"></span>
+                    <span class="wmsp-chip-count" x-text="counts[s.value] ?? 0"></span>
+                </button>
+            </template>
+        </div>
+
+        <span style="margin-left: auto; font-size: 11px; color: var(--wms-text-secondary);" x-text="totalLabel()"></span>
+    </div>
+
+    <div style="overflow-x: auto;">
+        <table class="wms-table" style="width: 100%;">
+            <thead>
+                <tr>
+                    <th>Adjustment #</th>
+                    <th>Product</th>
+                    <th>Warehouse</th>
+                    <th>Location</th>
+                    <th style="text-align: right;">Delta</th>
+                    <th>Reason</th>
+                    <th>Status</th>
+                    <th>Requested</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="row in rows" :key="row.id">
+                    <tr style="cursor: pointer;" @@click="navigate(row.id)">
+                        <td><span class="mono" x-text="row.adjustmentNumber"></span></td>
+                        <td>
+                            <span class="mono" style="font-weight: 500;" x-text="row.productCode"></span>
+                            <span style="font-size: 11px; color: var(--wms-text-secondary); display: block;" x-text="row.productName"></span>
+                        </td>
+                        <td><span class="mono" x-text="row.warehouseCode"></span></td>
+                        <td><span class="mono" x-text="row.locationCode"></span></td>
+                        <td style="text-align: right;">
+                            <span :style="row.quantityDelta >= 0 ? 'color:#0F6E56;font-weight:500' : 'color:#A32D2D;font-weight:500'"
+                                  x-text="(row.quantityDelta >= 0 ? '+' : '') + row.quantityDelta.toFixed(2)"></span>
+                            <span style="font-size: 11px; color: var(--wms-text-secondary); margin-left: 4px;" x-text="row.uomCode"></span>
+                        </td>
+                        <td><span x-text="row.reason"></span></td>
+                        <td>
+                            <span class="wmsd-badge" :class="badgeClass(row.status)" x-text="row.statusLabel"></span>
+                        </td>
+                        <td>
+                            <span x-text="row.requestedRelative"></span>
+                            <span style="font-size: 11px; color: var(--wms-text-secondary); display: block;" x-text="row.requestedByName"></span>
+                        </td>
+                    </tr>
+                </template>
+                <tr x-show="!rows.length && !loading">
+                    <td colspan="8" style="padding: 36px; text-align: center; color: var(--wms-text-tertiary);">
+                        No adjustments match the current filters.
+                    </td>
+                </tr>
+                <tr x-show="loading">
+                    <td colspan="8" style="padding: 24px; text-align: center; color: var(--wms-text-secondary);">
+                        Loading...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-top: 0.5px solid var(--wms-border); font-size: 12px;">
+        <span x-text="`Page ${page} of ${totalPages || 1}`"></span>
+        <div style="display: flex; gap: 6px;">
+            <button type="button" class="wms-btn" :disabled="page <= 1" @@click="page--; reload()">← Prev</button>
+            <button type="button" class="wms-btn" :disabled="page >= totalPages" @@click="page++; reload()">Next →</button>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function adjustmentList() {
+            return {
+                rows: [], total: 0, totalPages: 1, page: 1, pageSize: 20,
+                search: '', status: 'all', loading: false,
+                counts: { all: 0, pending: 0, applied: 0, rejected: 0 },
+                statuses: [
+                    { value: 'all',      label: 'All' },
+                    { value: 'pending',  label: 'Pending' },
+                    { value: 'applied',  label: 'Applied' },
+                    { value: 'rejected', label: 'Rejected' },
+                ],
+                async init() { await this.reload(); },
+                async reload() {
+                    this.loading = true;
+                    const url = new URL('/Adjustments/Data', window.location.origin);
+                    url.searchParams.set('page', this.page);
+                    url.searchParams.set('pageSize', this.pageSize);
+                    if (this.search.trim()) url.searchParams.set('search', this.search.trim());
+                    if (this.status !== 'all') url.searchParams.set('status', this.status);
+                    try {
+                        const r = await fetch(url);
+                        const data = await r.json();
+                        this.rows = data.items;
+                        this.total = data.total;
+                        this.totalPages = data.totalPages;
+                        if (data.counts) this.counts = data.counts;
+                    } finally { this.loading = false; }
+                },
+                navigate(id) {
+                    window.location.href = `/Adjustments/Detail/${id}`;
+                },
+                totalLabel() {
+                    return this.total === 1 ? '1 adjustment' : `${this.total} adjustments`;
+                },
+                badgeClass(status) {
+                    return {
+                        'pending':  's-warning',
+                        'applied':  's-success',
+                        'rejected': 's-neutral',
+                    }[status] || 's-neutral';
+                },
+            };
+        }
+    </script>
+}

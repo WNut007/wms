@@ -22,20 +22,37 @@
 
 <div class="wmsd-page">
 
-    @* Phase 10B (TD-023) — TempData banners from POST redirects.
-       Used today by the Cancel-receipt flow; generic enough that any
-       future "POST then redirect to Detail" surface can reuse the
-       same TempData keys. *@
-    @if (TempData["CancelMessage"] is string okMsg && !string.IsNullOrEmpty(okMsg))
+    @* Phase 10B+ — TempData banners from POST redirects. Loosely
+       coupled across surfaces: any "POST then redirect to Detail"
+       can use these keys. CancelMessage/Error from Phase 10B
+       (Receiving cancellation); AdjustmentMessage/Error from Phase
+       11A. Both colour-classes inline to avoid coupling to a CSS
+       module. *@
+    @{
+        var okMsg  = (TempData["CancelMessage"]     as string)
+                  ?? (TempData["AdjustmentMessage"] as string);
+        var errMsg = (TempData["CancelError"]       as string)
+                  ?? (TempData["AdjustmentError"]   as string);
+    }
+    @if (!string.IsNullOrEmpty(okMsg))
     {
         <div style="padding: 10px 14px; background: #E1F5EE; color: #0F6E56; border-radius: 8px; font-size: 13px; display: flex; align-items: center; gap: 8px;">
             <i class="ti ti-check"></i> @okMsg
         </div>
     }
-    @if (TempData["CancelError"] is string errMsg && !string.IsNullOrEmpty(errMsg))
+    @if (!string.IsNullOrEmpty(errMsg))
     {
         <div style="padding: 10px 14px; background: #FCEBEB; color: #A32D2D; border-radius: 8px; font-size: 13px; display: flex; align-items: center; gap: 8px;">
             <i class="ti ti-alert-circle"></i> @errMsg
+        </div>
+    }
+    @* Phase 11A — explicit notice when the requester opens their own
+       Pending adjustment. Approve/Reject buttons are disabled by VM
+       gating; this banner explains why. *@
+    @if (ViewBag.SelfApproval is true)
+    {
+        <div style="padding: 10px 14px; background: #FAEEDA; color: #854F0B; border-radius: 8px; font-size: 13px; display: flex; align-items: center; gap: 8px;">
+            <i class="ti ti-info-circle"></i> You created this adjustment — another user must approve or reject it (separation of duties).
         </div>
     }
 
@@ -216,6 +233,13 @@
     @if (ViewBag.HeaderId is Guid && ViewBag.IsPosted is true)
     {
         @await Html.PartialAsync("Detail/_CancelReceiptModal")
+    }
+    @* Phase 11A — Approve / Reject modals for Adjustment Detail.
+       Renders only when the current user can decide (Pending state +
+       not the requester per separation-of-duties). *@
+    @if (ViewBag.HeaderId is Guid && ViewBag.CanDecide is true)
+    {
+        @await Html.PartialAsync("Detail/_AdjustmentDecisionModals")
     }
 </div>
 
