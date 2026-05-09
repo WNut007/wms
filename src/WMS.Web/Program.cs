@@ -95,6 +95,7 @@ builder.Services.AddScoped<ICustomerRepositoryFactory, CustomerRepositoryFactory
 builder.Services.AddScoped<IProductCategoryRepositoryFactory, ProductCategoryRepositoryFactory>();
 builder.Services.AddScoped<IUomRepositoryFactory, UomRepositoryFactory>();
 builder.Services.AddScoped<ICarrierRepositoryFactory, CarrierRepositoryFactory>();
+builder.Services.AddScoped<IOwnerRepositoryFactory, OwnerRepositoryFactory>();
 builder.Services.AddScoped<IStockService, StockService>();
 builder.Services.AddScoped<IReceivingService, ReceivingService>();
 builder.Services.AddScoped<IPurchaseOrderRepositoryFactory, PurchaseOrderRepositoryFactory>();

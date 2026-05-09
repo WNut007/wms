@@ -1,6 +1,7 @@
 using System.Data;
 using Dapper;
 using Microsoft.Data.SqlClient;
+using WMS.DAL.Common;
 using WMS.Domain.Entities.Inbound;
 
 namespace WMS.DAL.Repositories.Inbound;
@@ -152,5 +153,239 @@ internal sealed class PurchaseOrderRepository : IPurchaseOrderRepository
                 Delta = delta,
                 UserId = userId,
             },
+            cancellationToken: ct));
+
+    // ================================================================
+    // Phase 9A list + edit + status surface
+    // ================================================================
+
+    public async Task<PagedResult<PurchaseOrderListRow>> GetPagedAsync(
+        PurchaseOrderFilter f, CancellationToken ct = default)
+    {
+        var orderBy   = PurchaseOrderSortMapper.ToOrderByClause(f.SortBy, f.SortDesc);
+        var skip      = (f.Page - 1) * f.PageSize;
+        var take      = f.PageSize;
+        var searchLike = string.IsNullOrWhiteSpace(f.Search)
+            ? null
+            : $"%{f.Search.Trim()}%";
+
+        // CTE materialises the per-PO line aggregate once. ISNULL
+        // protects against POs with zero lines (shouldn't exist post-
+        // 9A's "lines required" rule, but defensive).
+        const string whereClause = @"
+WHERE (@Status      IS NULL OR po.Status = @Status)
+  AND (@OwnerCode   IS NULL OR ow.Code   = @OwnerCode)
+  AND (@WarehouseCode IS NULL OR wh.Code = @WarehouseCode)
+  AND (@SearchLike  IS NULL OR po.PoNumber LIKE @SearchLike)";
+
+        var sql = $@"
+WITH agg AS (
+    SELECT PurchaseOrderId,
+           COUNT(*) AS LineCount,
+           SUM(ExpectedQuantity) AS TotalExpectedQty,
+           SUM(ReceivedQuantity) AS TotalReceivedQty
+    FROM inbound.PurchaseOrderLines
+    GROUP BY PurchaseOrderId
+)
+SELECT
+    po.Id, po.PoNumber,
+    po.OwnerId, ow.Code AS OwnerCode, ow.Name AS OwnerName,
+    po.WarehouseId, wh.Code AS WarehouseCode,
+    po.ExpectedDate, po.Status,
+    ISNULL(agg.LineCount,        0) AS LineCount,
+    ISNULL(agg.TotalExpectedQty, 0) AS TotalExpectedQty,
+    ISNULL(agg.TotalReceivedQty, 0) AS TotalReceivedQty,
+    po.CreatedAt, po.UpdatedAt
+FROM inbound.PurchaseOrders po
+JOIN master.Owners     ow ON ow.Id = po.OwnerId
+JOIN master.Warehouses wh ON wh.Id = po.WarehouseId
+LEFT JOIN agg ON agg.PurchaseOrderId = po.Id
+{whereClause}
+ORDER BY {orderBy}
+OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY;
+
+SELECT COUNT(*)
+FROM inbound.PurchaseOrders po
+JOIN master.Owners     ow ON ow.Id = po.OwnerId
+JOIN master.Warehouses wh ON wh.Id = po.WarehouseId
+{whereClause};";
+
+        var args = new
+        {
+            f.Status,
+            f.OwnerCode,
+            f.WarehouseCode,
+            SearchLike = searchLike,
+            Skip = skip,
+            Take = take,
+        };
+
+        using var multi = await _connection.QueryMultipleAsync(new CommandDefinition(
+            sql, args, cancellationToken: ct));
+
+        var items = (await multi.ReadAsync<PurchaseOrderListRow>()).AsList();
+        var total = await multi.ReadSingleAsync<int>();
+
+        return new PagedResult<PurchaseOrderListRow>
+        {
+            Items = items,
+            Total = total,
+            Page = f.Page,
+            PageSize = f.PageSize,
+            TotalPages = (int)Math.Ceiling(total / (double)f.PageSize),
+        };
+    }
+
+    public async Task<bool> UpdateHeaderAsync(
+        PurchaseOrder entity, Guid? userId, CancellationToken ct = default)
+    {
+        // PoNumber + OwnerId + WarehouseId omitted — natural-key shape;
+        // changing them would orphan receipt FKs. ExpectedDate + Notes
+        // are the editable fields. Status changes go through
+        // SetStatusAsync (atomic, idempotent).
+        const string sql = @"
+UPDATE inbound.PurchaseOrders SET
+    ExpectedDate = @ExpectedDate,
+    Notes        = @Notes,
+    UpdatedAt    = SYSUTCDATETIME(),
+    UpdatedBy    = @UserId,
+    Version      = Version + 1
+WHERE Id = @Id;";
+
+        var rows = await _connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            new
+            {
+                entity.Id,
+                entity.ExpectedDate,
+                entity.Notes,
+                UserId = userId,
+            },
+            cancellationToken: ct));
+        return rows > 0;
+    }
+
+    public async Task ReplaceLinesAsync(
+        Guid purchaseOrderId,
+        IReadOnlyList<PurchaseOrderLine> lines,
+        Guid? userId,
+        CancellationToken ct = default)
+    {
+        if (_connection.State != ConnectionState.Open)
+            (_connection as SqlConnection)?.Open();
+
+        using var tx = _connection.BeginTransaction();
+        try
+        {
+            await _connection.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM inbound.PurchaseOrderLines WHERE PurchaseOrderId = @poId;",
+                new { poId = purchaseOrderId },
+                transaction: tx,
+                cancellationToken: ct));
+
+            foreach (var line in lines)
+            {
+                await _connection.ExecuteAsync(new CommandDefinition(
+                    @"INSERT INTO inbound.PurchaseOrderLines
+                          (Id, PurchaseOrderId, LineNumber, ProductId, UomId,
+                           ExpectedQuantity, ReceivedQuantity, Status, CreatedBy)
+                      VALUES
+                          (@Id, @PurchaseOrderId, @LineNumber, @ProductId, @UomId,
+                           @ExpectedQuantity, @ReceivedQuantity, @Status, @UserId);",
+                    new
+                    {
+                        line.Id,
+                        line.PurchaseOrderId,
+                        line.LineNumber,
+                        line.ProductId,
+                        line.UomId,
+                        line.ExpectedQuantity,
+                        line.ReceivedQuantity,
+                        line.Status,
+                        UserId = userId,
+                    },
+                    transaction: tx,
+                    cancellationToken: ct));
+            }
+
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    public async Task<bool> SetStatusAsync(
+        Guid purchaseOrderId,
+        string fromStatus,
+        string toStatus,
+        Guid? userId,
+        CancellationToken ct = default)
+    {
+        // Idempotent: WHERE Status=@from means "0 rows affected" if the
+        // PO is already in the target state. Returning the bool lets the
+        // service distinguish "actually changed" from "no-op".
+        const string sql = @"
+UPDATE inbound.PurchaseOrders
+SET Status    = @ToStatus,
+    UpdatedAt = SYSUTCDATETIME(),
+    UpdatedBy = @UserId,
+    Version   = Version + 1
+WHERE Id = @Id AND Status = @FromStatus;";
+
+        var rows = await _connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            new
+            {
+                Id = purchaseOrderId,
+                FromStatus = fromStatus,
+                ToStatus = toStatus,
+                UserId = userId,
+            },
+            cancellationToken: ct));
+        return rows > 0;
+    }
+
+    public Task<int> CountReceivedLinesAsync(
+        Guid purchaseOrderId, CancellationToken ct = default) =>
+        _connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            @"SELECT COUNT(*)
+              FROM inbound.PurchaseOrderLines
+              WHERE PurchaseOrderId = @poId AND ReceivedQuantity > 0;",
+            new { poId = purchaseOrderId },
+            cancellationToken: ct));
+
+    public async Task<bool> AllLinesFullyReceivedAsync(
+        Guid purchaseOrderId, CancellationToken ct = default)
+    {
+        // True when no line has ReceivedQty < ExpectedQty (= every line
+        // is at-or-over the expected). Cancelled lines are excluded —
+        // they don't count against the "all received" predicate.
+        const string sql = @"
+SELECT CASE WHEN EXISTS (
+    SELECT 1 FROM inbound.PurchaseOrderLines
+    WHERE PurchaseOrderId = @poId
+      AND Status <> 'Cancelled'
+      AND ReceivedQuantity < ExpectedQuantity
+) THEN 0 ELSE 1 END;";
+
+        var has = await _connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            sql, new { poId = purchaseOrderId }, cancellationToken: ct));
+        return has == 1;
+    }
+
+    public Task CancelOpenLinesAsync(
+        Guid purchaseOrderId, Guid? userId, CancellationToken ct = default) =>
+        _connection.ExecuteAsync(new CommandDefinition(
+            @"UPDATE inbound.PurchaseOrderLines
+              SET Status    = 'Cancelled',
+                  UpdatedAt = SYSUTCDATETIME(),
+                  UpdatedBy = @UserId,
+                  Version   = Version + 1
+              WHERE PurchaseOrderId = @poId
+                AND Status IN ('Open', 'PartiallyReceived');",
+            new { poId = purchaseOrderId, UserId = userId },
             cancellationToken: ct));
 }

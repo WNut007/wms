@@ -50,4 +50,10 @@ public interface IProductRepository
     // UpdatedBy from controller's CurrentUser.UserId. No Version
     // increment (no Version column on master.Products).
     Task<bool> UpdateAsync(Product entity, Guid? userId, CancellationToken ct = default);
+
+    // Phase 9A — flat lookup for dropdown sources (PO line grid, etc.).
+    // Filters to Status='Active' (Inactive/Discontinued/Draft excluded
+    // — operator shouldn't add a discontinued SKU to a fresh order).
+    // Ordered by Code ASC.
+    Task<IReadOnlyList<LookupItem>> GetActiveAsync(CancellationToken ct = default);
 }
