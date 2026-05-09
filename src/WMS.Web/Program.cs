@@ -1,3 +1,4 @@
+using FluentValidation;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Caching.Memory;
 using Serilog;
@@ -91,6 +92,9 @@ builder.Services.AddScoped<ILotRepositoryFactory, LotRepositoryFactory>();
 builder.Services.AddScoped<IPalletRepositoryFactory, PalletRepositoryFactory>();
 builder.Services.AddScoped<IProductRepositoryFactory, ProductRepositoryFactory>();
 builder.Services.AddScoped<ICustomerRepositoryFactory, CustomerRepositoryFactory>();
+builder.Services.AddScoped<IProductCategoryRepositoryFactory, ProductCategoryRepositoryFactory>();
+builder.Services.AddScoped<IUomRepositoryFactory, UomRepositoryFactory>();
+builder.Services.AddScoped<ICarrierRepositoryFactory, CarrierRepositoryFactory>();
 builder.Services.AddScoped<IStockService, StockService>();
 builder.Services.AddScoped<IReceivingService, ReceivingService>();
 builder.Services.AddScoped<IPurchaseOrderRepositoryFactory, PurchaseOrderRepositoryFactory>();
@@ -133,6 +137,16 @@ else
 // is shared. TenantValidationMiddleware reads through this on every
 // authenticated request.
 builder.Services.AddSingleton<ITenantStatusReader, TenantStatusReader>();
+
+// FluentValidation — server-side validators for Phase 7 admin CRUD
+// view-models. DataAnnotations on the view-models drive jQuery
+// unobtrusive client-side validation; FluentValidation runs server-side
+// for cross-field + business rules ("B2B requires CompanyName + TaxId",
+// pre-flight Code uniqueness). Controllers call IValidator<T> manually
+// after the ModelState DA pass — keeps each layer pure, no
+// auto-validation magic / deprecated FluentValidation.AspNetCore
+// package needed.
+builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
 // AuthService BCrypt cost factor: 12 in prod (~250ms/hash), 4 in
 // Development (~5ms) so dev seed scripts and local testing don't crawl.
