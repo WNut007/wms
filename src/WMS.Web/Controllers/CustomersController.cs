@@ -178,11 +178,13 @@ public partial class CustomersController : Controller
             },
             QuickActions = new()
             {
-                // TD-017 partial — only Send email has a working
-                // target today (mailto:); it auto-disables when the
-                // customer has no email on file. Create order +
-                // View invoices wait on Phase 7+ orders/invoices
-                // schemas.
+                // Phase 7E — Edit customer wired.
+                new("Edit customer",  "ti-edit",
+                    $"/Customers/Edit/{Uri.EscapeDataString(customer.Code)}"),
+                // TD-017 partial — only Send email has a working target
+                // today (mailto:); auto-disables when no email on file.
+                // Create order + View invoices wait on Phase 7+ orders /
+                // invoices schemas.
                 new("Create order",   "ti-shopping-cart", "#", Enabled: false),
                 new("Send email",     "ti-mail",
                     customer.Email is null ? "#" : $"mailto:{customer.Email}",
