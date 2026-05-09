@@ -25,7 +25,7 @@ This is the WMS (Warehouse Management System) rebuild project. This file is your
 
 **Design system**: `docs/UI_DESIGN_REFERENCE.md` (LOCKED v1.0)
 **Custom CSS**: `wwwroot/css/wms-custom.css` (Phase 1 design system, loaded AFTER Tabler)
-**Phase 8 polish modules**: `wwwroot/css/wms-forms.css` (Section tabs, status dots, panes) + `wwwroot/css/wms-detail.css` (gradient avatar, accent bars, stat tiles). Both loaded after wms-custom.css. Tokens prefixed `--wmsf-` / `--wmsd-` (purple-600 #534AB7 system) — distinct from legacy `--wms-primary` (#5D4FA0) which the sidebar still owns.
+**Phase 8 / 8.5 polish modules**: `wwwroot/css/wms-forms.css` (Section tabs, status dots, panes) + `wwwroot/css/wms-detail.css` (gradient avatar, accent bars, stat tiles) + `wwwroot/css/wms-picker.css` (Auth Step 3 picker — header strip, search, region chips, grouped rows). All loaded after wms-custom.css. Tokens prefixed `--wmsf-` / `--wmsd-` / `--wmsp-` (all purple-600 #534AB7 system) — distinct from legacy `--wms-primary` (#5D4FA0) which the sidebar still owns. Phase 8.5 also added Section 16 of wms-custom.css for global hover + anchor-underline reset (closes "ทุกหน้ามี hover ที่ปุ่ม/menu ไม่เอา underline" feedback).
 
 **Color tokens**:
 - Primary: `#5D4FA0` → `#7B5DBF` (purple gradient — sidebar)
@@ -317,8 +317,8 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Phase 8 — Master Data UI Polish shipped (v0.8.1-master-polish)
-**Current Focus**: pending decision — candidates include Phase 9 (ADR-004 + Putaway header), TD-014 Customer Activity half (blocked on Phase 7+ orders), Categories / UoMs / Carriers admin CRUD, TD-016 (putaway-pair grouping)
+**Active Sprint**: Phase 8.5 — Auth Picker + Hover Cleanup shipped (v0.8.2-picker-hover)
+**Current Focus**: pending decision — candidates include Phase 9 (ADR-004 + Putaway header), TD-014 Customer Activity half (blocked on Phase 7+ orders), Categories / UoMs / Carriers admin CRUD, TD-016 (putaway-pair grouping), TD-018 (picker empty-state refactor)
 **Blockers**: none
 
 Update this section weekly during standups.
@@ -693,6 +693,37 @@ No tests touched — no controller / service / repo logic changed.
 Build green. Tests: 101 unit + 206 integration + 5 skipped —
 unchanged from Phase 6E.
 
+### Day 8 — Phase 8.5 (Auth Picker + Hover Cleanup)
+
+**Branch**: `feat/auth-picker-hover` → merged to `main` · **Tag**: `v0.8.2-picker-hover` · **Closes**: user feedback "Warehouse picker เลือกยาก" + "ทุกหน้ามี hover ที่ปุ่ม/menu ไม่เอา underline"
+
+Continuation phase from Phase 8 (which only covered Master Data forms + Detail pages). Two surfaces: the Step 3 warehouse picker (full redesign) and global hover/underline cleanup across the app.
+
+**Picker** (`Auth/SelectWarehouse`):
+- Old: scrolling list of `<button>` cards with just Code + Name. 24 demo warehouses overflowed.
+- New: top purple-gradient header strip with WMS logo + "{Tenant} · Step 3 of 3" + Back button → /Auth/SelectTenant. Body: heading + search input (auto-focused, ti-search, ⌘K kbd hint) + region chips ("All [count]" / "Bangkok 6" / "North 4" / "Northeast 2" / "Central 1" / "East 4" / "South 4" / "Other 3") + region-grouped sections with ti-map-pin headers. Each warehouse row: building icon + Code (mono) + Name + city · type meta + Type badge + chevron. Hover: purple-50 fill + soft shadow. Submit posts SelectedWarehouseId, server re-validates against `GetActiveAsync` allow-list before re-issuing the cookie.
+- Filter is client-side (Alpine `x-show` per row + per group), zero server roundtrips. Search matches case-insensitive against Code+Name+City baked into a `data-haystack`-style attribute at render time.
+- Region grouping driven by `WarehouseRegionResolver` (new) — static city → Thai-region map. Address parsing: leading City segment before the comma. Unknown cities fall to "Other".
+
+**Hover cleanup** (global, across ALL pages):
+- Two existing `text-decoration: underline` offenders fixed in place: `.wms-login-field-link:hover` (color shift to purple-700 instead) and `.wmsd-dl dd a:hover` (same — Phase 8 missed it).
+- New Section 16 in `wms-custom.css` adds:
+  - Global `a` reset: `text-decoration: none; color: inherit; transition: 150ms ease`. `a:hover/focus/active` re-asserts `none`.
+  - Belt-and-suspenders `!important` override on a focused list of nav-shaped surfaces (sidebar, topbar, breadcrumbs, tabs, quick-actions, dropdown items) — UA-default underlines can never re-appear.
+  - Sidebar nav refinement: rounded items, softer active state (rgba 0.18 + inset 0.5px white border).
+  - Standardised hover patterns on filter chips, Detail tabs (.wmsd-tab), Quick Action items (.wmsd-action — purple-50 fill, purple-700 text), and `.wms-btn-purple` (purple-700 + box-shadow on hover, purple-800 + translateY(1px) on active).
+  - 150ms transition on background/border/color/shadow across all interactive elements.
+
+**Data layer**: new `WarehousePickerItem` record in `WMS.Common.Auth` (Id, Code, Name, Address, Type) + new repo method `IWarehouseRepository.GetPickerItemsAsync`. The lighter `WarehouseInfo` (Id, Code, Name) stays for smart-skip / claim resolution paths.
+
+**Layout**: `_AuthLayout.cshtml` now loads the new `wms-picker.css` and Alpine 3.14.1 (defer). Cost is tiny on Login + Tenant select pages but keeps the auth shell uniform.
+
+**Out of scope (logged as TDs)**:
+- TD-018 — picker empty-state DOM-query brittleness. Current x-show reads `document.querySelectorAll('.wmsp-row[style*="display: none"]')` — depends on Alpine's exact inline-style mutation. ~30 min refactor to track visibleCount reactively.
+- TD-019 — Recent warehouses section deferred. No persistence layer for warehouse-pick history; cookie or IUserPreferences table is the lightest path.
+- Size / staff metadata not in schema (Phase 7+ admin CRUD wouldn't touch these either; would need a schema migration). Brief mockup showed these but they were shipped as nice-to-have.
+- Maintenance state badge unused — schema is bool IsActive only (TD-009). Picker's `GetActiveAsync` filter means all rows are Active anyway.
+
 ### Day 8 — Phase 8 (Master Data UI Polish)
 
 **Branch**: `feat/master-data-polish` → merged to `main` · **Tag**: `v0.8.1-master-polish` · **Closes**: user feedback "UI Manage Master ดูประถม" (Phase 7 forms felt primitive)
@@ -986,5 +1017,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-09 (Phase 8 — Master Data UI Polish)
-**Version**: 1.12
+**Last updated**: 2026-05-09 (Phase 8.5 — Auth Picker + Hover Cleanup)
+**Version**: 1.13
