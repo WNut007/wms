@@ -1,0 +1,521 @@
+/* ================================================================
+   WMS Forms — V1 Section Tabs polish (Phase 8)
+
+   Loaded AFTER wms-custom.css. Powers the Phase 7 admin Create + Edit
+   forms (Products / Customers / Warehouses) with horizontal section
+   tabs, per-tab status dots, header progress bar, and a sticky action
+   bar.
+
+   Design tokens are local to this file (--wmsf-*) so the existing
+   wms-custom.css token names (--wms-primary etc.) stay untouched —
+   the sidebar gradient still uses the legacy #5D4FA0 brand purple,
+   while Phase 8 surfaces use the brief-specified purple-600 (#534AB7)
+   system.
+   ================================================================ */
+
+:root {
+  /* Purple-600 system (Phase 8 surfaces). Distinct from the legacy
+     --wms-primary (#5D4FA0) which the sidebar still owns. */
+  --wmsf-purple-50:  #EEEDFE;
+  --wmsf-purple-100: #CECBF6;
+  --wmsf-purple-200: #B5B0EF;
+  --wmsf-purple-600: #534AB7;
+  --wmsf-purple-700: #3E369A;
+  --wmsf-purple-900: #26215C;
+  --wmsf-purple-grad: linear-gradient(135deg, #534AB7 0%, #7F77DD 100%);
+
+  /* Status dots */
+  --wmsf-dot-untouched:  #D3D1C7;
+  --wmsf-dot-progress:   #EF9F27;
+  --wmsf-dot-complete:   #1D9E75;
+  --wmsf-dot-error:      #A32D2D;
+
+  /* Semantic */
+  --wmsf-success-bg: #E1F5EE;  --wmsf-success-fg: #0F6E56;
+  --wmsf-warning-bg: #FAEEDA;  --wmsf-warning-fg: #854F0B;
+  --wmsf-danger-bg:  #FCEBEB;  --wmsf-danger-fg:  #A32D2D;
+  --wmsf-info-bg:    #E6F1FB;  --wmsf-info-fg:    #0C447C;
+
+  /* Form-specific neutrals */
+  --wmsf-border:       rgba(0, 0, 0, 0.08);
+  --wmsf-border-input: rgba(0, 0, 0, 0.15);
+  --wmsf-text-tertiary: #888780;
+}
+
+/* ================================================================
+   Page header (above tabs) — breadcrumb · title · progress
+   ================================================================ */
+.wmsf-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 80px; /* room for sticky action bar */
+}
+
+.wmsf-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--wms-text-secondary, #6B7280);
+}
+.wmsf-breadcrumb a { color: inherit; text-decoration: none; }
+.wmsf-breadcrumb a:hover { color: var(--wmsf-purple-600); }
+.wmsf-breadcrumb .sep { opacity: 0.45; font-size: 10px; }
+.wmsf-breadcrumb .current { color: var(--wms-text-primary, #111827); font-weight: 500; }
+
+.wmsf-header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 16px;
+  background: #fff;
+  border: 0.5px solid var(--wmsf-border);
+  border-radius: 8px;
+}
+
+.wmsf-header-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.wmsf-header-icon {
+  width: 40px; height: 40px; flex-shrink: 0;
+  background: var(--wmsf-purple-grad);
+  color: #fff;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+
+.wmsf-header-text { min-width: 0; }
+.wmsf-header-text h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+}
+.wmsf-header-text p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--wms-text-secondary, #6B7280);
+}
+
+.wmsf-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+  min-width: 130px;
+}
+.wmsf-progress-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--wms-text-secondary, #6B7280);
+  font-weight: 500;
+}
+.wmsf-progress-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.wmsf-progress-bar {
+  width: 100px; height: 6px;
+  background: var(--wmsf-purple-50);
+  border-radius: 100px;
+  overflow: hidden;
+  position: relative;
+}
+.wmsf-progress-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--wmsf-progress-pct, 0%);
+  background: var(--wmsf-purple-600);
+  transition: width 200ms ease;
+}
+.wmsf-progress-count {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--wms-text-primary, #111827);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ================================================================
+   V1 Section Tabs (horizontal, numbered)
+   ================================================================ */
+.wmsf-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.wmsf-tab {
+  flex: 1 1 0;
+  min-width: 180px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1.5px solid var(--wmsf-border-input);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 150ms ease;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.wmsf-tab:hover {
+  border-color: var(--wmsf-purple-200);
+  background: #fdfcff;
+}
+
+.wmsf-tab.is-active {
+  background: var(--wmsf-purple-50);
+  border: 1px solid var(--wmsf-purple-600);
+  box-shadow: 0 0 0 3px rgba(83, 74, 183, 0.1);
+}
+
+.wmsf-tab-num {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: var(--wmsf-purple-50);
+  color: var(--wmsf-purple-600);
+  font-size: 12px;
+  font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.wmsf-tab.is-active .wmsf-tab-num {
+  background: var(--wmsf-purple-600);
+  color: #fff;
+}
+
+.wmsf-tab-text { min-width: 0; }
+.wmsf-tab-eyebrow {
+  display: block;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--wms-text-tertiary, #9CA3AF);
+  line-height: 1;
+  margin-bottom: 3px;
+}
+.wmsf-tab.is-active .wmsf-tab-eyebrow {
+  color: var(--wmsf-purple-600);
+}
+.wmsf-tab-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--wms-text-primary, #111827);
+  line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wmsf-tab:not(.is-active) .wmsf-tab-name {
+  color: var(--wms-text-secondary, #6B7280);
+  font-weight: 400;
+}
+
+/* Status dots */
+.wmsf-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--wmsf-dot-untouched);
+  flex-shrink: 0;
+  transition: background 200ms ease;
+}
+.wmsf-dot.is-progress { background: var(--wmsf-dot-progress); }
+.wmsf-dot.is-complete { background: var(--wmsf-dot-complete); }
+.wmsf-dot.is-error    { background: var(--wmsf-dot-error); }
+
+/* ================================================================
+   Pane (per-section content)
+   ================================================================ */
+.wmsf-pane {
+  background: #fff;
+  border: 0.5px solid var(--wmsf-border);
+  border-radius: 10px;
+  padding: 22px 24px;
+}
+
+.wmsf-pane-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.wmsf-pane-eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--wmsf-purple-600);
+  margin: 0 0 4px;
+}
+.wmsf-pane h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+}
+.wmsf-pane-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--wms-text-secondary, #6B7280);
+}
+
+.wmsf-required-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 100px;
+  background: var(--wmsf-warning-bg);
+  color: var(--wmsf-warning-fg);
+  white-space: nowrap;
+  align-self: start;
+}
+
+.wmsf-required-badge.is-empty {
+  background: var(--wmsf-success-bg);
+  color: var(--wmsf-success-fg);
+}
+
+/* ================================================================
+   Form fields
+   ================================================================ */
+.wmsf-grid {
+  display: grid;
+  gap: 14px 16px;
+}
+.wmsf-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.wmsf-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.wmsf-grid .col-span-2 { grid-column: span 2; }
+.wmsf-grid .col-span-3 { grid-column: span 3; }
+.wmsf-grid .col-span-full { grid-column: 1 / -1; }
+
+@media (max-width: 720px) {
+  .wmsf-grid-2, .wmsf-grid-3 { grid-template-columns: 1fr; }
+  .wmsf-grid .col-span-2, .wmsf-grid .col-span-3, .wmsf-grid .col-span-full {
+    grid-column: 1;
+  }
+}
+
+.wmsf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.wmsf-field-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--wms-text-primary, #111827);
+}
+.wmsf-field-label .req {
+  color: var(--wmsf-danger-fg);
+  font-weight: 600;
+}
+.wmsf-field-label .hint-inline {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--wms-text-secondary, #6B7280);
+  font-style: italic;
+}
+
+.wmsf-input,
+.wmsf-select,
+.wmsf-textarea {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--wms-text-primary, #111827);
+  background: #fff;
+  border: 0.5px solid var(--wmsf-border-input);
+  border-radius: 8px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.wmsf-textarea {
+  height: auto;
+  padding: 9px 12px;
+  resize: vertical;
+  min-height: 76px;
+  line-height: 1.45;
+}
+
+.wmsf-input:focus,
+.wmsf-select:focus,
+.wmsf-textarea:focus {
+  outline: none;
+  border-color: var(--wmsf-purple-600);
+  box-shadow: 0 0 0 3px rgba(83, 74, 183, 0.15);
+}
+
+.wmsf-input[readonly],
+.wmsf-input:disabled,
+.wmsf-select:disabled {
+  background: #FAFAF8;
+  color: var(--wms-text-secondary, #6B7280);
+  cursor: not-allowed;
+}
+
+.wmsf-input.input-validation-error,
+.wmsf-select.input-validation-error,
+.wmsf-textarea.input-validation-error {
+  border-color: var(--wmsf-danger-fg);
+  background: #FFFBFB;
+}
+
+.wmsf-helper {
+  font-size: 11px;
+  color: var(--wms-text-tertiary, var(--wmsf-text-tertiary));
+  line-height: 1.4;
+}
+
+.wmsf-error {
+  font-size: 11px;
+  color: var(--wmsf-danger-fg);
+  font-weight: 500;
+}
+
+/* Inline form-level error block */
+.wmsf-form-error {
+  background: var(--wmsf-danger-bg);
+  color: var(--wmsf-danger-fg);
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  border: 0.5px solid rgba(163, 45, 45, 0.2);
+}
+.wmsf-form-error > div + div { margin-top: 4px; }
+
+/* Radio group / checkbox group */
+.wmsf-radio-group {
+  display: flex; gap: 16px; flex-wrap: wrap;
+  padding-top: 4px;
+}
+.wmsf-radio-item {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.wmsf-radio-item input { accent-color: var(--wmsf-purple-600); }
+
+.wmsf-check-item {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13px;
+  padding-top: 4px;
+  cursor: pointer;
+}
+.wmsf-check-item input { accent-color: var(--wmsf-purple-600); }
+
+/* ================================================================
+   Sticky action bar (bottom)
+   ================================================================ */
+.wmsf-actions {
+  position: sticky;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-top: 0.5px solid var(--wmsf-border);
+  padding: 12px 16px;
+  margin: 18px -24px -22px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 5;
+}
+
+.wmsf-actions-info {
+  flex: 1;
+  font-size: 11px;
+  color: var(--wms-text-secondary, #6B7280);
+}
+
+.wmsf-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 8px;
+  border: 0.5px solid var(--wmsf-border-input);
+  background: #fff;
+  color: var(--wms-text-primary, #111827);
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 120ms ease;
+}
+.wmsf-btn:hover { background: #FAFAF8; }
+.wmsf-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(83, 74, 183, 0.18);
+}
+.wmsf-btn:disabled,
+.wmsf-btn.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.wmsf-btn-primary {
+  background: var(--wmsf-purple-600);
+  color: #fff;
+  border-color: var(--wmsf-purple-600);
+}
+.wmsf-btn-primary:hover {
+  background: var(--wmsf-purple-700);
+  border-color: var(--wmsf-purple-700);
+}
+
+.wmsf-btn .ti { font-size: 14px; }
+
+/* ================================================================
+   Edit-form header extras (avatar, status badge, View link)
+   ================================================================ */
+.wmsf-header-status {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wmsf-status-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 100px;
+}
+.wmsf-status-badge::before {
+  content: '';
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+}
+.wmsf-status-badge.s-success { background: var(--wmsf-success-bg); color: var(--wmsf-success-fg); }
+.wmsf-status-badge.s-warning { background: var(--wmsf-warning-bg); color: var(--wmsf-warning-fg); }
+.wmsf-status-badge.s-danger  { background: var(--wmsf-danger-bg);  color: var(--wmsf-danger-fg); }
+.wmsf-status-badge.s-info    { background: var(--wmsf-info-bg);    color: var(--wmsf-info-fg); }
+.wmsf-status-badge.s-neutral { background: #F1EFE8; color: #444441; }
