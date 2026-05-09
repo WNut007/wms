@@ -194,9 +194,10 @@ public partial class ProductsController : Controller
             Activities = movements.Select(MovementActivityMapper.Map).ToList(),
             QuickActions = new()
             {
-                // TD-017 partial — wired now that ReceiveController.Index
-                // accepts ?sku=. The other two stay disabled until
-                // Phase 7+ admin CRUD provides their target routes.
+                // Phase 7E — Edit now wired to /Products/Edit/{code}.
+                new("Edit product",   "ti-edit",
+                    $"/Products/Edit/{Uri.EscapeDataString(row.Code)}"),
+                // TD-017 partial — Receive wired since Phase 6E hygiene.
                 new("Receive stock",  "ti-package-import",
                     $"/receive?sku={Uri.EscapeDataString(row.Code)}"),
                 new("Adjust stock",   "ti-adjustments",    "#", Enabled: false),
