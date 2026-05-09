@@ -32,12 +32,18 @@
 function wmsfFormState(opts) {
     const required = opts.required || {};
     const serverErrors = Object.assign({}, opts.serverErrors || {});
+    // mode: 'create' (default) or 'edit'.
+    //   create dot precedence: error > complete > touched > untouched
+    //   edit   dot precedence: error > touched > complete (touched =
+    //                          "user changed something — unsaved")
+    const isEdit = opts.mode === 'edit';
 
     return {
         step: opts.initialStep || 1,
         totalSteps: opts.totalSteps || 1,
         touched: {},          // { 'FieldName': true } once user types
         serverErrors,         // { stepNum: bool } — sticky from POST until user touches a field
+        mode: isEdit ? 'edit' : 'create',
 
         goTo(n) {
             if (n < 1 || n > this.totalSteps) return;
@@ -109,8 +115,17 @@ function wmsfFormState(opts) {
         },
 
         // Computed: which CSS modifier class does this section's dot wear?
+        // Edit mode flips touched-vs-complete precedence: a "touched"
+        // section means the user CHANGED something — amber stays until
+        // save. Create mode prefers "complete" so the dot turns green
+        // and stays green once the section is done.
         dotClass(sec) {
             if (this.serverErrors[sec]) return 'is-error';
+            if (isEdit) {
+                if (this.sectionTouched(sec)) return 'is-progress';
+                if (this.sectionComplete(sec)) return 'is-complete';
+                return '';
+            }
             if (this.sectionComplete(sec)) return 'is-complete';
             if (this.sectionTouched(sec)) return 'is-progress';
             return '';
