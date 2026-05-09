@@ -1416,10 +1416,12 @@ main.page-main {
   color: var(--wms-primary-hover);
   text-decoration: none;
   font-weight: 500;
+  transition: color 150ms ease;
 }
 
 .wms-login-field-link:hover {
-  text-decoration: underline;
+  /* Phase 8.5 — no underline on hover. Use color shift instead. */
+  color: #4338CA;
 }
 
 .wms-login-form-input {
@@ -1935,6 +1937,139 @@ main.page-main {
   color: var(--wms-text-secondary);
   text-align: center;
   margin: 0;
+}
+
+/* ================================================================
+   16. Phase 8.5 — Global Hover & Underline Cleanup
+   ----------------------------------------------------------------
+   User feedback: "ทุกหน้ามี hover ที่ปุ่ม/menu ไม่เอา underline".
+   Anchor-style underlines look out of place on buttons / nav / cards.
+   Use color shifts, background fills, and shadow changes instead.
+
+   Loaded with the rest of wms-custom.css; specificity is matched to
+   existing class targets so these rules win without !important
+   except where browsers' default UA stylesheet for <a> would
+   otherwise re-introduce the underline.
+   ================================================================ */
+
+/* --- Global anchor reset ----------------------------------------- */
+a {
+  text-decoration: none;
+  color: inherit;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+
+a:hover,
+a:focus,
+a:active {
+  text-decoration: none;
+}
+
+/* Belt-and-suspenders for nav surfaces — UA underline must never
+   appear on these even if a child anchor escapes the inheritance
+   chain (e.g. dropdown menu items, framework anchors). */
+.wms-sidebar a,
+.wms-sidebar-item,
+.wms-topbar a,
+.wms-breadcrumb a,
+.wmsd-tab,
+.wmsd-action,
+.wmsd-crumb a,
+.wmsf-breadcrumb a,
+.wmsf-tab,
+.wms-add-card,
+.dropdown-item {
+  text-decoration: none !important;
+}
+
+/* --- Sidebar nav refinement (Phase 8.5 polish) ------------------- */
+.wms-sidebar-item {
+  border-radius: 6px;
+  margin: 1px 8px;
+  padding: 8px 8px;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.wms-sidebar-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+/* Active state — subtle inset border instead of a solid block.
+   Existing :active rule kept the harsh background; this softens
+   it while staying readable. */
+.wms-sidebar-item.active {
+  background: rgba(255, 255, 255, 0.18);
+  font-weight: 500;
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.15);
+  /* Existing rules also added a 3px white border-left + padding-
+     adjust; preserve those by NOT overriding here. */
+}
+
+/* --- Filter chip hover (search/filter pages, picker) ------------- */
+.wms-filter-dropdown-btn,
+.wms-filter-chip {
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.wms-filter-dropdown-btn:hover,
+.wms-filter-chip:hover {
+  background: var(--wms-bg-secondary);
+  border-color: var(--wms-border-secondary);
+}
+
+/* --- Tab nav hover (Detail pages) -------------------------------- */
+.wmsd-tab {
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
+  border-radius: 6px 6px 0 0;
+}
+
+.wmsd-tab:hover {
+  background: var(--wms-bg-secondary);
+  color: var(--wms-text-primary);
+}
+
+/* Hover must NOT outweigh active-state color/border. */
+.wmsd-tab.is-active:hover {
+  color: var(--wmsd-purple-600);
+  background: transparent;
+}
+
+/* --- Quick-action item hover ------------------------------------- */
+.wmsd-action {
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.wmsd-action:hover {
+  background: #EEEDFE;            /* purple-50 */
+  color: #3E369A;                 /* purple-700 */
+}
+
+.wmsd-action:active {
+  background: #CECBF6;            /* purple-100 */
+}
+
+/* --- Topbar avatar / icon-buttons -------------------------------- */
+.wms-topbar-icon-btn,
+.wms-topbar-avatar,
+.wms-topbar-context {
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+/* --- Standardise transition speed on existing buttons ------------- */
+.wms-btn {
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+
+.wms-btn-purple:hover {
+  background: #4338CA;            /* purple-700 */
+  border-color: #4338CA;
+  box-shadow: 0 2px 6px rgba(83, 74, 183, 0.3);
+}
+
+.wms-btn-purple:active {
+  background: #3730A3;            /* purple-800 */
+  transform: translateY(1px);
 }
 
 /* End wms-custom.css */

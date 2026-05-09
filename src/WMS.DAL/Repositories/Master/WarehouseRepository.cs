@@ -40,6 +40,21 @@ internal sealed class WarehouseRepository : IWarehouseRepository
         return rows.AsList();
     }
 
+    public async Task<IReadOnlyList<WarehousePickerItem>> GetPickerItemsAsync(CancellationToken ct = default)
+    {
+        // Phase 8.5 — IX_Warehouses_Active(IsActive, Code) covers
+        // WHERE+ORDER exactly. Address + Type are non-key columns so
+        // SQL Server reads them via key-lookup; at <100 active warehouses
+        // per tenant this is fine without an INCLUDE-extended index.
+        var rows = await _connection.QueryAsync<WarehousePickerItem>(new CommandDefinition(
+            @"SELECT Id, Code, Name, Address, Type
+              FROM master.Warehouses
+              WHERE IsActive = 1
+              ORDER BY Code",
+            cancellationToken: ct));
+        return rows.AsList();
+    }
+
     public Task<Warehouse?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
         _connection.QuerySingleOrDefaultAsync<Warehouse?>(new CommandDefinition(
             EntitySelect + " WHERE Id = @id",

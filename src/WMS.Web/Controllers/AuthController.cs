@@ -129,9 +129,16 @@ public sealed class AuthController : BaseController
         if (!TryGetTenantId(out var tenantId))
             return RedirectToAction(nameof(Login));
 
-        var warehouses = await _warehouseRepoFactory.For(tenantId).GetActiveAsync(ct);
+        var repo = _warehouseRepoFactory.For(tenantId);
 
-        if (warehouses.Count == 0)
+        // Phase 8.5 picker uses the richer projection (Code, Name,
+        // Address, Type) for region grouping. The 0-warehouse + 1-
+        // warehouse smart-skip branches still drive off the lighter
+        // GetActiveAsync — those paths don't render the picker UI
+        // and the projection difference is noise.
+        var lightInfo = await repo.GetActiveAsync(ct);
+
+        if (lightInfo.Count == 0)
         {
             // Defensive: tenant has no active warehouses configured. Sign
             // the user out so they're not stuck holding a half-good cookie,
@@ -140,13 +147,18 @@ public sealed class AuthController : BaseController
             return View("NoWarehouseAccess");
         }
 
-        if (warehouses.Count == 1)
+        if (lightInfo.Count == 1)
         {
             // Smart-skip — single warehouse, no picker.
-            return await CompleteWarehouseSelectionAsync(warehouses[0]);
+            return await CompleteWarehouseSelectionAsync(lightInfo[0]);
         }
 
-        return View(new WarehouseSelectViewModel { Warehouses = warehouses });
+        var items = await repo.GetPickerItemsAsync(ct);
+        return View(new WarehouseSelectViewModel
+        {
+            Items = items,
+            TenantCode = User.FindFirst(WmsClaimTypes.TenantCode)?.Value ?? "",
+        });
     }
 
     [HttpPost]
@@ -159,14 +171,20 @@ public sealed class AuthController : BaseController
         if (!TryGetTenantId(out var tenantId))
             return RedirectToAction(nameof(Login));
 
-        var warehouses = await _warehouseRepoFactory.For(tenantId).GetActiveAsync(ct);
+        var repo = _warehouseRepoFactory.For(tenantId);
+        var warehouses = await repo.GetActiveAsync(ct);
         var selected = warehouses.FirstOrDefault(w => w.Id == model.SelectedWarehouseId);
         if (selected is null)
         {
             // Authoritative check — re-fetch and confirm. Never trust the
             // posted Id alone.
             ModelState.AddModelError(string.Empty, "Please select a warehouse.");
-            return View(new WarehouseSelectViewModel { Warehouses = warehouses });
+            var items = await repo.GetPickerItemsAsync(ct);
+            return View(new WarehouseSelectViewModel
+            {
+                Items = items,
+                TenantCode = User.FindFirst(WmsClaimTypes.TenantCode)?.Value ?? "",
+            });
         }
 
         return await CompleteWarehouseSelectionAsync(selected);

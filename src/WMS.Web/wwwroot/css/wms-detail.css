@@ -293,8 +293,8 @@
   color: #111827;
 }
 .wmsd-dl dd .mono { font-family: 'JetBrains Mono', Consolas, monospace; }
-.wmsd-dl dd a { color: var(--wmsd-purple-600); text-decoration: none; }
-.wmsd-dl dd a:hover { text-decoration: underline; }
+.wmsd-dl dd a { color: var(--wmsd-purple-600); text-decoration: none; transition: color 150ms ease; }
+.wmsd-dl dd a:hover { color: var(--wmsd-purple-700); /* Phase 8.5 — color shift, no underline */ }
 
 /* ================================================================
    Sidebar cards (Quick Actions · Created/Updated)

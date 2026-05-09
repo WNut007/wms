@@ -19,9 +19,17 @@ public interface IWarehouseRepository
 {
     // Active warehouses only, ordered by Code (deterministic + matches
     // IX_Warehouses_Active index leading column for cheap reads). Used
-    // by the login warehouse picker — kept on the lighter WarehouseInfo
-    // projection so Step 3 stays fast.
+    // by code-resolution / smart-skip paths that only need the 3-field
+    // projection (e.g. AuthController.SelectWarehouse single-warehouse
+    // shortcut, Receive/Putaway operator-warehouse claim resolution).
     Task<IReadOnlyList<WarehouseInfo>> GetActiveAsync(CancellationToken ct = default);
+
+    // Phase 8.5 — richer projection for the Step 3 picker UI.
+    // Returns Id, Code, Name, Address, Type so the view can render
+    // city + region grouping + Type badge without a follow-up query.
+    // Same WHERE+ORDER as GetActiveAsync (IsActive=1, Code ASC) —
+    // IX_Warehouses_Active still covers.
+    Task<IReadOnlyList<WarehousePickerItem>> GetPickerItemsAsync(CancellationToken ct = default);
 
     // List-page query. LEFT JOIN aggregate over master.Locations for a
     // live LocationCount. Returns paged rows + total count in one
