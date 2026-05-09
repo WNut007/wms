@@ -201,12 +201,15 @@ public partial class WarehousesController : Controller
             Activities = activities,
             QuickActions = new()
             {
-                // TD-017 partial — all three disabled. Receive
+                // Phase 7E — Edit warehouse wired.
+                new("Edit warehouse",   "ti-edit",
+                    $"/Warehouses/Edit/{Uri.EscapeDataString(row.Code)}"),
+                // TD-017 partial — three remain disabled. Receive
                 // shipment from a Warehouse Detail context implies a
                 // session-warehouse switch (operator's WarehouseId
-                // claim is the canonical source today); a clean
-                // wiring waits on multi-warehouse session UX.
-                // Cycle count + View stock need Phase 7+ routes.
+                // claim is the canonical source today); clean wiring
+                // waits on multi-warehouse session UX. Cycle count +
+                // View stock need Phase 7+ routes.
                 new("Receive shipment", "ti-package-import", "#", Enabled: false),
                 new("Cycle count",      "ti-checklist",      "#", Enabled: false),
                 new("View stock",       "ti-archive",        "#", Enabled: false),
