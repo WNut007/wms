@@ -39,6 +39,119 @@ internal sealed class CustomerRepository : ICustomerRepository
             new { code },
             cancellationToken: ct));
 
+    public async Task<Guid> InsertAsync(
+        Customer entity, Guid? userId, CancellationToken ct = default)
+    {
+        if (entity.Id == Guid.Empty) entity.Id = Guid.NewGuid();
+
+        // CreatedAt set server-side via SYSUTCDATETIME(). UpdatedAt
+        // left NULL on insert. No Version column on master.Customers.
+        const string sql = @"
+INSERT INTO master.Customers
+    (Id, Code, Name, CustomerType, CompanyName, TaxId,
+     Email, Phone, CustomerTier, AnnualRevenue,
+     OrdersPerMonth, AvgOrderValue, IsKeyAccount, IsStrategic,
+     AllocationPriority, SafetyStockDays, PromisedFillRate,
+     PreferredCarrierId, DefaultPaymentTerms, Status, Country,
+     CreatedAt, CreatedBy)
+VALUES
+    (@Id, @Code, @Name, @CustomerType, @CompanyName, @TaxId,
+     @Email, @Phone, @CustomerTier, @AnnualRevenue,
+     @OrdersPerMonth, @AvgOrderValue, @IsKeyAccount, @IsStrategic,
+     @AllocationPriority, @SafetyStockDays, @PromisedFillRate,
+     @PreferredCarrierId, @DefaultPaymentTerms, @Status, @Country,
+     SYSUTCDATETIME(), @UserId);";
+
+        await _connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            new
+            {
+                entity.Id,
+                entity.Code,
+                entity.Name,
+                entity.CustomerType,
+                entity.CompanyName,
+                entity.TaxId,
+                entity.Email,
+                entity.Phone,
+                entity.CustomerTier,
+                entity.AnnualRevenue,
+                entity.OrdersPerMonth,
+                entity.AvgOrderValue,
+                entity.IsKeyAccount,
+                entity.IsStrategic,
+                entity.AllocationPriority,
+                entity.SafetyStockDays,
+                entity.PromisedFillRate,
+                entity.PreferredCarrierId,
+                entity.DefaultPaymentTerms,
+                entity.Status,
+                entity.Country,
+                UserId = userId,
+            },
+            cancellationToken: ct));
+        return entity.Id;
+    }
+
+    public async Task<bool> UpdateAsync(
+        Customer entity, Guid? userId, CancellationToken ct = default)
+    {
+        // Code + CustomerType NOT in SET — Code is read-only (FK orphan),
+        // CustomerType flip orphans B2B-only fields. CompanyName/TaxId
+        // legitimately update (e.g. B2B customer renaming).
+        const string sql = @"
+UPDATE master.Customers SET
+    Name                = @Name,
+    CompanyName         = @CompanyName,
+    TaxId               = @TaxId,
+    Email               = @Email,
+    Phone               = @Phone,
+    CustomerTier        = @CustomerTier,
+    AnnualRevenue       = @AnnualRevenue,
+    OrdersPerMonth      = @OrdersPerMonth,
+    AvgOrderValue       = @AvgOrderValue,
+    IsKeyAccount        = @IsKeyAccount,
+    IsStrategic         = @IsStrategic,
+    AllocationPriority  = @AllocationPriority,
+    SafetyStockDays     = @SafetyStockDays,
+    PromisedFillRate    = @PromisedFillRate,
+    PreferredCarrierId  = @PreferredCarrierId,
+    DefaultPaymentTerms = @DefaultPaymentTerms,
+    Status              = @Status,
+    Country             = @Country,
+    UpdatedAt           = SYSUTCDATETIME(),
+    UpdatedBy           = @UserId
+WHERE Id = @Id;";
+
+        var rows = await _connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            new
+            {
+                entity.Id,
+                entity.Name,
+                entity.CompanyName,
+                entity.TaxId,
+                entity.Email,
+                entity.Phone,
+                entity.CustomerTier,
+                entity.AnnualRevenue,
+                entity.OrdersPerMonth,
+                entity.AvgOrderValue,
+                entity.IsKeyAccount,
+                entity.IsStrategic,
+                entity.AllocationPriority,
+                entity.SafetyStockDays,
+                entity.PromisedFillRate,
+                entity.PreferredCarrierId,
+                entity.DefaultPaymentTerms,
+                entity.Status,
+                entity.Country,
+                UserId = userId,
+            },
+            cancellationToken: ct));
+        return rows > 0;
+    }
+
     public async Task<PagedResult<CustomerListRow>> GetPagedAsync(
         CustomerFilter f, CancellationToken ct = default)
     {

@@ -3,11 +3,15 @@ using WMS.Domain.Entities.Master;
 
 namespace WMS.DAL.Repositories.Master;
 
-// Tenant-scoped reads against master.Customers. Bound to a single
-// tenant DB connection — get an instance via ICustomerRepositoryFactory.
+// Tenant-scoped reads + writes against master.Customers. Bound to a
+// single tenant DB connection — get an instance via
+// ICustomerRepositoryFactory.
 //
-// Phase 6B is read-only. Insert/Update/Archive belong to Phase 7+ admin
-// CRUD.
+// Writes added Phase 7. master.Customers has no Version column —
+// UpdateAsync uses last-write-wins (D4). UpdateAsync omits Code AND
+// CustomerType from SET: Code is read-only on Edit (FK-orphan risk),
+// CustomerType is read-only because flipping B2B ↔ B2C would orphan
+// the B2B-only fields (CompanyName / TaxId).
 public interface ICustomerRepository
 {
     // List-page query. Returns paged rows + total count in one
@@ -21,4 +25,12 @@ public interface ICustomerRepository
     // Detail-page resolution by Code. Code is tenant-wide unique
     // (UQ index on master.Customers.Code).
     Task<Customer?> GetByCodeAsync(string code, CancellationToken ct = default);
+
+    // Inserts a new customer. Caller may pre-assign Id; if Empty, repo
+    // generates one. Throws SqlException 2627 on duplicate Code.
+    Task<Guid> InsertAsync(Customer entity, Guid? userId, CancellationToken ct = default);
+
+    // Updates a customer. Code + CustomerType NOT in SET — see interface
+    // comment. Returns rows-affected > 0.
+    Task<bool> UpdateAsync(Customer entity, Guid? userId, CancellationToken ct = default);
 }
