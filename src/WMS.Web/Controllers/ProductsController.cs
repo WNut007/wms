@@ -1,8 +1,11 @@
+using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
 using WMS.DAL.Repositories.Inventory;
 using WMS.DAL.Repositories.Master;
+using WMS.Web.Models.Master;
 using WMS.Web.Services;
 using WMS.Web.Services.Mappers;
 using WMS.Web.Services.Storage;
@@ -10,9 +13,12 @@ using WMS.Web.ViewModels.Detail;
 
 namespace WMS.Web.Controllers;
 
+// Read-side (Index, GetData, Detail) lives in this file. Phase 7
+// admin Create / Edit lives in ProductsController.Admin.cs (partial)
+// to keep individual files under the CLAUDE.md 200-line guideline.
 [Authorize]
 [Route("Products")]
-public class ProductsController : Controller
+public partial class ProductsController : Controller
 {
     // Cap matches the _ActivityPanel header copy ("Last 30 days") and
     // gives the timeline enough breathing room without paging.
@@ -22,17 +28,32 @@ public class ProductsController : Controller
     private readonly IStockMovementRepositoryFactory _movementRepos;
     private readonly ITenantContext _tenant;
     private readonly IDocumentStorageService _docs;
+    private readonly IProductCategoryRepositoryFactory _categoryRepos;
+    private readonly IUomRepositoryFactory _uomRepos;
+    private readonly IValidator<ProductCreateViewModel> _createValidator;
+    private readonly IValidator<ProductEditViewModel> _editValidator;
+    private readonly ICurrentUser _currentUser;
 
     public ProductsController(
         IProductRepositoryFactory repos,
         IStockMovementRepositoryFactory movementRepos,
         ITenantContext tenant,
-        IDocumentStorageService docs)
+        IDocumentStorageService docs,
+        IProductCategoryRepositoryFactory categoryRepos,
+        IUomRepositoryFactory uomRepos,
+        IValidator<ProductCreateViewModel> createValidator,
+        IValidator<ProductEditViewModel> editValidator,
+        ICurrentUser currentUser)
     {
         _repos = repos;
         _movementRepos = movementRepos;
         _tenant = tenant;
         _docs = docs;
+        _categoryRepos = categoryRepos;
+        _uomRepos = uomRepos;
+        _createValidator = createValidator;
+        _editValidator = editValidator;
+        _currentUser = currentUser;
     }
 
     [HttpGet("")]

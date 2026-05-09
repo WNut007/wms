@@ -1,11 +1,14 @@
+using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
+using WMS.Common.Auth;
 using WMS.Common.Inventory;
 using WMS.Common.Multitenancy;
 using WMS.DAL.Common;
 using WMS.DAL.Repositories.Inventory;
 using WMS.DAL.Repositories.Master;
 using WMS.Web.Controllers;
+using WMS.Web.Models.Master;
 using WMS.Web.Services.Storage;
 using WMS.Web.ViewModels.Detail;
 
@@ -47,7 +50,45 @@ public class ProductsControllerTests
             d.ListByEntityAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())
                 == Task.FromResult(new List<DocumentMetadata>()));
 
-        return (new ProductsController(factory.Object, movementFactory.Object, tenant.Object, docsImpl),
+        // Phase 7 admin write-side dependencies. Read-side tests
+        // (Index / GetData / Detail) don't exercise these; default
+        // empty-list lookup factories + a no-op Validator suffice.
+        // Phase 7F tests introduce richer setup as needed.
+        var categoryRepo = new Mock<IProductCategoryRepository>();
+        categoryRepo.Setup(r => r.GetActiveAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<LookupItem>());
+        var categoryFactory = new Mock<IProductCategoryRepositoryFactory>();
+        categoryFactory.Setup(f => f.For(It.IsAny<Guid>())).Returns(categoryRepo.Object);
+
+        var uomRepo = new Mock<IUomRepository>();
+        uomRepo.Setup(r => r.GetActiveAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<LookupItem>());
+        var uomFactory = new Mock<IUomRepositoryFactory>();
+        uomFactory.Setup(f => f.For(It.IsAny<Guid>())).Returns(uomRepo.Object);
+
+        var createValidator = new Mock<IValidator<ProductCreateViewModel>>();
+        createValidator
+            .Setup(v => v.ValidateAsync(It.IsAny<ProductCreateViewModel>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FluentValidation.Results.ValidationResult());
+
+        var editValidator = new Mock<IValidator<ProductEditViewModel>>();
+        editValidator
+            .Setup(v => v.ValidateAsync(It.IsAny<ProductEditViewModel>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FluentValidation.Results.ValidationResult());
+
+        var currentUser = new Mock<ICurrentUser>();
+        currentUser.SetupGet(u => u.UserId).Returns(Guid.NewGuid());
+
+        return (new ProductsController(
+                    factory.Object,
+                    movementFactory.Object,
+                    tenant.Object,
+                    docsImpl,
+                    categoryFactory.Object,
+                    uomFactory.Object,
+                    createValidator.Object,
+                    editValidator.Object,
+                    currentUser.Object),
                 repo, movements);
     }
 
