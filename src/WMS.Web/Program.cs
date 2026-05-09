@@ -5,8 +5,10 @@ using Serilog;
 using WMS.BLL.Services.Auth;
 using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
+using WMS.BLL.Services.Counts;
 using WMS.BLL.Services.Inbound;
 using WMS.BLL.Services.Inventory;
+using WMS.DAL.Repositories.Counts;
 using WMS.DAL.Multitenancy;
 using WMS.DAL.Repositories.Documents;
 using WMS.DAL.Repositories.Inbound;
@@ -108,6 +110,10 @@ builder.Services.AddScoped<IPutawayService, PutawayService>();
 // Phase 11A — Stock Adjustments (ADR-013).
 builder.Services.AddScoped<IAdjustmentRepositoryFactory, AdjustmentRepositoryFactory>();
 builder.Services.AddScoped<IAdjustmentService, AdjustmentService>();
+
+// Phase 12 — Cycle Counts (counts.* domain).
+builder.Services.AddScoped<ICycleCountRepositoryFactory, CycleCountRepositoryFactory>();
+builder.Services.AddScoped<ICycleCountService, CycleCountService>();
 
 // PermissionService — Scoped to match the (Scoped) factory dep. The
 // cache itself lives on IMemoryCache (Singleton), so per-request

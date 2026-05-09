@@ -1,0 +1,209 @@
+@model WMS.Web.ViewModels.Detail.DetailPageViewModel
+@{
+    var lines = ViewBag.LineRows as IReadOnlyList<WMS.DAL.Repositories.Counts.CycleCountLineRow>
+                ?? new List<WMS.DAL.Repositories.Counts.CycleCountLineRow>();
+    var headerId = (Guid)ViewBag.HeaderId;
+    var isCounting = ViewBag.IsCounting is true;
+
+    // Initial state for the Alpine count form. Each line has the
+    // operator-editable {countedQuantity, lineStatus, notes}; the
+    // ExpectedQuantity is read-only (snapshot at create-time).
+    var initialJson = System.Text.Json.JsonSerializer.Serialize(
+        lines.Select(l => new {
+            id              = l.Id,
+            lineNumber      = l.LineNumber,
+            productCode     = l.ProductCode,
+            productName     = l.ProductName,
+            locationCode    = l.LocationCode,
+            uomCode         = l.UomCode,
+            ownerCode       = l.OwnerCode,
+            lotNumber       = l.LotNumber ?? "",
+            palletNumber    = l.PalletNumber ?? "",
+            expectedQuantity = l.ExpectedQuantity,
+            countedQuantity  = l.CountedQuantity,
+            lineStatus       = l.LineStatus,
+            notes            = l.Notes ?? "",
+        }));
+}
+
+<section class="wmsd-section" x-data="cycleCountForm({ initialLines: @Html.Raw(initialJson), isCounting: @(isCounting ? "true" : "false") })">
+    <p class="wmsd-section-eyebrow">— Lines</p>
+    <h2>@(isCounting ? "Count entry" : "Counted lines")</h2>
+
+    @if (isCounting)
+    {
+        <p style="font-size:12px;color:var(--wms-text-secondary);margin-bottom:12px;">
+            Enter physical counts. Save progress to come back later, or Submit for review when done.
+            Lines you can't find — set status to Skipped (ignored on apply).
+        </p>
+    }
+
+    @if (lines.Count == 0)
+    {
+        <p style="text-align:center;padding:40px;color:var(--wms-text-tertiary);font-size:12px;">
+            No lines on this count.
+        </p>
+    }
+    else
+    {
+        <form asp-controller="CycleCounts" asp-action="SaveCounts"
+              asp-route-id="@headerId" method="post"
+              x-show="isCounting">
+            @Html.AntiForgeryToken()
+
+            <div style="overflow-x:auto;">
+                <table class="wms-table" style="width:100%;">
+                    <thead>
+                        <tr>
+                            <th style="width:50px;">#</th>
+                            <th>Product</th>
+                            <th style="width:90px;">Location</th>
+                            <th style="width:60px;">UoM</th>
+                            <th style="width:100px;text-align:right;">Expected</th>
+                            <th style="width:130px;">Counted</th>
+                            <th style="width:120px;">Status</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="(line, idx) in lines" :key="line.id">
+                            <tr>
+                                <td><span class="mono" x-text="line.lineNumber"></span></td>
+                                <td>
+                                    <span class="mono" style="font-weight:500;" x-text="line.productCode"></span>
+                                    <span style="font-size:11px;color:var(--wms-text-secondary);display:block;" x-text="line.productName"></span>
+                                    <template x-if="line.lotNumber || line.palletNumber">
+                                        <span style="font-size:10px;color:var(--wms-text-secondary);">
+                                            <template x-if="line.lotNumber"><span>Lot <span class="mono" x-text="line.lotNumber"></span> </span></template>
+                                            <template x-if="line.palletNumber"><span>Pallet <span class="mono" x-text="line.palletNumber"></span></span></template>
+                                        </span>
+                                    </template>
+                                </td>
+                                <td><span class="mono" x-text="line.locationCode"></span></td>
+                                <td><span class="mono" x-text="line.uomCode"></span></td>
+                                <td style="text-align:right;" x-text="line.expectedQuantity.toFixed(2)"></td>
+                                <td>
+                                    <input type="hidden" :name="`Lines[${idx}].LineId`" :value="line.id" />
+                                    <input type="number" step="0.01" min="0"
+                                           class="wms-input" style="text-align:right;"
+                                           :name="`Lines[${idx}].CountedQuantity`"
+                                           x-model.number="line.countedQuantity"
+                                           @@input="onCountedChanged(idx)" />
+                                </td>
+                                <td>
+                                    <select class="wms-input"
+                                            :name="`Lines[${idx}].LineStatus`"
+                                            x-model="line.lineStatus"
+                                            @@change="onStatusChanged(idx)">
+                                        <option value="Pending">Pending</option>
+                                        <option value="Counted">Counted</option>
+                                        <option value="Skipped">Skipped</option>
+                                    </select>
+                                </td>
+                                <td>
+                                    <input type="text" class="wms-input"
+                                           :name="`Lines[${idx}].Notes`"
+                                           x-model="line.notes"
+                                           maxlength="500"
+                                           placeholder="(optional)" />
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0 4px;">
+                <span style="font-size:12px;color:var(--wms-text-secondary);">
+                    Counted <strong x-text="countedSoFar()"></strong> / @lines.Count lines
+                </span>
+                <button type="submit" class="wms-btn wms-btn-purple">
+                    <i class="ti ti-device-floppy" style="margin-right:6px;"></i>
+                    Save progress
+                </button>
+            </div>
+        </form>
+
+        @* Read-only render — Review / Applied / Cancelled states *@
+        <div x-show="!isCounting" style="overflow-x:auto;">
+            <table class="wms-table" style="width:100%;">
+                <thead>
+                    <tr>
+                        <th style="width:50px;">#</th>
+                        <th>Product</th>
+                        <th style="width:90px;">Location</th>
+                        <th style="width:100px;text-align:right;">Expected</th>
+                        <th style="width:100px;text-align:right;">Counted</th>
+                        <th style="width:100px;text-align:right;">Variance</th>
+                        <th style="width:120px;">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var line in lines)
+                    {
+                        decimal? variance = line.CountedQuantity.HasValue
+                            ? line.CountedQuantity.Value - line.ExpectedQuantity
+                            : (decimal?)null;
+                        var varColor = variance switch
+                        {
+                            null     => "var(--wms-text-tertiary)",
+                            { } v when v == 0m => "#0F6E56",
+                            { } v when v > 0m  => "#0C447C",
+                            _                  => "#A32D2D",
+                        };
+                        var statusVariant = line.LineStatus switch
+                        {
+                            "Counted" => "s-success",
+                            "Skipped" => "s-neutral",
+                            _         => "s-warning",
+                        };
+                        <tr>
+                            <td><span class="mono">@line.LineNumber</span></td>
+                            <td>
+                                <span class="mono" style="font-weight:500;">@line.ProductCode</span>
+                                <span style="font-size:11px;color:var(--wms-text-secondary);display:block;">@line.ProductName</span>
+                            </td>
+                            <td><span class="mono">@line.LocationCode</span></td>
+                            <td style="text-align:right;">@line.ExpectedQuantity.ToString("N2") <span style="font-size:11px;color:var(--wms-text-secondary);">@line.UomCode</span></td>
+                            <td style="text-align:right;">@(line.CountedQuantity?.ToString("N2") ?? "—")</td>
+                            <td style="text-align:right;font-weight:500;color:@varColor;">
+                                @(variance.HasValue ? (variance.Value >= 0m ? "+" : "") + variance.Value.ToString("N2") : "—")
+                            </td>
+                            <td><span class="wmsd-badge @statusVariant">@line.LineStatus</span></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@if (isCounting)
+{
+    <script>
+        function cycleCountForm(opts) {
+            return {
+                lines: opts.initialLines || [],
+                isCounting: opts.isCounting,
+                onCountedChanged(idx) {
+                    const line = this.lines[idx];
+                    // Auto-flip status to 'Counted' when a quantity is entered;
+                    // back to 'Pending' if cleared.
+                    if (line.countedQuantity === null || line.countedQuantity === '' || line.countedQuantity === undefined) {
+                        if (line.lineStatus === 'Counted') line.lineStatus = 'Pending';
+                    } else {
+                        if (line.lineStatus === 'Pending') line.lineStatus = 'Counted';
+                    }
+                },
+                onStatusChanged(idx) {
+                    const line = this.lines[idx];
+                    // Pending requires CountedQuantity NULL; clear it on flip.
+                    if (line.lineStatus === 'Pending') line.countedQuantity = null;
+                },
+                countedSoFar() {
+                    return this.lines.filter(l => l.lineStatus === 'Counted').length;
+                },
+            };
+        }
+    </script>
+}

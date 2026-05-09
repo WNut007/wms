@@ -68,6 +68,24 @@
             </a>
         </div>
     }
+    else if (string.Equals(module.Code, "COUNTS", StringComparison.OrdinalIgnoreCase))
+    {
+        // Phase 12 — Counts module currently has Cycle Counts only.
+        var countsActive = IsActive("COUNTS") || IsActive("CycleCounts");
+        <a href="@Url.Action("Index", "CycleCounts")"
+           class="wms-sidebar-item @(countsActive ? "active" : "")"
+           title="@module.DisplayName">
+            <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
+            <span class="wms-sidebar-item-text">@module.DisplayName</span>
+            <i class="ti ti-chevron-down wms-sidebar-item-chevron"></i>
+        </a>
+        <div class="wms-sidebar-submenu">
+            <a href="@Url.Action("Index", "CycleCounts")"
+               class="wms-sidebar-item @(IsActive("CycleCounts") ? "active" : "")">
+                <span class="wms-sidebar-item-text">Cycle Counts</span>
+            </a>
+        </div>
+    }
     else if (string.Equals(module.Code, "INVENTORY", StringComparison.OrdinalIgnoreCase))
     {
         // Phase 11A — Inventory currently expands to Adjustments only.
