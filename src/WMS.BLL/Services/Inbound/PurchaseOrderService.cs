@@ -228,6 +228,43 @@ public sealed class PurchaseOrderService : IPurchaseOrderService
         return changed;
     }
 
+    public async Task<bool> RevertStatusAfterCancelAsync(
+        Guid tenantId,
+        Guid purchaseOrderId,
+        Guid? currentUserId,
+        CancellationToken ct = default)
+    {
+        var repo = _repoFactory.For(tenantId);
+
+        // Cancellation may have rolled some lines below their close
+        // threshold; if so we step back from Closed → Receiving (or
+        // → Open if no receipts remain). If receipts on this PO still
+        // satisfy AllLinesFullyReceived (= the cancelled receipt was
+        // for a different PO and somehow we're called), no-op.
+        if (await repo.AllLinesFullyReceivedAsync(purchaseOrderId, ct))
+            return false;
+
+        var anyReceived = await repo.AnyLineHasReceiptsAsync(purchaseOrderId, ct);
+        var target = anyReceived ? "Receiving" : "Open";
+
+        // Try every non-Cancelled source state. SetStatusAsync's
+        // WHERE Status=@from filter makes each attempt cheap and the
+        // sequence picks whichever applies. Cancelled POs (user-
+        // archived) are never touched — RevertStatus on a Cancelled
+        // PO is a no-op by exclusion.
+        var changed =
+               await repo.SetStatusAsync(purchaseOrderId, "Closed",    target, currentUserId, ct)
+            || await repo.SetStatusAsync(purchaseOrderId, "Receiving", target, currentUserId, ct);
+
+        if (changed)
+        {
+            _logger.LogInformation(
+                "PO {PoId} reverted to {Target} after receipt cancellation",
+                purchaseOrderId, target);
+        }
+        return changed;
+    }
+
     // ====================================================================
     // Validation
     // ====================================================================

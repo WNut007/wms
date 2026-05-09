@@ -1,32 +1,41 @@
+using System.Transactions;
 using Microsoft.Extensions.Logging;
+using WMS.Common.Inventory;
 using WMS.DAL.Repositories.Inbound;
+using WMS.DAL.Repositories.Inventory;
 using WMS.Domain.Entities.Inbound;
 
 namespace WMS.BLL.Services.Inbound;
 
 // Orchestrates the post-receipt flow.
 //
-// Phase 1 trade-off: the four resources (receiving header / lines,
-// stock, lot/pallet, PO line) each have their own atomic write but
-// the *combination* is sequential without a top-level transaction.
-// Failure in step N leaves steps 1..N-1's effects in place. In
-// practice:
+// Phase 10B (TD-022): the full orchestration runs inside an ambient
+// `TransactionScope` so any failure in steps 2-4 (per-line stock
+// upsert, lot/pallet link-back, PO line bump, PO status transitions)
+// rolls back step 1's header+lines write too. The repos detect the
+// ambient scope and skip their own internal `BeginTransaction()`
+// calls (which would otherwise throw "SqlConnection does not support
+// parallel transactions").
 //
-//   * Step 1 (Create header+lines): atomic. Failure leaves nothing.
-//   * Step 2 (per-line ReceiveStockAsync via β): atomic per line.
-//     Failure on line K means header + all lines exist, lines 1..K-1
-//     have stock + Lot/Pallet links, line K's stock is missing.
-//   * Step 3 (UpdateLineInventoryRefsAsync per line): atomic.
-//     Failure leaves stock created but the receiving line not yet
-//     pointing at its Lot/Pallet — recoverable by re-running.
-//   * Step 4 (IncrementLineReceivedQuantityAsync): atomic.
-//
-// Single-instance Phase 1 + admin oversight makes this acceptable;
-// a TransactionScope wrapper is the next-step polish.
+// Trade-off: each repo gets a fresh `SqlConnection` from the factory,
+// so this orchestration involves multiple connections within one
+// scope. SqlClient promotes the LTM transaction to MSDTC on the
+// second connection enlist. Acceptable because:
+//   * Windows-only deployment (per architecture) — MSDTC is the
+//     standard distributed-coordinator service and is enabled by
+//     default on most Windows installations.
+//   * Production single-instance volume doesn't stress DTC.
+//   * The alternative (threading one shared connection through every
+//     repo + sub-service) is a much larger refactor for marginal
+//     gain at current volumes.
+// If MSDTC ever becomes operational burden, swap this for the
+// connection-threading pattern; the repo-side ambient detection
+// stays useful either way.
 public sealed class ReceivingHeaderService : IReceivingHeaderService
 {
     private readonly IReceivingHeaderRepositoryFactory _receivingRepoFactory;
     private readonly IPurchaseOrderRepositoryFactory _poRepoFactory;
+    private readonly IStockRepositoryFactory _stockRepoFactory;
     private readonly IReceivingService _receivingService;
     private readonly IPurchaseOrderService _purchaseOrderService;
     private readonly ILogger<ReceivingHeaderService> _logger;
@@ -34,12 +43,14 @@ public sealed class ReceivingHeaderService : IReceivingHeaderService
     public ReceivingHeaderService(
         IReceivingHeaderRepositoryFactory receivingRepoFactory,
         IPurchaseOrderRepositoryFactory poRepoFactory,
+        IStockRepositoryFactory stockRepoFactory,
         IReceivingService receivingService,
         IPurchaseOrderService purchaseOrderService,
         ILogger<ReceivingHeaderService> logger)
     {
         _receivingRepoFactory = receivingRepoFactory;
         _poRepoFactory = poRepoFactory;
+        _stockRepoFactory = stockRepoFactory;
         _receivingService = receivingService;
         _purchaseOrderService = purchaseOrderService;
         _logger = logger;
@@ -86,6 +97,24 @@ public sealed class ReceivingHeaderService : IReceivingHeaderService
             })
             .ToList();
 
+        // TD-022 — TransactionScope wraps steps 1→6 below so any
+        // mid-flight failure rolls back ALL writes (header + lines +
+        // stock + Movement Log + PO line bumps + PO status flips).
+        // ReadCommitted matches the repos' defaults; AsyncFlowOption
+        // .Enabled is required so the ambient TX flows across the
+        // `await` continuations Dapper produces.
+        //
+        // Draft path stays inside the scope but only runs Step 1, so
+        // a TX-time failure on the header/lines insert still rolls
+        // back cleanly.
+        using var scope = new TransactionScope(
+            TransactionScopeOption.Required,
+            new TransactionOptions
+            {
+                IsolationLevel = System.Transactions.IsolationLevel.ReadCommitted,
+            },
+            TransactionScopeAsyncFlowOption.Enabled);
+
         // Step 1 — persist header + lines atomically.
         var receivingRepo = _receivingRepoFactory.For(tenantId);
         await receivingRepo.CreateAsync(header, lines, currentUserId, ct);
@@ -100,6 +129,7 @@ public sealed class ReceivingHeaderService : IReceivingHeaderService
             var draftDetail = await receivingRepo.GetByIdAsync(headerId, ct)
                 ?? throw new InvalidOperationException(
                     $"Draft ReceivingHeader {headerId} not found immediately after create.");
+            scope.Complete();
             _logger.LogInformation(
                 "Saved DRAFT receiving {ReceivingNumber} ({HeaderId}) with {LineCount} line(s) " +
                 "against PO {PurchaseOrderId} at warehouse {WarehouseId}",
@@ -169,6 +199,11 @@ public sealed class ReceivingHeaderService : IReceivingHeaderService
             ?? throw new InvalidOperationException(
                 $"ReceivingHeader {headerId} not found immediately after post.");
 
+        // TD-022 — commit the ambient TransactionScope. Failure to
+        // reach Complete() rolls back everything in steps 1→6 plus
+        // any nested writes (Lot/Pallet GetOrCreate, Movement Log).
+        scope.Complete();
+
         _logger.LogInformation(
             "Posted receiving {ReceivingNumber} ({HeaderId}) with {LineCount} line(s) " +
             "against PO {PurchaseOrderId} at warehouse {WarehouseId}",
@@ -185,6 +220,118 @@ public sealed class ReceivingHeaderService : IReceivingHeaderService
     public Task<ReceivingDetail?> GetByNumberAsync(
         Guid tenantId, string receivingNumber, CancellationToken ct = default) =>
         _receivingRepoFactory.For(tenantId).GetByNumberAsync(receivingNumber, ct);
+
+    public async Task<bool> CancelReceivingAsync(
+        Guid tenantId,
+        Guid receivingHeaderId,
+        string reason,
+        Guid? currentUserId,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ArgumentException("Cancellation reason is required.", nameof(reason));
+
+        var receivingRepo = _receivingRepoFactory.For(tenantId);
+        var detail = await receivingRepo.GetByIdAsync(receivingHeaderId, ct)
+            ?? throw new InvalidOperationException(
+                $"ReceivingHeader {receivingHeaderId} not found.");
+
+        // State guard. Idempotent on already-Cancelled (returns false
+        // up the stack — controller surfaces a "already cancelled"
+        // notice). Drafts route through a future DiscardDraft flow
+        // that simply deletes header + lines (no movements to reverse).
+        if (detail.Header.Status == "Cancelled") return false;
+        if (detail.Header.Status == "Draft")
+            throw new InvalidOperationException(
+                "Drafts cannot be cancelled — discard the draft instead.");
+        if (detail.Header.Status != "Posted")
+            throw new InvalidOperationException(
+                $"Cannot cancel receipt in state '{detail.Header.Status}'.");
+
+        // TD-022 — same TransactionScope pattern as PostReceivingAsync.
+        // Multi-connection orchestration → MSDTC promotion. Repos
+        // detect the ambient TX and skip their own BeginTransaction()
+        // calls.
+        using var scope = new TransactionScope(
+            TransactionScopeOption.Required,
+            new TransactionOptions
+            {
+                IsolationLevel = System.Transactions.IsolationLevel.ReadCommitted,
+            },
+            TransactionScopeAsyncFlowOption.Enabled);
+
+        var stockRepo = _stockRepoFactory.For(tenantId);
+        var poRepo    = _poRepoFactory.For(tenantId);
+
+        // Step 1 — per line: subtract from Stock + write paired
+        // negative StockMovement (MovementType=Adjust, RT=
+        // 'ReceivingLineCancellation', RI=line.Id).
+        // CK_Stock_OnHand_NonNegative throws if stock has been
+        // consumed since the receive — TX rollback, operator told
+        // to adjust manually first.
+        foreach (var line in detail.Lines)
+        {
+            var key = new StockKey(
+                line.LocationId,
+                line.ProductId,
+                line.LotId,
+                line.PalletId,
+                line.OwnerId,
+                line.UomId);
+
+            var ctx = new StockMovementContext(
+                MovementType: StockMovementType.Adjust,
+                PerformedBy:  currentUserId,
+                ReferenceType: "ReceivingLineCancellation",
+                ReferenceId:   line.Id,
+                Notes: $"Cancelled receipt {detail.Header.ReceivingNumber}: {reason}");
+
+            await stockRepo.UpsertOnHandAsync(key, -line.ReceivedQuantity, ctx, ct);
+
+            // Step 2 — decrement linked PO line's ReceivedQuantity.
+            if (line.PurchaseOrderLineId is { } poLineId)
+            {
+                await poRepo.IncrementLineReceivedQuantityAsync(
+                    poLineId, -line.ReceivedQuantity, currentUserId, ct);
+            }
+        }
+
+        // Step 3 — flip header status + audit trio. Idempotent at
+        // SQL level (WHERE Status='Posted') — but we already gated
+        // above so this should change exactly one row.
+        var statusChanged = await receivingRepo.SetCancellationAsync(
+            receivingHeaderId, reason, currentUserId, ct);
+
+        if (!statusChanged)
+            throw new InvalidOperationException(
+                $"Failed to cancel ReceivingHeader {receivingHeaderId} — concurrent state change?");
+
+        // Step 4 — revert PO line statuses (per-line server-side
+        // CASE based on current Received vs Expected). Cancelled
+        // PO lines stay Cancelled.
+        foreach (var line in detail.Lines)
+        {
+            if (line.PurchaseOrderLineId is { } poLineId)
+            {
+                await poRepo.RevertLineStatusAsync(poLineId, currentUserId, ct);
+            }
+        }
+
+        // Step 5 — revert PO header (Closed → Receiving / Open).
+        if (detail.Header.PurchaseOrderId is { } poId)
+        {
+            await _purchaseOrderService.RevertStatusAfterCancelAsync(
+                tenantId, poId, currentUserId, ct);
+        }
+
+        scope.Complete();
+
+        _logger.LogInformation(
+            "Cancelled receipt {ReceivingNumber} ({HeaderId}) — reason: {Reason}",
+            detail.Header.ReceivingNumber, receivingHeaderId, reason);
+
+        return true;
+    }
 
     private static void Validate(PostReceivingRequest req)
     {

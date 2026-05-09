@@ -140,8 +140,10 @@ internal sealed class StockMovementRepository : IStockMovementRepository
     {
         // Movement → ReceivingLine via the ReferenceType + ReferenceId
         // pair (ADR-014). Filtered to lines on this specific
-        // ReceivingHeader. Same display-resolution LEFT JOINs as
-        // GetByProductAsync.
+        // ReceivingHeader. Phase 10B (TD-023) — also pulls
+        // 'ReceivingLineCancellation' so reversal movements appear in
+        // the Activity feed alongside the original receipts. Same
+        // display-resolution LEFT JOINs as GetByProductAsync.
         var rows = await _connection.QueryAsync<StockMovementListRow>(new CommandDefinition(
             @"SELECT m.Id,
                      m.MovementType,
@@ -155,7 +157,7 @@ internal sealed class StockMovementRepository : IStockMovementRepository
               FROM inventory.StockMovements m
               JOIN inbound.ReceivingLines rl
                 ON rl.Id = m.ReferenceId
-                AND m.ReferenceType = 'ReceivingLine'
+                AND m.ReferenceType IN ('ReceivingLine', 'ReceivingLineCancellation')
               LEFT JOIN master.Locations fl ON fl.Id = m.FromLocationId
               LEFT JOIN master.Locations tl ON tl.Id = m.ToLocationId
               LEFT JOIN security.Users u    ON u.Id  = m.PerformedBy

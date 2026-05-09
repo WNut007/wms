@@ -70,4 +70,15 @@ public interface IReceivingHeaderRepository
     // counts respect search + warehouse filter, ignore status.
     Task<ReceivingStatusCounts> GetStatusCountsAsync(
         ReceivingFilter filter, CancellationToken ct = default);
+
+    // Phase 10B (TD-023) — atomic Status='Cancelled' + audit-trio
+    // populate. Idempotent at the SQL level (WHERE Status='Posted')
+    // so the orchestrator can call this in a TransactionScope without
+    // worrying about concurrent cancellations. Returns true when a
+    // row was changed; false if already Cancelled or row missing.
+    Task<bool> SetCancellationAsync(
+        Guid receivingHeaderId,
+        string reason,
+        Guid? userId,
+        CancellationToken ct = default);
 }

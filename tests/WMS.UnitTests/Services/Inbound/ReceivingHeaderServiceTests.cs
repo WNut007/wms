@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using WMS.BLL.Services.Inbound;
 using WMS.DAL.Repositories.Inbound;
+using WMS.DAL.Repositories.Inventory;
 using WMS.Domain.Entities.Inbound;
 using WMS.Domain.Entities.Inventory;
 
@@ -179,6 +180,226 @@ public class ReceivingHeaderServiceTests
             It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
+    // ================================================================
+    // Phase 10B (TD-023) — CancelReceivingAsync
+    // ================================================================
+
+    [Fact]
+    public async Task CancelReceivingAsync_BlankReason_Throws()
+    {
+        var sut = NewServiceFull(out _, out _, out _, out _, out _);
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => sut.CancelReceivingAsync(TestTenantId, Guid.NewGuid(), "  ", null));
+    }
+
+    [Fact]
+    public async Task CancelReceivingAsync_AlreadyCancelled_ReturnsFalse_NoWrites()
+    {
+        var headerId = Guid.NewGuid();
+        var sut = NewServiceFull(out var receivingRepo, out var poRepo,
+            out var stockRepo, out var poService, out _);
+
+        receivingRepo.Setup(r => r.GetByIdAsync(headerId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReceivingDetail(
+                new ReceivingHeader { Id = headerId, Status = "Cancelled" },
+                Array.Empty<ReceivingLine>()));
+
+        var changed = await sut.CancelReceivingAsync(TestTenantId, headerId, "duplicate", null);
+
+        Assert.False(changed);
+        receivingRepo.Verify(r => r.SetCancellationAsync(
+            It.IsAny<Guid>(), It.IsAny<string>(),
+            It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
+        stockRepo.Verify(r => r.UpsertOnHandAsync(
+            It.IsAny<WMS.Common.Inventory.StockKey>(),
+            It.IsAny<decimal>(),
+            It.IsAny<WMS.Common.Inventory.StockMovementContext>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CancelReceivingAsync_DraftReceipt_Throws()
+    {
+        var headerId = Guid.NewGuid();
+        var sut = NewServiceFull(out var receivingRepo, out _, out _, out _, out _);
+
+        receivingRepo.Setup(r => r.GetByIdAsync(headerId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReceivingDetail(
+                new ReceivingHeader { Id = headerId, Status = "Draft" },
+                Array.Empty<ReceivingLine>()));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => sut.CancelReceivingAsync(TestTenantId, headerId, "should fail", null));
+    }
+
+    [Fact]
+    public async Task CancelReceivingAsync_HappyPath_ReversesStock_DecrementsPo_FlipsStatus_RevertsPo()
+    {
+        var headerId = Guid.NewGuid();
+        var poId = Guid.NewGuid();
+        var poLineId = Guid.NewGuid();
+        var lineId = Guid.NewGuid();
+
+        var line = new ReceivingLine
+        {
+            Id = lineId,
+            ReceivingHeaderId = headerId,
+            LineNumber = 1,
+            PurchaseOrderLineId = poLineId,
+            ProductId = TestProductId,
+            UomId = TestUomId,
+            OwnerId = TestOwnerId,
+            LocationId = TestLocationId,
+            ReceivedQuantity = 5m,
+        };
+
+        var header = new ReceivingHeader
+        {
+            Id = headerId,
+            ReceivingNumber = "GR-CXL",
+            PurchaseOrderId = poId,
+            Status = "Posted",
+        };
+
+        var sut = NewServiceFull(out var receivingRepo, out var poRepo,
+            out var stockRepo, out var poService, out _);
+
+        receivingRepo.Setup(r => r.GetByIdAsync(headerId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReceivingDetail(header, new[] { line }));
+        receivingRepo.Setup(r => r.SetCancellationAsync(
+                headerId, "operator error", It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        // Stock reverse — capture the negative delta + ctx.
+        decimal capturedDelta = 0;
+        WMS.Common.Inventory.StockMovementContext? capturedCtx = null;
+        stockRepo.Setup(r => r.UpsertOnHandAsync(
+                It.IsAny<WMS.Common.Inventory.StockKey>(),
+                It.IsAny<decimal>(),
+                It.IsAny<WMS.Common.Inventory.StockMovementContext>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<WMS.Common.Inventory.StockKey, decimal,
+                       WMS.Common.Inventory.StockMovementContext, CancellationToken>(
+                (_, delta, ctx, _) => { capturedDelta = delta; capturedCtx = ctx; })
+            .ReturnsAsync(new Stock { Id = Guid.NewGuid(), QuantityOnHand = 0 });
+
+        var ok = await sut.CancelReceivingAsync(TestTenantId, headerId, "operator error", null);
+
+        Assert.True(ok);
+        Assert.Equal(-5m, capturedDelta);
+        Assert.NotNull(capturedCtx);
+        Assert.Equal(WMS.Common.Inventory.StockMovementType.Adjust, capturedCtx!.MovementType);
+        Assert.Equal("ReceivingLineCancellation", capturedCtx.ReferenceType);
+        Assert.Equal(lineId, capturedCtx.ReferenceId);
+
+        // PO line decrement.
+        poRepo.Verify(r => r.IncrementLineReceivedQuantityAsync(
+            poLineId, -5m, It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        // PO line status revert.
+        poRepo.Verify(r => r.RevertLineStatusAsync(
+            poLineId, It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        // PO header revert.
+        poService.Verify(s => s.RevertStatusAfterCancelAsync(
+            TestTenantId, poId, It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        // Header status flip.
+        receivingRepo.Verify(r => r.SetCancellationAsync(
+            headerId, "operator error", It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task CancelReceivingAsync_BlindReceipt_SkipsPoLineAndHeaderRevert()
+    {
+        var headerId = Guid.NewGuid();
+        var line = new ReceivingLine
+        {
+            Id = Guid.NewGuid(),
+            ReceivingHeaderId = headerId,
+            LineNumber = 1,
+            PurchaseOrderLineId = null,  // blind
+            ProductId = TestProductId,
+            UomId = TestUomId,
+            OwnerId = TestOwnerId,
+            LocationId = TestLocationId,
+            ReceivedQuantity = 3m,
+        };
+        var header = new ReceivingHeader
+        {
+            Id = headerId,
+            ReceivingNumber = "GR-BLIND",
+            PurchaseOrderId = null,  // blind
+            Status = "Posted",
+        };
+
+        var sut = NewServiceFull(out var receivingRepo, out var poRepo,
+            out var stockRepo, out var poService, out _);
+
+        receivingRepo.Setup(r => r.GetByIdAsync(headerId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReceivingDetail(header, new[] { line }));
+        receivingRepo.Setup(r => r.SetCancellationAsync(
+                It.IsAny<Guid>(), It.IsAny<string>(),
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        stockRepo.Setup(r => r.UpsertOnHandAsync(
+                It.IsAny<WMS.Common.Inventory.StockKey>(),
+                It.IsAny<decimal>(),
+                It.IsAny<WMS.Common.Inventory.StockMovementContext>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Stock { Id = Guid.NewGuid(), QuantityOnHand = 0 });
+
+        await sut.CancelReceivingAsync(TestTenantId, headerId, "blind reverse", null);
+
+        // No PO calls because blind.
+        poRepo.Verify(r => r.IncrementLineReceivedQuantityAsync(
+            It.IsAny<Guid>(), It.IsAny<decimal>(),
+            It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
+        poRepo.Verify(r => r.RevertLineStatusAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
+        poService.Verify(s => s.RevertStatusAfterCancelAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    // Service-side helper exposing all 5 mocks (read-side tests
+    // hide the new 2 since they're irrelevant).
+    private static ReceivingHeaderService NewServiceFull(
+        out Mock<IReceivingHeaderRepository> receivingRepo,
+        out Mock<IPurchaseOrderRepository> poRepo,
+        out Mock<IStockRepository> stockRepo,
+        out Mock<IPurchaseOrderService> poService,
+        out Mock<IReceivingService> receivingService)
+    {
+        receivingRepo = new Mock<IReceivingHeaderRepository>();
+        poRepo = new Mock<IPurchaseOrderRepository>();
+        stockRepo = new Mock<IStockRepository>();
+        receivingService = new Mock<IReceivingService>();
+        poService = new Mock<IPurchaseOrderService>();
+
+        var receivingFactory = new Mock<IReceivingHeaderRepositoryFactory>();
+        receivingFactory.Setup(f => f.For(It.IsAny<Guid>())).Returns(receivingRepo.Object);
+
+        var poFactory = new Mock<IPurchaseOrderRepositoryFactory>();
+        poFactory.Setup(f => f.For(It.IsAny<Guid>())).Returns(poRepo.Object);
+
+        var stockFactory = new Mock<IStockRepositoryFactory>();
+        stockFactory.Setup(f => f.For(It.IsAny<Guid>())).Returns(stockRepo.Object);
+
+        return new ReceivingHeaderService(
+            receivingFactory.Object,
+            poFactory.Object,
+            stockFactory.Object,
+            receivingService.Object,
+            poService.Object,
+            NullLogger<ReceivingHeaderService>.Instance);
+    }
+
     private static ReceivingHeaderService NewService(
         out Mock<IReceivingHeaderRepository> receivingRepo,
         out Mock<IPurchaseOrderRepository> poRepo,
@@ -193,6 +414,13 @@ public class ReceivingHeaderServiceTests
 
         var poFactory = new Mock<IPurchaseOrderRepositoryFactory>();
         poFactory.Setup(f => f.For(It.IsAny<Guid>())).Returns(poRepo.Object);
+
+        // Phase 10B (TD-023) — service now also injects IStockRepository
+        // for the cancellation reverse path. The Post* tests don't
+        // exercise CancelReceivingAsync, so a Mock.Of suffices.
+        var stockFactory = new Mock<IStockRepositoryFactory>();
+        stockFactory.Setup(f => f.For(It.IsAny<Guid>()))
+            .Returns(Mock.Of<IStockRepository>());
 
         var poService = new Mock<IPurchaseOrderService>();
         // Phase 9B — service now calls Mark{Receiving,Closed}Async on
@@ -209,6 +437,7 @@ public class ReceivingHeaderServiceTests
         return new ReceivingHeaderService(
             receivingFactory.Object,
             poFactory.Object,
+            stockFactory.Object,
             receivingService.Object,
             poService.Object,
             NullLogger<ReceivingHeaderService>.Instance);

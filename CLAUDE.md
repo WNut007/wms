@@ -317,11 +317,62 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Day 10 in progress · Phase 10A (PO Detail Completeness) shipped → tag `v1.0.1-po-detail-complete`
-**Current Focus**: Phase 10B direction TBD — Adjustment workflow vs more inbound hardening (TD-022/023/026/027) vs reports
-**Blockers**: none
+**Active Sprint**: Day 10 · Phase 10A + 10B shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened`
+**Current Focus**: Phase 11 direction TBD — Adjustment workflow (ADR-013) most likely candidate now that inbound is production-grade
+**Blockers**: none — user must run `dotnet run --project tools/WMS.Migrate` to apply migration 20260510_008 (Cancelled* audit fields)
 
 Update this section weekly during standups.
+
+### Day 10 — Phase 10B (Inbound Hardening — TransactionScope + GR Cancellation)
+
+**Branch**: `feat/inbound-hardening` → merged to `main` · **Tag**: `v1.0.2-inbound-hardened` · **Closes**: TD-022 + TD-023
+
+Two paired hardening items: atomic orchestration + reversal flow. Bundled because the Cancellation flow re-uses the same TransactionScope pattern from TD-022.
+
+**TD-022 — TransactionScope on PostReceivingAsync**:
+- Wrapped the 4-step orchestration (Create header+lines → per-line stock upsert → Lot/Pallet ref stamp → PO line bump → PO status auto-transitions) in `TransactionScope(Required, ReadCommitted, AsyncFlowOption.Enabled)`.
+- Trade-off accepted: each repo gets a fresh `SqlConnection` from its factory, so the orchestration spans multiple connections within one scope. Microsoft.Data.SqlClient's PSPE promotes the LTM transaction to MSDTC on the second connection enlist. Works on Windows deployment (per architecture). Cleaner alternative — single shared connection threaded through every repo + sub-service — was de-scoped (~1-2 days extra work for marginal gain at current volumes).
+- Repos `PurchaseOrderRepository.{CreateAsync, ReplaceLinesAsync}` + `ReceivingHeaderRepository.CreateAsync` had internal `_connection.BeginTransaction()` calls that fight an ambient TransactionScope ("SqlConnection does not support parallel transactions"). Fixed via `var hasAmbient = Transaction.Current is not null; using IDbTransaction? tx = hasAmbient ? null : _connection.BeginTransaction();` — preserves standalone behaviour, defers to ambient when wrapped.
+- Draft path also wrapped (Step 1 only runs but failure rolls back cleanly).
+
+**TD-023 — GR Cancellation flow**:
+- Migration `20260510_008_AddReceivingHeadersCancellationAudit` — adds `CancelledBy` (FK → security.Users), `CancelledAt`, `CancelReason` (NVARCHAR(500)) to `inbound.ReceivingHeaders`. All nullable; populated atomically inside the cancel orchestration.
+- New `IReceivingHeaderService.CancelReceivingAsync(tenantId, headerId, reason, userId)`:
+  1. Validates state (Posted only; Draft → throw "discard instead"; Cancelled → return false idempotent).
+  2. TransactionScope wraps everything below.
+  3. Per line: `IStockRepository.UpsertOnHandAsync(key, -line.ReceivedQuantity, ctx)` with `MovementType=Adjust` + `ReferenceType="ReceivingLineCancellation"` + `ReferenceId=line.Id` + `Notes="Cancelled receipt {GR-N}: {reason}"`. `CK_Stock_OnHand_NonNegative` throws if the operator already consumed the received stock — TX rolls back, controller surfaces "stock has been consumed".
+  4. Per linked PO line: `IncrementLineReceivedQuantityAsync(poLineId, -qty, …)`.
+  5. `SetCancellationAsync(headerId, reason, userId)` flips `Status='Cancelled'` + audit trio in one atomic UPDATE (idempotent via `WHERE Status='Posted'`).
+  6. Per linked PO line: `RevertLineStatusAsync(poLineId, userId)` — server-side CASE: Received==0→'Open'; Received<Expected→'PartiallyReceived'; else→'Closed'. Cancelled lines untouched.
+  7. PO header revert via new `IPurchaseOrderService.RevertStatusAfterCancelAsync(tenantId, poId)`: AnyLineHasReceipts → 'Receiving'; otherwise → 'Open'. Closed POs walk back; Cancelled POs untouched.
+
+**Repository additions**:
+- `IReceivingHeaderRepository.SetCancellationAsync(id, reason, userId)` — atomic Status flip + audit-trio populate.
+- `IPurchaseOrderRepository.AnyLineHasReceiptsAsync(poId)` — predicate for header revert.
+- `IPurchaseOrderRepository.RevertLineStatusAsync(poLineId, userId)` — server-side CASE-driven status revert; only updates when computed target differs (preserves Version stability).
+- `StockMovementRepository.GetByReceivingHeaderAsync` SQL filter widened: `m.ReferenceType IN ('ReceivingLine', 'ReceivingLineCancellation')` so cancellation movements appear in the Activity tab.
+
+**UI surface**:
+- `Cancel receipt` QuickAction enabled only when `Status=='Posted'`; href `#cancel-modal` opens the modal via CSS `:target` selector (no JS framework — stateless, dismissed via close button's `href="#"`).
+- New `_CancelReceiptModal.cshtml` partial: red header, lead text, required reason textarea (3-500 chars HTML5 validation), "Keep receipt" cancel + red "Confirm cancellation" submit. Inline styles scoped by class names; not adding to `wms-detail.css` for a one-off modal.
+- Modal renders only when `ViewBag.IsPosted=true` AND `ViewBag.HeaderId` set (only on Receiving Detail).
+- Cancelled receipts surface `Cancel reason` in Overview + `Cancelled` (relative time) in Properties sidebar.
+- TempData banners (`CancelMessage` success / `CancelError` red) render at top of `_DetailLayout.wmsd-page` — generic enough that any future "POST then redirect to Detail" surface can reuse the same TempData keys.
+
+**Validation**:
+- `CancelReceivingViewModel` (record) — `Reason` required, 3-500 chars (DataAnnotations for client-side jQuery + FluentValidation for server-side).
+- `CancelReceivingValidator` — explicit `Must(r => !string.IsNullOrWhiteSpace(r))` so whitespace-only doesn't slip past `NotEmpty()`.
+
+**Controller endpoint**:
+- `POST /Receiving/Cancel/{id}` with `[ValidateAntiForgeryToken]`. Route `id` overrides VM `Id` (route is authoritative, guards against tampering). Validation failure → TempData error + redirect to Detail. Service throws → TempData error + redirect (TX already rolled back). Success → TempData success + redirect to Detail; redirect URL resolved from `ReceivingNumber` (the Detail action's URL key).
+
+**Tests**: +11 net (5 unit on `CancelReceivingAsync` covering blank reason / already-cancelled idempotency / Draft rejection / happy-path verification of all 5 reverse steps / blind-receipt skip; 6 controller covering happy redirect / validation-fail / already-cancelled notice / InvalidOperationException surface / Detail audit-field surface / Cancel-quick-action enable-state). Test posture: **399 passing** (was 388). 106 unit + 288 integration + 5 skipped.
+
+**Out of scope** (still open):
+- TD-026 PO Edit per-line lock (full-PO lock still in place).
+- TD-027 GR Edit-Draft-Promote (Draft cannot be edited then posted; only discard-and-recreate works for Drafts).
+- "Receive against" QuickAction on PO Detail still inert.
+- Cancellation `CancelledBy` Guid not resolved to user name on Detail (Properties only shows the time). Could add `IUserRepository.GetById` lookup; minor.
 
 ### Day 10 — Phase 10A (PO Detail Completeness)
 
@@ -1198,5 +1249,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-10 (Day 10 — Phase 10A PO Detail completeness; v1.0.1-po-detail-complete)
-**Version**: 1.18
+**Last updated**: 2026-05-10 (Day 10 — Phase 10B Inbound Hardening; v1.0.2-inbound-hardened)
+**Version**: 1.19

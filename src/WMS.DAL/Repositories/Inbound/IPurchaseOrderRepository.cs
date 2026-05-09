@@ -117,4 +117,23 @@ public interface IPurchaseOrderRepository
     // their counts in one round-trip alongside the rows + total).
     Task<PurchaseOrderStatusCounts> GetStatusCountsAsync(
         PurchaseOrderFilter filter, CancellationToken ct = default);
+
+    // Phase 10B (TD-023) — predicate for PO header revert. True when
+    // any non-Cancelled line still has ReceivedQty > 0 (= the PO has
+    // outstanding receipts beyond the one being cancelled).
+    Task<bool> AnyLineHasReceiptsAsync(
+        Guid purchaseOrderId, CancellationToken ct = default);
+
+    // Phase 10B (TD-023) — atomic per-line Status revert after a
+    // receipt cancellation drops ReceivedQuantity. Computes the
+    // target status server-side from current Received vs Expected:
+    //   ReceivedQty == 0                → Open
+    //   ReceivedQty <  ExpectedQty      → PartiallyReceived
+    //   ReceivedQty >= ExpectedQty      → Closed
+    // Cancelled lines are left alone (the PO might have been
+    // user-cancelled separately; we don't resurrect those).
+    Task RevertLineStatusAsync(
+        Guid purchaseOrderLineId,
+        Guid? userId,
+        CancellationToken ct = default);
 }
