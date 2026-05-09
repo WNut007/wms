@@ -2072,4 +2072,97 @@ a:active {
   transform: translateY(1px);
 }
 
+/* ================================================================
+   17. Phase 8.5 hotfix — Primary-button text-color persistence
+   ----------------------------------------------------------------
+   User feedback: "เวลา hover ตัวหนังสือควรอ่านชัด อาจสีขาว ขอให้
+   ใช้กับทุกหน้านะ" (hover text must stay readable; apply globally).
+
+   Issue: primary purple buttons set `color: white` on the default
+   declaration, but their `:hover` rules only change `background` /
+   `border-color` — they don't re-assert color. When the element is
+   rendered as `<a>` and the global `a { color: inherit }` reset
+   from Section 16 wins via cascade quirks (or a competing
+   `.wms-btn:hover` on the same compound class), the white text can
+   flip to inherit-dark, becoming invisible on the still-purple
+   background.
+
+   Fix: !important on color across all interactive states for every
+   purple-bg primary surface. !important is justified here because
+   the rule expresses an invariant ("white text on purple bg, always")
+   that no later phase or library should ever override.
+   ================================================================ */
+
+/* --- Default-button purple primary (.wms-btn-purple) ------------- */
+.wms-btn-purple,
+.wms-btn-purple:hover,
+.wms-btn-purple:active,
+.wms-btn-purple:focus,
+.wms-btn-purple:focus-visible {
+  color: white !important;
+}
+
+/* --- Phase 8 form polish (.wmsf-btn-primary) --------------------- */
+.wmsf-btn-primary,
+.wmsf-btn-primary:hover,
+.wmsf-btn-primary:active,
+.wmsf-btn-primary:focus,
+.wmsf-btn-primary:focus-visible {
+  color: white !important;
+}
+
+/* --- Phase 8 detail polish (.wmsd-btn-primary) ------------------- */
+.wmsd-btn-primary,
+.wmsd-btn-primary:hover,
+.wmsd-btn-primary:active,
+.wmsd-btn-primary:focus,
+.wmsd-btn-primary:focus-visible {
+  color: white !important;
+}
+
+/* --- Phase 8.5 picker — selected chip (purple bg) --------------- */
+.wmsp-chip.is-active,
+.wmsp-chip.is-active:hover,
+.wmsp-chip.is-active:focus,
+.wmsp-chip.is-active:focus-visible {
+  color: white !important;
+  background: var(--wmsp-purple-600);
+}
+.wmsp-chip.is-active:hover {
+  /* Slightly darker on hover (still purple-700-ish) — bg shift
+     reads as "selected AND interactive" without losing the white. */
+  background: #4338CA;
+  border-color: #4338CA;
+}
+
+/* --- Phase 8.5 picker — empty-state reset button ---------------- */
+.wmsp-empty-reset,
+.wmsp-empty-reset:hover,
+.wmsp-empty-reset:active,
+.wmsp-empty-reset:focus,
+.wmsp-empty-reset:focus-visible {
+  color: white !important;
+}
+
+/* --- Phase 8.5 picker — header back button (semi-transparent) -- */
+.wmsp-header-back,
+.wmsp-header-back:hover,
+.wmsp-header-back:active,
+.wmsp-header-back:focus,
+.wmsp-header-back:focus-visible {
+  color: white !important;
+}
+
+/* --- Sidebar nav active state (gradient bg, white text) ---------- */
+/* Hover already locked in Section 16; this pins the active state
+   too — without !important, a child anchor inheriting via the
+   Section 16 `a { color: inherit }` rule could read as transparent
+   text on the gradient. */
+.wms-sidebar-item,
+.wms-sidebar-item:hover,
+.wms-sidebar-item.active,
+.wms-sidebar-item.active:hover {
+  color: white !important;
+}
+
 /* End wms-custom.css */
