@@ -1,0 +1,482 @@
+@model WMS.Web.Models.Inbound.GoodsReceiptCreateViewModel
+@{
+    ViewData["Title"] = "New goods receipt";
+
+    var hasS1Err = ViewData.ModelState["ReceivingNumber"]?.Errors.Count > 0
+        || ViewData.ModelState["ReceivedAt"]?.Errors.Count > 0
+        || ViewData.ModelState["WarehouseId"]?.Errors.Count > 0;
+    var hasS2Err = ViewData.ModelState.Keys.Any(k => k.StartsWith("Lines"));
+    var initialStep = hasS1Err ? 1 : (hasS2Err ? 2 : 1);
+
+    var initialLinesJson = System.Text.Json.JsonSerializer.Serialize(
+        Model.Lines.Select(l => new {
+            lineNumber          = l.LineNumber,
+            purchaseOrderLineId = l.PurchaseOrderLineId,
+            productId           = l.ProductId == Guid.Empty ? "" : l.ProductId.ToString(),
+            uomId               = l.UomId == Guid.Empty ? "" : l.UomId.ToString(),
+            ownerId             = l.OwnerId == Guid.Empty ? "" : l.OwnerId.ToString(),
+            locationId          = l.LocationId == Guid.Empty ? "" : l.LocationId.ToString(),
+            expectedQuantity    = l.ExpectedQuantity,
+            receivedQuantity    = l.ReceivedQuantity,
+            lotNumber           = l.LotNumber ?? "",
+            palletNumber        = l.PalletNumber ?? "",
+        }));
+
+    var initialPoJson = System.Text.Json.JsonSerializer.Serialize(
+        Model.PurchaseOrderId is { } pid ? pid.ToString() : "");
+}
+
+<form asp-controller="GoodsReceipt" asp-action="Create" method="post"
+      class="wmsf-page"
+      autocomplete="off"
+      x-data="goodsReceiptForm({
+          totalSteps: 4,
+          initialStep: @initialStep,
+          serverErrors: {
+              1: @(hasS1Err ? "true" : "false"),
+              2: @(hasS2Err ? "true" : "false"),
+              3: false,
+              4: false
+          },
+          required: { 1: ['ReceivingNumber', 'WarehouseId'], 2: [], 3: [], 4: [] },
+          initialLines: @Html.Raw(initialLinesJson),
+          initialPoId: @Html.Raw(initialPoJson)
+      })">
+
+    <nav class="wmsf-breadcrumb" aria-label="Breadcrumb">
+        <a asp-controller="PurchaseOrders" asp-action="Index">Purchase Orders</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <span class="current">New goods receipt</span>
+    </nav>
+
+    <header class="wmsf-header">
+        <div class="wmsf-header-title">
+            <div class="wmsf-header-icon" aria-hidden="true">
+                <i class="ti ti-package-import"></i>
+            </div>
+            <div class="wmsf-header-text">
+                <h1>New goods receipt</h1>
+                <p>Receive goods against a PO or as a blind receipt. Save as Draft to review later, or Post to commit stock.</p>
+            </div>
+        </div>
+        <div class="wmsf-progress">
+            <span class="wmsf-progress-label">Progress</span>
+            <div class="wmsf-progress-row">
+                <div class="wmsf-progress-bar"
+                     :style="`--wmsf-progress-pct: ${(step / 4) * 100}%`"
+                     role="progressbar"></div>
+                <span class="wmsf-progress-count">
+                    <span x-text="step"></span> / 4
+                </span>
+            </div>
+        </div>
+    </header>
+
+    @if (ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div class="wmsf-form-error" role="alert">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <ul class="wmsf-tabs" role="tablist">
+        <li>
+            <button type="button" class="wmsf-tab" :class="{ 'is-active': step === 1 }" @@click="goTo(1)" role="tab">
+                <span class="wmsf-tab-num">1</span>
+                <span class="wmsf-tab-text">
+                    <span class="wmsf-tab-eyebrow">Section</span>
+                    <span class="wmsf-tab-name">Header</span>
+                </span>
+                <span class="wmsf-dot" :class="dotClass(1)" aria-hidden="true"></span>
+            </button>
+        </li>
+        <li>
+            <button type="button" class="wmsf-tab" :class="{ 'is-active': step === 2 }" @@click="goTo(2)" role="tab">
+                <span class="wmsf-tab-num">2</span>
+                <span class="wmsf-tab-text">
+                    <span class="wmsf-tab-eyebrow">Section</span>
+                    <span class="wmsf-tab-name">Lines</span>
+                </span>
+                <span class="wmsf-dot" :class="linesDotClass()" aria-hidden="true"></span>
+            </button>
+        </li>
+        <li>
+            <button type="button" class="wmsf-tab" :class="{ 'is-active': step === 3 }" @@click="goTo(3)" role="tab">
+                <span class="wmsf-tab-num">3</span>
+                <span class="wmsf-tab-text">
+                    <span class="wmsf-tab-eyebrow">Section</span>
+                    <span class="wmsf-tab-name">Documents</span>
+                </span>
+                <span class="wmsf-dot" aria-hidden="true"></span>
+            </button>
+        </li>
+        <li>
+            <button type="button" class="wmsf-tab" :class="{ 'is-active': step === 4 }" @@click="goTo(4)" role="tab">
+                <span class="wmsf-tab-num">4</span>
+                <span class="wmsf-tab-text">
+                    <span class="wmsf-tab-eyebrow">Section</span>
+                    <span class="wmsf-tab-name">Activity</span>
+                </span>
+                <span class="wmsf-dot" aria-hidden="true"></span>
+            </button>
+        </li>
+    </ul>
+
+    @* === Section 1: Header === *@
+    <section class="wmsf-pane" x-show="step === 1" x-cloak role="tabpanel">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Section 01</p>
+                <h2>Header</h2>
+                <p class="wmsf-pane-desc">Pick a PO to pre-fill lines, or leave blank for a blind receipt.</p>
+            </div>
+            <span class="wmsf-required-badge" :class="{ 'is-empty': sectionComplete(1) }" x-text="sectionRequiredHint(1)"></span>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field col-span-2">
+                <label class="wmsf-field-label">Purchase order</label>
+                <select asp-for="PurchaseOrderId" class="wmsf-select"
+                        x-model="poId"
+                        @@change="onPoChanged($event.target.value)">
+                    <option value="">— Blind receipt (no PO) —</option>
+                    @foreach (var p in Model.OpenPurchaseOrders)
+                    {
+                        <option value="@p.Id">@p.Code · @p.Name</option>
+                    }
+                </select>
+                <span class="wmsf-helper" x-show="loadingPoLines">Loading PO lines…</span>
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="ReceivingNumber" class="wmsf-field-label">
+                    Receiving number <span class="req">*</span>
+                </label>
+                <input asp-for="ReceivingNumber" class="wmsf-input" @@input="onTouch('ReceivingNumber')" />
+                <span asp-validation-for="ReceivingNumber" class="wmsf-error"></span>
+                <span class="wmsf-helper">Auto-generated; you can override.</span>
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="ReceivedAt" class="wmsf-field-label">Received at</label>
+                <input asp-for="ReceivedAt" type="datetime-local" class="wmsf-input" />
+                <span asp-validation-for="ReceivedAt" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="WarehouseId" class="wmsf-field-label">
+                    Warehouse <span class="req">*</span>
+                </label>
+                <select asp-for="WarehouseId" class="wmsf-select" @@change="onTouch('WarehouseId')">
+                    <option value="">— Select warehouse —</option>
+                    @foreach (var w in Model.Warehouses)
+                    {
+                        <option value="@w.Id">@w.Code · @w.Name</option>
+                    }
+                </select>
+                <span asp-validation-for="WarehouseId" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Vendor</label>
+                <input class="wmsf-input" :value="vendorDisplay" readonly disabled
+                       placeholder="(from PO)" />
+                <span class="wmsf-helper">Auto-filled from selected PO.</span>
+            </div>
+
+            <div class="wmsf-field col-span-2">
+                <label asp-for="Notes" class="wmsf-field-label">Notes</label>
+                <textarea asp-for="Notes" class="wmsf-textarea" rows="2"></textarea>
+                <span asp-validation-for="Notes" class="wmsf-error"></span>
+            </div>
+        </div>
+    </section>
+
+    @* === Section 2: Lines === *@
+    <section class="wmsf-pane" x-show="step === 2" x-cloak role="tabpanel">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Section 02</p>
+                <h2>Lines</h2>
+                <p class="wmsf-pane-desc">
+                    <span x-show="poId">PO lines pre-filled below. Adjust received qty as needed.</span>
+                    <span x-show="!poId">Add line(s) manually for a blind receipt.</span>
+                </p>
+            </div>
+            <span class="wmsf-required-badge"
+                  :class="{ 'is-empty': lines.length > 0 && allLinesComplete() }"
+                  x-text="lines.length === 0 ? '1+ line required' : (allLinesComplete() ? 'All set' : 'Incomplete')"></span>
+        </div>
+
+        <div style="overflow-x: auto;">
+            <table class="wms-table" style="width: 100%; min-width: 900px; font-size: 12px;">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;">#</th>
+                        <th>Product</th>
+                        <th>UoM</th>
+                        <th>Owner</th>
+                        <th>Location</th>
+                        <th style="width: 100px;">Expected</th>
+                        <th style="width: 110px;">Received</th>
+                        <th style="width: 120px;">Lot #</th>
+                        <th style="width: 120px;">Pallet #</th>
+                        <th style="width: 60px;"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="(line, idx) in lines" :key="idx">
+                        <tr :style="overUnderRowStyle(line)">
+                            <td>
+                                <input type="number" :name="`Lines[${idx}].LineNumber`" x-model.number="line.lineNumber"
+                                       class="wmsf-input" style="width: 50px;" />
+                            </td>
+                            <td>
+                                <input type="hidden" :name="`Lines[${idx}].PurchaseOrderLineId`" :value="line.purchaseOrderLineId || ''" />
+                                <select :name="`Lines[${idx}].ProductId`" x-model="line.productId" class="wmsf-select"
+                                        :disabled="!!line.purchaseOrderLineId">
+                                    <option value="">— Select —</option>
+                                    @foreach (var p in Model.Products)
+                                    {
+                                        <option value="@p.Id">@p.Code</option>
+                                    }
+                                </select>
+                            </td>
+                            <td>
+                                <select :name="`Lines[${idx}].UomId`" x-model="line.uomId" class="wmsf-select"
+                                        :disabled="!!line.purchaseOrderLineId">
+                                    <option value="">—</option>
+                                    @foreach (var u in Model.Uoms)
+                                    {
+                                        <option value="@u.Id">@u.Code</option>
+                                    }
+                                </select>
+                            </td>
+                            <td>
+                                <select :name="`Lines[${idx}].OwnerId`" x-model="line.ownerId" class="wmsf-select">
+                                    <option value="">—</option>
+                                    @foreach (var o in Model.Owners)
+                                    {
+                                        <option value="@o.Id">@o.Code</option>
+                                    }
+                                </select>
+                            </td>
+                            <td>
+                                <select :name="`Lines[${idx}].LocationId`" x-model="line.locationId" class="wmsf-select">
+                                    <option value="">—</option>
+                                    @foreach (var loc in Model.Locations)
+                                    {
+                                        <option value="@loc.Id">@loc.Code</option>
+                                    }
+                                </select>
+                            </td>
+                            <td>
+                                <span x-text="line.expectedQuantity != null ? Number(line.expectedQuantity).toFixed(2) : '—'"
+                                      style="color: var(--wms-text-secondary);"></span>
+                            </td>
+                            <td>
+                                <input type="number" step="0.0001" :name="`Lines[${idx}].ReceivedQuantity`"
+                                       x-model.number="line.receivedQuantity" class="wmsf-input"
+                                       :style="overUnderInputStyle(line)" />
+                            </td>
+                            <td>
+                                <input type="text" :name="`Lines[${idx}].LotNumber`" x-model="line.lotNumber"
+                                       class="wmsf-input" />
+                            </td>
+                            <td>
+                                <input type="text" :name="`Lines[${idx}].PalletNumber`" x-model="line.palletNumber"
+                                       class="wmsf-input" />
+                            </td>
+                            <td>
+                                <button type="button" class="wmsf-btn" @@click="removeLine(idx)" :disabled="lines.length <= 1" title="Remove">
+                                    <i class="ti ti-trash" aria-hidden="true"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        <div style="margin-top: 12px; display: flex; gap: 12px; align-items: center;">
+            <button type="button" class="wmsf-btn" @@click="addLine()">
+                <i class="ti ti-plus" aria-hidden="true"></i> Add line
+            </button>
+            <span style="font-size: 11px; color: var(--wms-text-secondary);">
+                Over-receipt highlights amber/red; under shows amber.
+            </span>
+        </div>
+    </section>
+
+    @* === Section 3: Documents (placeholder) === *@
+    <section class="wmsf-pane" x-show="step === 3" x-cloak role="tabpanel">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Section 03</p>
+                <h2>Documents</h2>
+                <p class="wmsf-pane-desc">Upload DO, invoice scans, photos. Available after the receipt is created — visit the Detail page to attach.</p>
+            </div>
+        </div>
+        <div style="background: var(--wms-bg-secondary); padding: 16px; border-radius: 8px; font-size: 13px; color: var(--wms-text-secondary);">
+            <i class="ti ti-info-circle" aria-hidden="true"></i>
+            Document attachment becomes available after the receipt is saved (Draft or Posted). Visit the Detail page to upload files.
+        </div>
+    </section>
+
+    @* === Section 4: Activity (placeholder) === *@
+    <section class="wmsf-pane" x-show="step === 4" x-cloak role="tabpanel">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Section 04</p>
+                <h2>Activity</h2>
+                <p class="wmsf-pane-desc">Status changes and audit trail will appear after the receipt is created.</p>
+            </div>
+        </div>
+        <div style="background: var(--wms-bg-secondary); padding: 16px; border-radius: 8px; font-size: 13px; color: var(--wms-text-secondary);">
+            <i class="ti ti-history" aria-hidden="true"></i>
+            Activity history populates once the receipt has events (Created Draft / Posted / Cancelled).
+        </div>
+    </section>
+
+    @* === Sticky action bar — Cancel / Save Draft / Post === *@
+    <div class="wmsf-actions">
+        <a asp-controller="PurchaseOrders" asp-action="Index" class="wmsf-btn">
+            <i class="ti ti-x" aria-hidden="true"></i> Cancel
+        </a>
+        <span class="wmsf-actions-info"></span>
+        <button type="button" class="wmsf-btn" @@click="prev()" :disabled="step === 1">
+            <i class="ti ti-arrow-left" aria-hidden="true"></i> Back
+        </button>
+        <button type="button" class="wmsf-btn wmsf-btn-primary"
+                x-show="step < totalSteps" @@click="next()">
+            Continue <i class="ti ti-arrow-right" aria-hidden="true"></i>
+        </button>
+        <button type="submit" name="action" value="draft" class="wmsf-btn"
+                x-show="step === totalSteps">
+            <i class="ti ti-device-floppy" aria-hidden="true"></i> Save as Draft
+        </button>
+        <button type="submit" name="action" value="post" class="wmsf-btn wmsf-btn-primary"
+                x-show="step === totalSteps">
+            <i class="ti ti-check" aria-hidden="true"></i> Post receipt
+        </button>
+    </div>
+</form>
+
+<style>[x-cloak] { display: none !important; }</style>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script src="~/js/wmsf-form-state.js" asp-append-version="true"></script>
+    <script>
+        function goodsReceiptForm(opts) {
+            return Object.assign(wmsfFormState(opts), {
+                lines: opts.initialLines || [],
+                poId: opts.initialPoId || '',
+                vendorDisplay: '',
+                loadingPoLines: false,
+
+                init() {
+                    if (this.poId) this.refreshVendorDisplay();
+                },
+
+                async onPoChanged(newPoId) {
+                    this.poId = newPoId;
+                    if (!newPoId) {
+                        // Blind receipt — reset to one empty editable line.
+                        this.lines = [{
+                            lineNumber: 1, purchaseOrderLineId: null,
+                            productId: '', uomId: '', ownerId: '', locationId: '',
+                            expectedQuantity: null, receivedQuantity: 1,
+                            lotNumber: '', palletNumber: '',
+                        }];
+                        this.vendorDisplay = '';
+                        return;
+                    }
+                    this.loadingPoLines = true;
+                    try {
+                        const r = await fetch(`/GoodsReceipt/PoLines/${newPoId}`);
+                        if (!r.ok) throw new Error('PO lookup failed');
+                        const data = await r.json();
+                        this.lines = data.lines.map(l => ({
+                            lineNumber: l.lineNumber,
+                            purchaseOrderLineId: l.purchaseOrderLineId,
+                            productId: l.productId,
+                            uomId: l.uomId,
+                            ownerId: data.ownerId,
+                            locationId: '',
+                            expectedQuantity: l.outstandingQuantity,
+                            receivedQuantity: l.outstandingQuantity,
+                            lotNumber: '', palletNumber: '',
+                        }));
+                        // Vendor display from select option text.
+                        const sel = this.$root.querySelector('[name="PurchaseOrderId"]');
+                        this.vendorDisplay = sel?.options[sel.selectedIndex]?.text?.split(' · ')[1] || '';
+                    } catch (e) {
+                        console.error(e);
+                        this.vendorDisplay = '';
+                    } finally {
+                        this.loadingPoLines = false;
+                    }
+                },
+
+                refreshVendorDisplay() {
+                    const sel = this.$root.querySelector('[name="PurchaseOrderId"]');
+                    this.vendorDisplay = sel?.options[sel.selectedIndex]?.text?.split(' · ')[1] || '';
+                },
+
+                addLine() {
+                    const nextNum = this.lines.length === 0
+                        ? 1
+                        : Math.max(...this.lines.map(l => l.lineNumber || 0)) + 1;
+                    this.lines.push({
+                        lineNumber: nextNum, purchaseOrderLineId: null,
+                        productId: '', uomId: '', ownerId: '', locationId: '',
+                        expectedQuantity: null, receivedQuantity: 1,
+                        lotNumber: '', palletNumber: '',
+                    });
+                },
+
+                removeLine(idx) {
+                    if (this.lines.length <= 1) return;
+                    this.lines.splice(idx, 1);
+                },
+
+                allLinesComplete() {
+                    return this.lines.every(l =>
+                        l.lineNumber > 0 && l.productId && l.uomId &&
+                        l.ownerId && l.locationId && Number(l.receivedQuantity) > 0);
+                },
+
+                linesDotClass() {
+                    if (this.serverErrors[2]) return 'is-error';
+                    if (this.lines.length > 0 && this.allLinesComplete()) return 'is-complete';
+                    if (this.lines.some(l => l.productId)) return 'is-progress';
+                    return '';
+                },
+
+                // Visual flag colors for over/under-receipt rows. Match
+                // (received == expected): green tint. Under: amber. Over:
+                // red. Blind (no expected): no flag.
+                overUnderRowStyle(line) {
+                    if (line.expectedQuantity == null) return '';
+                    const r = Number(line.receivedQuantity) || 0;
+                    const e = Number(line.expectedQuantity) || 0;
+                    if (r === e) return 'background: rgba(29, 158, 117, 0.05);';
+                    if (r < e)   return 'background: rgba(239, 159, 39, 0.07);';
+                    return 'background: rgba(163, 45, 45, 0.08);';
+                },
+                overUnderInputStyle(line) {
+                    if (line.expectedQuantity == null) return '';
+                    const r = Number(line.receivedQuantity) || 0;
+                    const e = Number(line.expectedQuantity) || 0;
+                    if (r === e) return 'color: #1D9E75; font-weight: 500;';
+                    if (r < e)   return 'color: #EF9F27; font-weight: 500;';
+                    return 'color: #A32D2D; font-weight: 500;';
+                },
+            });
+        }
+    </script>
+}

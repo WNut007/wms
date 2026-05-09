@@ -40,7 +40,8 @@
     {
         // Phase 9A — Inbound expands to Purchase Orders submenu (and
         // future GR + ASN entries when 9B + 9C land).
-        var inboundActive = IsActive("INBOUND") || IsActive("PurchaseOrders") || IsActive("Receive");
+        var inboundActive = IsActive("INBOUND") || IsActive("PurchaseOrders")
+            || IsActive("GoodsReceipt") || IsActive("Receive");
         <a href="@Url.Action("Index", "PurchaseOrders")"
            class="wms-sidebar-item @(inboundActive ? "active" : "")"
            title="@module.DisplayName">
@@ -52,6 +53,10 @@
             <a href="@Url.Action("Index", "PurchaseOrders")"
                class="wms-sidebar-item @(IsActive("PurchaseOrders") ? "active" : "")">
                 <span class="wms-sidebar-item-text">Purchase Orders</span>
+            </a>
+            <a href="@Url.Action("Create", "GoodsReceipt")"
+               class="wms-sidebar-item @(IsActive("GoodsReceipt") ? "active" : "")">
+                <span class="wms-sidebar-item-text">Goods Receipt (new)</span>
             </a>
             <a href="@Url.Action("Index", "Receive")"
                class="wms-sidebar-item @(IsActive("Receive") ? "active" : "")">
