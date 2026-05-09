@@ -1,9 +1,12 @@
+using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
 using WMS.DAL.Repositories.Inbound;
 using WMS.DAL.Repositories.Inventory;
 using WMS.DAL.Repositories.Master;
+using WMS.Web.Models.Master;
 using WMS.Web.Services;
 using WMS.Web.Services.Mappers;
 using WMS.Web.Services.Storage;
@@ -11,9 +14,11 @@ using WMS.Web.ViewModels.Detail;
 
 namespace WMS.Web.Controllers;
 
+// Read-side here; admin Create / Edit lives in
+// WarehousesController.Admin.cs (partial).
 [Authorize]
 [Route("Warehouses")]
-public class WarehousesController : Controller
+public partial class WarehousesController : Controller
 {
     // Cap matches the _ActivityPanel header copy ("Last 30 days").
     // Each source repo is queried with the same per-source cap; the
@@ -27,19 +32,28 @@ public class WarehousesController : Controller
     private readonly IStockMovementRepositoryFactory _movementRepos;
     private readonly ITenantContext _tenant;
     private readonly IDocumentStorageService _docs;
+    private readonly IValidator<WarehouseCreateViewModel> _createValidator;
+    private readonly IValidator<WarehouseEditViewModel> _editValidator;
+    private readonly ICurrentUser _currentUser;
 
     public WarehousesController(
         IWarehouseRepositoryFactory repos,
         IReceivingHeaderRepositoryFactory receivingRepos,
         IStockMovementRepositoryFactory movementRepos,
         ITenantContext tenant,
-        IDocumentStorageService docs)
+        IDocumentStorageService docs,
+        IValidator<WarehouseCreateViewModel> createValidator,
+        IValidator<WarehouseEditViewModel> editValidator,
+        ICurrentUser currentUser)
     {
         _repos = repos;
         _receivingRepos = receivingRepos;
         _movementRepos = movementRepos;
         _tenant = tenant;
         _docs = docs;
+        _createValidator = createValidator;
+        _editValidator = editValidator;
+        _currentUser = currentUser;
     }
 
     [HttpGet("")]
@@ -187,12 +201,15 @@ public class WarehousesController : Controller
             Activities = activities,
             QuickActions = new()
             {
-                // TD-017 partial — all three disabled. Receive
+                // Phase 7E — Edit warehouse wired.
+                new("Edit warehouse",   "ti-edit",
+                    $"/Warehouses/Edit/{Uri.EscapeDataString(row.Code)}"),
+                // TD-017 partial — three remain disabled. Receive
                 // shipment from a Warehouse Detail context implies a
                 // session-warehouse switch (operator's WarehouseId
-                // claim is the canonical source today); a clean
-                // wiring waits on multi-warehouse session UX.
-                // Cycle count + View stock need Phase 7+ routes.
+                // claim is the canonical source today); clean wiring
+                // waits on multi-warehouse session UX. Cycle count +
+                // View stock need Phase 7+ routes.
                 new("Receive shipment", "ti-package-import", "#", Enabled: false),
                 new("Cycle count",      "ti-checklist",      "#", Enabled: false),
                 new("View stock",       "ti-archive",        "#", Enabled: false),

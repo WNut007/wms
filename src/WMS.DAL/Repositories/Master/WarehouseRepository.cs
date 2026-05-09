@@ -72,6 +72,78 @@ WHERE w.Code = @code",
             new { code },
             cancellationToken: ct));
 
+    public async Task<Guid> InsertAsync(
+        Warehouse entity, Guid? userId, CancellationToken ct = default)
+    {
+        if (entity.Id == Guid.Empty) entity.Id = Guid.NewGuid();
+
+        const string sql = @"
+INSERT INTO master.Warehouses
+    (Id, Code, Name, Address, Type,
+     PhoneNumber, ManagerName, TimeZoneId, IsActive,
+     CreatedAt, CreatedBy)
+VALUES
+    (@Id, @Code, @Name, @Address, @Type,
+     @PhoneNumber, @ManagerName, @TimeZoneId, @IsActive,
+     SYSUTCDATETIME(), @UserId);";
+
+        await _connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            new
+            {
+                entity.Id,
+                entity.Code,
+                entity.Name,
+                entity.Address,
+                entity.Type,
+                entity.PhoneNumber,
+                entity.ManagerName,
+                entity.TimeZoneId,
+                entity.IsActive,
+                UserId = userId,
+            },
+            cancellationToken: ct));
+        return entity.Id;
+    }
+
+    public async Task<bool> UpdateAsync(
+        Warehouse entity, Guid? userId, CancellationToken ct = default)
+    {
+        // Code intentionally omitted — read-only on Edit. IsActive
+        // updatable: toggling it off is the canonical "archive"
+        // (TD-009: the mock UI's third "maintenance" state isn't in
+        // the schema yet).
+        const string sql = @"
+UPDATE master.Warehouses SET
+    Name        = @Name,
+    Address     = @Address,
+    Type        = @Type,
+    PhoneNumber = @PhoneNumber,
+    ManagerName = @ManagerName,
+    TimeZoneId  = @TimeZoneId,
+    IsActive    = @IsActive,
+    UpdatedAt   = SYSUTCDATETIME(),
+    UpdatedBy   = @UserId
+WHERE Id = @Id;";
+
+        var rows = await _connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            new
+            {
+                entity.Id,
+                entity.Name,
+                entity.Address,
+                entity.Type,
+                entity.PhoneNumber,
+                entity.ManagerName,
+                entity.TimeZoneId,
+                entity.IsActive,
+                UserId = userId,
+            },
+            cancellationToken: ct));
+        return rows > 0;
+    }
+
     public async Task<PagedResult<WarehouseListRow>> GetPagedAsync(
         WarehouseFilter f, CancellationToken ct = default)
     {

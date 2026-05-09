@@ -1,0 +1,217 @@
+@model WMS.Web.Models.Master.CustomerEditViewModel
+@{
+    ViewData["Title"] = $"Edit {Model.Code}";
+}
+
+@*
+    Phase 7D Customer Edit — single-page (no stepper). Code +
+    CustomerType rendered readonly + as hidden fields. UpdateAsync
+    omits both from SET regardless.
+*@
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Edit @Model.Name</p>
+        <div class="wms-breadcrumb">
+            <a asp-controller="Home" asp-action="Index">Master Data</a>
+            <span class="wms-breadcrumb-sep">/</span>
+            <a asp-controller="Customers" asp-action="Index">Customers</a>
+            <span class="wms-breadcrumb-sep">/</span>
+            <a asp-controller="Customers" asp-action="Detail" asp-route-code="@Model.Code">@Model.Code</a>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Edit</span>
+        </div>
+    </div>
+</div>
+
+<form asp-controller="Customers" asp-action="Edit" asp-route-code="@Model.Code"
+      method="post" autocomplete="off">
+    <input type="hidden" asp-for="Id" />
+    <input type="hidden" asp-for="Code" />
+    <input type="hidden" asp-for="CustomerType" />
+
+    @if (ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div class="alert alert-danger mb-3" role="alert">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <div class="wms-card mb-3">
+        <h6 class="mb-3">Identity</h6>
+
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Code</label>
+                <input class="form-control" value="@Model.Code" readonly disabled />
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">Customer type</label>
+                <input class="form-control" value="@Model.CustomerType" readonly disabled />
+                <small class="text-muted">Type cannot change post-creation.</small>
+            </div>
+
+            <div class="col-md-4">
+                <label asp-for="Name" class="form-label"></label>
+                <input asp-for="Name" class="form-control" />
+                <span asp-validation-for="Name" class="text-danger small"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="wms-card mb-3">
+        <h6 class="mb-3">Contact</h6>
+
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label asp-for="CompanyName" class="form-label">
+                    Company name
+                    @if (Model.CustomerType == "B2B")
+                    {
+                        <small class="text-muted">(required)</small>
+                    }
+                </label>
+                <input asp-for="CompanyName" class="form-control" />
+                <span asp-validation-for="CompanyName" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-6">
+                <label asp-for="TaxId" class="form-label">
+                    Tax ID
+                    @if (Model.CustomerType == "B2B")
+                    {
+                        <small class="text-muted">(required)</small>
+                    }
+                </label>
+                <input asp-for="TaxId" class="form-control" />
+                <span asp-validation-for="TaxId" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-6">
+                <label asp-for="Email" class="form-label"></label>
+                <input asp-for="Email" type="email" class="form-control" />
+                <span asp-validation-for="Email" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-6">
+                <label asp-for="Phone" class="form-label"></label>
+                <input asp-for="Phone" class="form-control" />
+                <span asp-validation-for="Phone" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-6">
+                <label asp-for="Country" class="form-label"></label>
+                <input asp-for="Country" class="form-control" />
+                <span asp-validation-for="Country" class="text-danger small"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="wms-card mb-3">
+        <h6 class="mb-3">Commercial</h6>
+
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label asp-for="CustomerTier" class="form-label"></label>
+                <select asp-for="CustomerTier" class="form-select">
+                    <option value="">— None —</option>
+                    @foreach (var t in WMS.Web.Models.Master.CustomerEditViewModel.AllTiers)
+                    {
+                        <option value="@t">@t</option>
+                    }
+                </select>
+                <span asp-validation-for="CustomerTier" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-4">
+                <label asp-for="AnnualRevenue" class="form-label"></label>
+                <input asp-for="AnnualRevenue" type="number" step="0.01" class="form-control" />
+            </div>
+
+            <div class="col-md-4">
+                <label asp-for="OrdersPerMonth" class="form-label"></label>
+                <input asp-for="OrdersPerMonth" type="number" class="form-control" />
+            </div>
+
+            <div class="col-md-4">
+                <label asp-for="AvgOrderValue" class="form-label"></label>
+                <input asp-for="AvgOrderValue" type="number" step="0.01" class="form-control" />
+            </div>
+
+            <div class="col-md-4">
+                <label asp-for="AllocationPriority" class="form-label"></label>
+                <input asp-for="AllocationPriority" type="number" class="form-control" />
+            </div>
+
+            <div class="col-md-4">
+                <label asp-for="SafetyStockDays" class="form-label"></label>
+                <input asp-for="SafetyStockDays" type="number" class="form-control" />
+            </div>
+
+            <div class="col-md-4">
+                <label asp-for="PromisedFillRate" class="form-label"></label>
+                <input asp-for="PromisedFillRate" type="number" step="0.01" min="0" max="100" class="form-control" />
+                <span asp-validation-for="PromisedFillRate" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-4">
+                <label asp-for="PreferredCarrierId" class="form-label"></label>
+                <select asp-for="PreferredCarrierId" class="form-select">
+                    <option value="">— None —</option>
+                    @foreach (var c in Model.Carriers)
+                    {
+                        <option value="@c.Id">@c.Code · @c.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-md-4">
+                <label asp-for="DefaultPaymentTerms" class="form-label"></label>
+                <input asp-for="DefaultPaymentTerms" class="form-control" />
+            </div>
+
+            <div class="col-md-6">
+                <div class="form-check mt-4">
+                    <input asp-for="IsKeyAccount" class="form-check-input" />
+                    <label asp-for="IsKeyAccount" class="form-check-label"></label>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="form-check mt-4">
+                    <input asp-for="IsStrategic" class="form-check-input" />
+                    <label asp-for="IsStrategic" class="form-check-label"></label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="wms-card mb-3">
+        <h6 class="mb-3">Status</h6>
+        <div class="mb-3">
+            <label asp-for="Status" class="form-label"></label>
+            <select asp-for="Status" class="form-select">
+                @foreach (var s in WMS.Web.Models.Master.CustomerEditViewModel.AllStatuses)
+                {
+                    <option value="@s">@s</option>
+                }
+            </select>
+            <span asp-validation-for="Status" class="text-danger small"></span>
+        </div>
+    </div>
+
+    <div class="d-flex justify-content-between">
+        <a asp-controller="Customers" asp-action="Detail" asp-route-code="@Model.Code"
+           class="btn btn-outline-secondary">Cancel</a>
+        <button type="submit" class="btn btn-primary">
+            <i class="ti ti-check me-1"></i> Save changes
+        </button>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

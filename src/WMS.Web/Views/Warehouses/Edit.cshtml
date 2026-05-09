@@ -1,0 +1,117 @@
+@model WMS.Web.Models.Master.WarehouseEditViewModel
+@{
+    ViewData["Title"] = $"Edit {Model.Code}";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Edit @Model.Name</p>
+        <div class="wms-breadcrumb">
+            <a asp-controller="Home" asp-action="Index">Master Data</a>
+            <span class="wms-breadcrumb-sep">/</span>
+            <a asp-controller="Warehouses" asp-action="Index">Warehouses</a>
+            <span class="wms-breadcrumb-sep">/</span>
+            <a asp-controller="Warehouses" asp-action="Detail" asp-route-code="@Model.Code">@Model.Code</a>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Edit</span>
+        </div>
+    </div>
+</div>
+
+<form asp-controller="Warehouses" asp-action="Edit" asp-route-code="@Model.Code"
+      method="post" autocomplete="off">
+    <input type="hidden" asp-for="Id" />
+    <input type="hidden" asp-for="Code" />
+
+    @if (ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div class="alert alert-danger mb-3" role="alert">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <div class="wms-card mb-3">
+        <h6 class="mb-3">Identity</h6>
+
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Code</label>
+                <input class="form-control" value="@Model.Code" readonly disabled />
+            </div>
+
+            <div class="col-md-6">
+                <label asp-for="Name" class="form-label"></label>
+                <input asp-for="Name" class="form-control" />
+                <span asp-validation-for="Name" class="text-danger small"></span>
+            </div>
+
+            <div class="col-12">
+                <label asp-for="Type" class="form-label"></label>
+                <div>
+                    @foreach (var t in WMS.Web.Models.Master.WarehouseEditViewModel.AllTypes)
+                    {
+                        <div class="form-check form-check-inline">
+                            <input asp-for="Type" type="radio" value="@t" id="type-@t" class="form-check-input" />
+                            <label for="type-@t" class="form-check-label">@t</label>
+                        </div>
+                    }
+                </div>
+                <span asp-validation-for="Type" class="text-danger small"></span>
+            </div>
+
+            <div class="col-12">
+                <label asp-for="Address" class="form-label"></label>
+                <textarea asp-for="Address" class="form-control" rows="2"></textarea>
+                <span asp-validation-for="Address" class="text-danger small"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="wms-card mb-3">
+        <h6 class="mb-3">Operations</h6>
+
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label asp-for="PhoneNumber" class="form-label"></label>
+                <input asp-for="PhoneNumber" class="form-control" />
+                <span asp-validation-for="PhoneNumber" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-6">
+                <label asp-for="ManagerName" class="form-label"></label>
+                <input asp-for="ManagerName" class="form-control" />
+                <span asp-validation-for="ManagerName" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-6">
+                <label asp-for="TimeZoneId" class="form-label"></label>
+                <input asp-for="TimeZoneId" class="form-control" placeholder="Asia/Bangkok" />
+                <small class="text-muted d-block">IANA time-zone ID. Blank falls back to tenant default.</small>
+                <span asp-validation-for="TimeZoneId" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-6">
+                <div class="form-check mt-4 pt-2">
+                    <input asp-for="IsActive" class="form-check-input" />
+                    <label asp-for="IsActive" class="form-check-label"></label>
+                    <small class="text-muted d-block">Uncheck to archive — operators can no longer pick this warehouse.</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex justify-content-between">
+        <a asp-controller="Warehouses" asp-action="Detail" asp-route-code="@Model.Code"
+           class="btn btn-outline-secondary">Cancel</a>
+        <button type="submit" class="btn btn-primary">
+            <i class="ti ti-check me-1"></i> Save changes
+        </button>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

@@ -1,0 +1,127 @@
+@model WMS.Web.Models.Master.WarehouseCreateViewModel
+@{
+    ViewData["Title"] = "New warehouse";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">New warehouse</p>
+        <div class="wms-breadcrumb">
+            <a asp-controller="Home" asp-action="Index">Master Data</a>
+            <span class="wms-breadcrumb-sep">/</span>
+            <a asp-controller="Warehouses" asp-action="Index">Warehouses</a>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">New</span>
+        </div>
+    </div>
+</div>
+
+<form asp-controller="Warehouses" asp-action="Create" method="post"
+      x-data="{ step: 1 }" autocomplete="off">
+
+    @if (ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div class="alert alert-danger mb-3" role="alert">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <ul class="steps steps-counter mb-4">
+        <li class="step-item" :class="{ 'active': step >= 1 }" @@click="step = 1" style="cursor: pointer;">Identity</li>
+        <li class="step-item" :class="{ 'active': step >= 2 }" @@click="step = 2" style="cursor: pointer;">Operations</li>
+    </ul>
+
+    @* Step 1 — Identity *@
+    <div class="wms-card mb-3" x-show="step === 1" x-cloak>
+        <h6 class="mb-3">Identity</h6>
+
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label asp-for="Code" class="form-label"></label>
+                <input asp-for="Code" class="form-control" autofocus />
+                <span asp-validation-for="Code" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-6">
+                <label asp-for="Name" class="form-label"></label>
+                <input asp-for="Name" class="form-control" />
+                <span asp-validation-for="Name" class="text-danger small"></span>
+            </div>
+
+            <div class="col-12">
+                <label asp-for="Type" class="form-label"></label>
+                <div>
+                    @foreach (var t in WMS.Web.Models.Master.WarehouseCreateViewModel.AllTypes)
+                    {
+                        <div class="form-check form-check-inline">
+                            <input asp-for="Type" type="radio" value="@t" id="type-@t" class="form-check-input" />
+                            <label for="type-@t" class="form-check-label">@t</label>
+                        </div>
+                    }
+                </div>
+                <span asp-validation-for="Type" class="text-danger small"></span>
+            </div>
+
+            <div class="col-12">
+                <label asp-for="Address" class="form-label"></label>
+                <textarea asp-for="Address" class="form-control" rows="2"></textarea>
+                <span asp-validation-for="Address" class="text-danger small"></span>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end mt-3">
+            <button type="button" class="btn btn-primary" @@click="step = 2">Next →</button>
+        </div>
+    </div>
+
+    @* Step 2 — Operations *@
+    <div class="wms-card mb-3" x-show="step === 2" x-cloak>
+        <h6 class="mb-3">Operations</h6>
+
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label asp-for="PhoneNumber" class="form-label"></label>
+                <input asp-for="PhoneNumber" class="form-control" />
+                <span asp-validation-for="PhoneNumber" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-6">
+                <label asp-for="ManagerName" class="form-label"></label>
+                <input asp-for="ManagerName" class="form-control" />
+                <span asp-validation-for="ManagerName" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-6">
+                <label asp-for="TimeZoneId" class="form-label"></label>
+                <input asp-for="TimeZoneId" class="form-control" placeholder="Asia/Bangkok" />
+                <small class="text-muted d-block">IANA time-zone ID. Falls back to tenant default if blank.</small>
+                <span asp-validation-for="TimeZoneId" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-6">
+                <div class="form-check mt-4 pt-2">
+                    <input asp-for="IsActive" class="form-check-input" />
+                    <label asp-for="IsActive" class="form-check-label"></label>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-between mt-4">
+            <button type="button" class="btn btn-outline-secondary" @@click="step = 1">← Back</button>
+            <button type="submit" class="btn btn-primary">
+                <i class="ti ti-check me-1"></i> Create warehouse
+            </button>
+        </div>
+    </div>
+</form>
+
+<style>
+    [x-cloak] { display: none !important; }
+</style>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
