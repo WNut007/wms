@@ -317,8 +317,8 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Phase 9A — Purchase Order Admin CRUD shipped (v0.9.0-po-crud)
-**Current Focus**: Phase 9B — Desktop Goods Receipt form (the headline; consumes Phase 9A's PO infrastructure)
+**Active Sprint**: Phase 9B — Desktop Goods Receipt shipped (v0.9.1-goods-receipt)
+**Current Focus**: Phase 9C — GR list / detail / print (rounds out the inbound MVP)
 **Blockers**: none
 
 Update this section weekly during standups.
@@ -693,6 +693,44 @@ No tests touched — no controller / service / repo logic changed.
 Build green. Tests: 101 unit + 206 integration + 5 skipped —
 unchanged from Phase 6E.
 
+### Day 9 — Phase 9B (Desktop Goods Receipt)
+
+**Branch**: `feat/phase9b-goods-receipt` → merged to `main` · **Tag**: `v0.9.1-goods-receipt` · **Closes**: user feedback "ยังไม่เห็นหน้ารับสินค้าเลย" — THE Phase 9 headline.
+
+Desktop multi-line GR form built on Phase 9A's PO infrastructure.
+
+**Service-layer extension** (`ReceivingHeaderService.PostReceivingAsync`):
+- `PostReceivingRequest` gains `IsDraft` flag (default false). When `true`, orchestration creates header + lines (Status='Draft') and stops — no stock writes, no Movement Log, no PO bumps. Audit trail of intent only.
+- After non-Draft (Posted) orchestration completes, the service now calls `IPurchaseOrderService.MarkReceivingAsync` + `MarkClosedAsync` on the linked PO. Idempotent. Closes a silent gap in the legacy mobile receive flow too — POs no longer sit at 'Open' indefinitely after full-quantity receipt.
+
+**New surface**: `/GoodsReceipt/Create` — V1 Section tabs (4):
+- **Section 1 Header**: PO selector (with "Blind receipt" option) + Receiving number (auto-generated `GR-YYYYMMDD-NNNN`, override-able) + Received-at + Warehouse + Vendor (read-only display from PO) + Notes.
+- **Section 2 Lines**: editable Alpine grid (Phase 9A pattern). When PO selected, AJAX to `/GoodsReceipt/PoLines/{poId}` pre-fills lines with `outstandingQuantity` (Expected − Received). Per-line columns: LineNumber, Product, UoM, Owner, Location, Expected, **Received** (over/under-flagged), Lot #, Pallet #, Remove. Visual flags: green tint on match, amber on under, red on over, no flag for blind.
+- **Section 3 Documents**: placeholder — uploads happen on the Detail page (Phase 9C scope).
+- **Section 4 Activity**: placeholder — populates after the receipt has events.
+
+**Two submit modes**:
+- "Save Draft" → `IsDraft=true`, Status='Draft', no stock movement.
+- "Post receipt" → `IsDraft=false`, full orchestration (existing PostReceivingAsync behaviour + new PO status auto-transitions).
+
+**Data layer**:
+- New `ILocationRepository.GetActiveByWarehouseAsync` for the line Location dropdown. Filters `WarehouseId = @id AND IsActive = 1 AND Status = 'Active'`. Phase 7-style lookup-repo pattern.
+
+**Sidebar** (`SidebarMenu/Default.cshtml`): Inbound submenu gains "Goods Receipt (new)" → `/GoodsReceipt/Create`. Existing PO + Receive (mobile) entries stay.
+
+**JSON endpoint**: `GET /GoodsReceipt/PoLines/{poId}` returns `{ poId, poNumber, ownerId, warehouseId, lines: [...] }` filtered to Open + PartiallyReceived lines only. Closed/Cancelled excluded — they don't accept more receipts.
+
+**Tests**: 7 `GoodsReceiptControllerTests` covering Create GET starter + PO-prefill open/partial filter, Create POST Draft vs Post mode, FV-fail path, PoLines endpoint + 404. `ReceivingHeaderServiceTests` updated to inject mock `IPurchaseOrderService`.
+
+Test posture: **370 passing** (was 363). 101 unit + 264 integration + 5 skipped.
+
+Out of scope (logged at end-of-9A in TD-022/023):
+- TransactionScope wrapper still pending (TD-022).
+- Cancellation/reversal flow (TD-023).
+- Edit Draft + Promote-to-Posted flow (Phase 9C scope; the PostReceivingAsync IsDraft-handling stops at create today, no edit-and-post round-trip yet).
+
+Foundation for: Phase 9C list/detail/print of receipts.
+
 ### Day 9 — Phase 9A (Purchase Order Admin CRUD)
 
 **Branch**: `feat/phase9a-po-crud` → merged to `main` · **Tag**: `v0.9.0-po-crud` · **Closes**: prereq for "ยังไม่เห็นหน้ารับสินค้าเลย" (Phase 9B GR is the headline; 9A is the foundation)
@@ -1062,5 +1100,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-09 (Phase 9A — Purchase Order Admin CRUD)
-**Version**: 1.14
+**Last updated**: 2026-05-09 (Phase 9B — Desktop Goods Receipt)
+**Version**: 1.15
