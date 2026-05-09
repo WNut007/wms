@@ -316,8 +316,8 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Phase 6F — jQuery fix shipped (v0.7.4-jquery-fix)
-**Current Focus**: pending decision — candidates include TD-014 Customer half (blocked on Phase 7+ orders schema), TD-007/TD-008 (mobile PWA design-system styling pass), TD-016 (putaway-pair grouping, naturally blocked on TD-004 / ADR-004)
+**Active Sprint**: Phase 7 — Admin CRUD shipped (v0.8.0-admin-crud)
+**Current Focus**: pending decision — candidates include TD-014 Customer Activity half (still blocked on Phase 7+ orders schema), TD-007/TD-008 (mobile PWA design-system styling pass), TD-016 (putaway-pair grouping, naturally blocked on TD-004 / ADR-004), Categories / UoMs / Carriers admin CRUD (next admin sweep)
 **Blockers**: none
 
 Update this section weekly during standups.
@@ -692,6 +692,127 @@ No tests touched — no controller / service / repo logic changed.
 Build green. Tests: 101 unit + 206 integration + 5 skipped —
 unchanged from Phase 6E.
 
+### Day 8 — Phase 7 (Admin CRUD: Products / Customers / Warehouses)
+
+**Branch**: `feat/phase7-admin-crud` → merged to `main` · **Tag**: `v0.8.0-admin-crud` · **Partial close**: TD-017 (3 of 9 → 5 of 12 quick actions wired)
+
+The big one. Six new endpoint pairs (Create + Edit) across the three master entities, with the layered validation stack we'd been deferring since Phase 6B.
+
+Locked decisions from the audit (D1–D5):
+- **D1 Hybrid validation**: DataAnnotations on view-models for jQuery
+  unobtrusive client-side; FluentValidation `IValidator<T>` server-
+  side for cross-field + async rules. Controllers manually call
+  `ValidateAsync` after the DA pass and merge errors into ModelState.
+  Avoids the deprecated `FluentValidation.AspNetCore` package.
+- **D2 Alpine single-page stepper**: Tabler `.steps` markup +
+  `x-data="{ step: 1 }"`; click-to-step, x-cloak hides during init.
+  Single POST regardless of step state — reload-safe, one controller
+  action, no TempData state.
+- **D3 3 lookup repos**: `IProductCategoryRepository`,
+  `IUomRepository`, `ICarrierRepository` (read-only `GetActiveAsync`)
+  for Create-form `<select>`s. Matches Phase 6B factory pattern.
+- **D4 No Version migration**: master tables stay last-write-wins on
+  Edit. Concurrent edits collide silently; acceptable for low-churn
+  metadata. Add a `Version` column later if collisions surface.
+- **D5 Step counts vary**: Customer=4 (Identity / Contact /
+  Commercial / Status), Product=2 (Identity / Classification),
+  Warehouse=2 (Identity / Operations).
+
+Phase structure (18 tasks across 7 sub-phases):
+- **7A** (T1–T3): Repository write-side — `InsertAsync` + `UpdateAsync`
+  on Product / Customer / Warehouse repos. Each Update omits
+  natural-key columns from SET (Code is read-only on Edit; for
+  Customer also CustomerType — flipping B2B↔B2C orphans the B2B-only
+  fields).
+- **7B** (T4–T6): View-models + FluentValidation validators.
+  6 view-models (3 Create + 3 Edit), 6 validators. Static
+  `AllStatuses` / `AllTypes` / `AllTrackingMethods` mirror DB CHECK
+  constraints — single source of truth lives in the migration.
+  Customer's B2B cross-field rule is the most non-trivial:
+  `RuleFor(x => x.CompanyName).NotEmpty().When(x => x.CustomerType
+  == "B2B")`.
+- **7C** (T7–T9): Controllers — partial-class split
+  (`{Entity}Controller.cs` + `{Entity}Controller.Admin.cs`) to keep
+  each file near the 200-line guideline. Constructors grew 4–5 deps;
+  existing `Build()` test helpers updated to default-mock the new
+  ones so all 95 prior tests compile unchanged. POST flow:
+  ModelState (DA) → manual `ValidateAsync` (FV) → if invalid
+  re-populate lookups + return View → else Insert/Update → catch
+  SqlException 2627/2601 (UQ on Code → field error) +
+  SqlException 547 (FK violation → form-level "please reselect").
+- **7D** (T10–T12): Razor views — 6 `.cshtml` files. Create views
+  use the Alpine stepper; Edit views are single-page per D5.
+  Customer Create's stepper toggles a "(required for B2B)" hint on
+  CompanyName + TaxId via `x-text` reactivity; the FV server-side
+  rule is authoritative.
+- **7E** (T13–T15): UI wiring — Index "New {entity}" buttons →
+  `<a asp-action="Create">`; Detail page sidebar gains an "Edit
+  {entity}" QuickAction prepended to existing list. TD-017 partial
+  progress: 5 of 12 quick actions wired now (was 2 of 9).
+- **7F** (T16–T18): Admin controller tests + B2B validator tests.
+  +37 tests net (8 ProductsAdmin, 8 CustomersAdmin, 13
+  CustomerCreateValidator, 8 WarehousesAdmin). New `BuildAdmin()`
+  helpers alongside existing `Build()` so admin-test setup doesn't
+  disturb read-side test ergonomics.
+- **7G**: Docs (this entry) + branch merge + tag.
+
+Foundation packages:
+- `FluentValidation.DependencyInjectionExtensions 11.9.0` — the modern
+  non-deprecated DI helper. `services
+  .AddValidatorsFromAssemblyContaining<Program>()` auto-discovers
+  validators by interface; no per-validator registration needed.
+
+Notable patterns:
+- **Static option lists on view-models**: `ProductCreateViewModel
+  .AllStatuses` / `AllTrackingMethods`; same for Customer / Warehouse.
+  Razor accesses these via fully-qualified type name in
+  `@foreach`. Mirror DB CHECK exactly — adding a new value goes:
+  migration first, then update the static list.
+- **Generic `LookupItem(Id, Code, Name)` record** in `WMS.DAL.Common`
+  — same shape across all 3 lookup repos. Specific tables
+  (Categories with Path, UoMs with Type) can ship dedicated
+  projections later.
+- **NullIfBlank helper** at controller boundary — whitespace-only
+  posts persist as DB NULL so CHECK constraints (e.g. CustomerTier)
+  evaluate cleanly. Pinned by `BlankNullableStrings_StoreAsNull`
+  regression tests on each entity.
+
+Out of scope (logged for follow-up):
+- **TD-006 expansion**: SqlException 2627/547 catch paths in admin
+  controllers also need a real SQL fixture to test meaningfully —
+  same family as the existing TD-006 write-path tests. Added a note
+  in TD-006's plan column.
+- **Categories / UoMs / Carriers / Owners admin CRUD** — Phase 7
+  builds read-only lookup repos for these only. Future phase.
+- **Bulk import** (CSV upload) — not addressed.
+- **Soft-delete UI** — Edit form's Status=Inactive/Discontinued
+  (or Warehouse IsActive=false) is the canonical archive. No
+  separate "Archive" button.
+- **Audit trail UI on Edit** — CreatedAt/CreatedBy/UpdatedAt/
+  UpdatedBy written but not surfaced on Edit form. Existing Activity
+  tab on Detail covers Products + Warehouses; Customer remains
+  TD-014-blocked.
+
+Test posture: 101 unit + 243 integration (+37 net) + 5 skipped
+(TD-006). Total **349 passing** (was 312).
+
+Validation flow trace for the curious:
+1. Browser POSTs `/Products/Create`.
+2. ASP.NET Core model binder runs DataAnnotations →
+   ModelState populated with field-level errors (Required,
+   StringLength).
+3. Controller calls `_createValidator.ValidateAsync(vm, ct)` →
+   FluentValidation runs (enum membership, async Code uniqueness,
+   B2B cross-field).
+4. Each FV failure adds an entry to ModelState.
+5. If `ModelState.IsValid` is false → re-populate lookup `<select>`
+   data and `return View(vm)` (Razor renders red text via
+   `asp-validation-for` spans, jQuery unobtrusive on subsequent
+   client-side keystrokes).
+6. Else: build entity, `try INSERT/UPDATE`. SqlException 2627 /
+   2601 / 547 caught and converted to friendly ModelState errors.
+7. Success → `RedirectToAction("Detail", new { code })`.
+
 ---
 
 ## 🔑 Auth Architecture (Day 3 decisions)
@@ -823,5 +944,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-09 (Phase 6F — jQuery Fix)
-**Version**: 1.10
+**Last updated**: 2026-05-09 (Phase 7 — Admin CRUD)
+**Version**: 1.11
