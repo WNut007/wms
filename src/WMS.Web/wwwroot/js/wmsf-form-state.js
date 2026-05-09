@@ -43,6 +43,9 @@ function wmsfFormState(opts) {
         totalSteps: opts.totalSteps || 1,
         touched: {},          // { 'FieldName': true } once user types
         serverErrors,         // { stepNum: bool } — sticky from POST until user touches a field
+        required,             // { stepNum: ['fieldName', ...] } — exposed so per-form
+                              //   overrides (e.g. Customer Create's B2B requiredFor)
+                              //   can fall back to it via this.required[sec].
         mode: isEdit ? 'edit' : 'create',
 
         goTo(n) {
@@ -66,8 +69,8 @@ function wmsfFormState(opts) {
 
         // Internal: which section does this field belong to?
         _sectionOf(field) {
-            for (const sec of Object.keys(required)) {
-                if (required[sec].indexOf(field) !== -1) return sec;
+            for (const sec of Object.keys(this.required)) {
+                if (this.required[sec].indexOf(field) !== -1) return sec;
             }
             return null;
         },
@@ -93,20 +96,20 @@ function wmsfFormState(opts) {
 
         // Computed: does this section have all required fields filled?
         sectionComplete(sec) {
-            const fields = required[sec] || [];
+            const fields = this.required[sec] || [];
             if (fields.length === 0) return true;
             return fields.every(f => this._fieldValue(f).length > 0);
         },
 
         // Computed: has the user touched any required field of this section?
         sectionTouched(sec) {
-            const fields = required[sec] || [];
+            const fields = this.required[sec] || [];
             return fields.some(f => this.touched[f]);
         },
 
         // Computed: badge text — "X required" or "All set".
         sectionRequiredHint(sec) {
-            const fields = required[sec] || [];
+            const fields = this.required[sec] || [];
             if (fields.length === 0) return '';
             const filled = fields.filter(f => this._fieldValue(f).length > 0).length;
             const missing = fields.length - filled;
