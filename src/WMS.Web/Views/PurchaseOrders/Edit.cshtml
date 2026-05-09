@@ -1,0 +1,243 @@
+@model WMS.Web.Models.Inbound.PurchaseOrderEditViewModel
+@{
+    ViewData["Title"] = $"Edit {Model.PoNumber}";
+
+    var statusVariant = Model.Status switch
+    {
+        "Open"      => "s-info",
+        "Receiving" => "s-warning",
+        "Closed"    => "s-success",
+        "Cancelled" => "s-neutral",
+        _           => "s-neutral",
+    };
+
+    var initialLinesJson = System.Text.Json.JsonSerializer.Serialize(
+        Model.Lines.Select(l => new {
+            lineNumber       = l.LineNumber,
+            productId        = l.ProductId == Guid.Empty ? "" : l.ProductId.ToString(),
+            uomId            = l.UomId == Guid.Empty ? "" : l.UomId.ToString(),
+            expectedQuantity = l.ExpectedQuantity,
+            receivedQuantity = l.ReceivedQuantity,
+        }));
+}
+
+<form asp-controller="PurchaseOrders" asp-action="Edit" asp-route-id="@Model.Id"
+      method="post"
+      class="wmsf-page"
+      autocomplete="off"
+      x-data="poEditForm({
+          linesLocked: @(Model.LinesLocked ? "true" : "false"),
+          initialLines: @Html.Raw(initialLinesJson)
+      })">
+    <input type="hidden" asp-for="Id" />
+    <input type="hidden" asp-for="LinesLocked" />
+
+    <nav class="wmsf-breadcrumb" aria-label="Breadcrumb">
+        <a asp-controller="PurchaseOrders" asp-action="Index">Purchase Orders</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <a asp-controller="PurchaseOrders" asp-action="Detail" asp-route-id="@Model.Id">@Model.PoNumber</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <span class="current">Edit</span>
+    </nav>
+
+    <header class="wmsf-header">
+        <div class="wmsf-header-title">
+            <div class="wmsf-header-icon" aria-hidden="true">
+                <i class="ti ti-truck-delivery"></i>
+            </div>
+            <div class="wmsf-header-text">
+                <h1>@Model.PoNumber</h1>
+                <p style="font-family: var(--wms-font-mono);">
+                    @Model.VendorCode · @Model.WarehouseCode
+                </p>
+            </div>
+        </div>
+        <div class="wmsf-header-status">
+            <span class="wmsf-status-badge @statusVariant">@Model.Status</span>
+            <a asp-controller="PurchaseOrders" asp-action="Detail" asp-route-id="@Model.Id"
+               class="wmsf-btn">
+                <i class="ti ti-external-link" aria-hidden="true"></i> View
+            </a>
+        </div>
+    </header>
+
+    @if (ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div class="wmsf-form-error" role="alert">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    @if (Model.LinesLocked)
+    {
+        <div style="background: var(--wmsf-warning-bg, #FAEEDA); color: var(--wmsf-warning-fg, #854F0B); padding: 10px 14px; border-radius: 8px; font-size: 12px; border: 0.5px solid rgba(133, 79, 11, 0.2);">
+            <strong>Lines locked.</strong> Receipts have been posted against this PO.
+            Edit header fields below; cancel-and-recreate is the path to change line shape.
+        </div>
+    }
+
+    @* === Header card === *@
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Header</p>
+                <h2>Order details</h2>
+                <p class="wmsf-pane-desc">PO number, vendor, and warehouse are permanent. Date + notes can be edited.</p>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">PO number</label>
+                <input class="wmsf-input" value="@Model.PoNumber" readonly disabled />
+            </div>
+
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Vendor</label>
+                <input class="wmsf-input" value="@Model.VendorCode · @Model.VendorName" readonly disabled />
+            </div>
+
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Warehouse</label>
+                <input class="wmsf-input" value="@Model.WarehouseCode" readonly disabled />
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="ExpectedDate" class="wmsf-field-label">Expected date</label>
+                <input asp-for="ExpectedDate" type="date" class="wmsf-input" />
+                <span asp-validation-for="ExpectedDate" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field col-span-2">
+                <label asp-for="Notes" class="wmsf-field-label">Notes</label>
+                <textarea asp-for="Notes" class="wmsf-textarea" rows="2"></textarea>
+                <span asp-validation-for="Notes" class="wmsf-error"></span>
+            </div>
+        </div>
+    </section>
+
+    @* === Lines card — locked vs editable === *@
+    <section class="wmsf-pane" style="margin-top: 14px;">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Lines</p>
+                <h2>@(Model.LinesLocked ? "Lines (read-only)" : "Lines")</h2>
+                <p class="wmsf-pane-desc">
+                    @(Model.LinesLocked
+                        ? "Receipts have been posted; lines are locked."
+                        : "Edit, add, or remove lines. Each line tracks expected vs received qty.")
+                </p>
+            </div>
+        </div>
+
+        <div style="overflow-x: auto;">
+            <table class="wms-table" style="width: 100%; min-width: 600px;">
+                <thead>
+                    <tr>
+                        <th style="width: 50px;">#</th>
+                        <th>Product</th>
+                        <th>UoM</th>
+                        <th style="width: 130px;">Expected qty</th>
+                        <th style="width: 130px;">Received qty</th>
+                        <th style="width: 80px;" x-show="!linesLocked"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="(line, idx) in lines" :key="idx">
+                        <tr>
+                            <td>
+                                <input type="number" :name="`Lines[${idx}].LineNumber`"
+                                       x-model.number="line.lineNumber"
+                                       class="wmsf-input" style="width: 60px;"
+                                       :disabled="linesLocked" />
+                            </td>
+                            <td>
+                                <select :name="`Lines[${idx}].ProductId`" x-model="line.productId"
+                                        class="wmsf-select" :disabled="linesLocked">
+                                    <option value="">— Select —</option>
+                                    @foreach (var p in Model.Products)
+                                    {
+                                        <option value="@p.Id">@p.Code · @p.Name</option>
+                                    }
+                                </select>
+                            </td>
+                            <td>
+                                <select :name="`Lines[${idx}].UomId`" x-model="line.uomId"
+                                        class="wmsf-select" :disabled="linesLocked">
+                                    <option value="">— Select —</option>
+                                    @foreach (var u in Model.Uoms)
+                                    {
+                                        <option value="@u.Id">@u.Code</option>
+                                    }
+                                </select>
+                            </td>
+                            <td>
+                                <input type="number" step="0.0001" :name="`Lines[${idx}].ExpectedQuantity`"
+                                       x-model.number="line.expectedQuantity" class="wmsf-input"
+                                       :disabled="linesLocked" />
+                            </td>
+                            <td>
+                                <input type="number" step="0.0001" :name="`Lines[${idx}].ReceivedQuantity`"
+                                       x-model.number="line.receivedQuantity" class="wmsf-input"
+                                       readonly disabled />
+                            </td>
+                            <td x-show="!linesLocked">
+                                <button type="button" class="wmsf-btn" @@click="removeLine(idx)"
+                                        :disabled="lines.length <= 1" title="Remove line">
+                                    <i class="ti ti-trash" aria-hidden="true"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        <div style="margin-top: 12px;" x-show="!linesLocked">
+            <button type="button" class="wmsf-btn" @@click="addLine()">
+                <i class="ti ti-plus" aria-hidden="true"></i> Add line
+            </button>
+        </div>
+    </section>
+
+    <div class="wmsf-actions">
+        <a asp-controller="PurchaseOrders" asp-action="Detail" asp-route-id="@Model.Id" class="wmsf-btn">
+            <i class="ti ti-x" aria-hidden="true"></i> Cancel
+        </a>
+        <span class="wmsf-actions-info"></span>
+        <button type="submit" class="wmsf-btn wmsf-btn-primary">
+            <i class="ti ti-check" aria-hidden="true"></i> Save changes
+        </button>
+    </div>
+</form>
+
+<style>[x-cloak] { display: none !important; }</style>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        function poEditForm(opts) {
+            return {
+                linesLocked: opts.linesLocked,
+                lines: opts.initialLines || [],
+                addLine() {
+                    if (this.linesLocked) return;
+                    const nextNum = this.lines.length === 0
+                        ? 1
+                        : Math.max(...this.lines.map(l => l.lineNumber || 0)) + 1;
+                    this.lines.push({
+                        lineNumber: nextNum, productId: '', uomId: '',
+                        expectedQuantity: 1, receivedQuantity: 0,
+                    });
+                },
+                removeLine(idx) {
+                    if (this.linesLocked || this.lines.length <= 1) return;
+                    this.lines.splice(idx, 1);
+                },
+            };
+        }
+    </script>
+}

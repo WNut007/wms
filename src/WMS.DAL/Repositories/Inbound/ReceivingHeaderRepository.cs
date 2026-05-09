@@ -160,6 +160,31 @@ internal sealed class ReceivingHeaderRepository : IReceivingHeaderRepository
         return new ReceivingDetail(header, lines);
     }
 
+    public async Task<IReadOnlyList<ReceivingActivityRow>> GetActivityByPoAsync(
+        Guid purchaseOrderId, int limit = 20, CancellationToken ct = default)
+    {
+        // IX_ReceivingHeaders_PurchaseOrder covers the WHERE; no
+        // dedicated index on (PoId, ReceivedAt) but at typical volumes
+        // (a PO has <20 receipts in its lifecycle) the sort is cheap.
+        var rows = await _connection.QueryAsync<ReceivingActivityRow>(new CommandDefinition(
+            @"SELECT
+                  h.Id,
+                  h.ReceivingNumber,
+                  h.ReceivedAt,
+                  h.Status,
+                  COALESCE(u.FullName, u.Email, 'System') AS PerformedByName,
+                  (SELECT COUNT(*) FROM inbound.ReceivingLines rl
+                   WHERE rl.ReceivingHeaderId = h.Id) AS LineCount
+              FROM inbound.ReceivingHeaders h
+              LEFT JOIN security.Users u ON u.Id = h.CreatedBy
+              WHERE h.PurchaseOrderId = @purchaseOrderId
+              ORDER BY h.ReceivedAt DESC
+              OFFSET 0 ROWS FETCH NEXT @limit ROWS ONLY",
+            new { purchaseOrderId, limit },
+            cancellationToken: ct));
+        return rows.AsList();
+    }
+
     public async Task<IReadOnlyList<ReceivingActivityRow>> GetActivityByWarehouseAsync(
         Guid warehouseId, int limit = 20, CancellationToken ct = default)
     {

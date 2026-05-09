@@ -40,4 +40,14 @@ public interface IReceivingHeaderRepository
         Guid warehouseId,
         int limit = 20,
         CancellationToken ct = default);
+
+    // Phase 9A — Activity tab on /PurchaseOrders/Detail/{id}. All
+    // receipts that landed against this PO, newest first. Same
+    // ReceivingActivityRow shape; Phase 6E composition pattern reuses
+    // when the PO Activity tab wants to merge receipts + future
+    // status-change rows.
+    Task<IReadOnlyList<ReceivingActivityRow>> GetActivityByPoAsync(
+        Guid purchaseOrderId,
+        int limit = 20,
+        CancellationToken ct = default);
 }

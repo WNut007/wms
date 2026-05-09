@@ -1,3 +1,4 @@
+using WMS.DAL.Common;
 using WMS.Domain.Entities.Inbound;
 
 namespace WMS.DAL.Repositories.Inbound;
@@ -41,4 +42,65 @@ public interface IPurchaseOrderRepository
         decimal delta,
         Guid? userId,
         CancellationToken ct = default);
+
+    // Phase 9A — list-page query. JOINs Owners (Code+Name) + Warehouses
+    // (Code) + per-PO aggregate from PurchaseOrderLines (LineCount,
+    // TotalExpectedQty, TotalReceivedQty). Returns paged rows + total
+    // count in one QueryMultiple round-trip. SortBy whitelisted via
+    // PurchaseOrderSortMapper.
+    Task<PagedResult<PurchaseOrderListRow>> GetPagedAsync(
+        PurchaseOrderFilter filter, CancellationToken ct = default);
+
+    // Phase 9A — Edit form support: header fields update only.
+    // PoNumber, OwnerId, WarehouseId NOT in SET — Code-shaped natural
+    // keys are read-only (FK-orphan risk on receipts that point at
+    // (PoId, OwnerId)); ExpectedDate + Notes editable. Returns
+    // rows-affected > 0.
+    Task<bool> UpdateHeaderAsync(
+        PurchaseOrder entity, Guid? userId, CancellationToken ct = default);
+
+    // Phase 9A — Edit form support: replace all lines on a PO. Caller
+    // is expected to have verified zero receipts exist (lines locked
+    // when any line has ReceivedQuantity > 0). Atomic: DELETE old +
+    // INSERT new in one transaction.
+    Task ReplaceLinesAsync(
+        Guid purchaseOrderId,
+        IReadOnlyList<PurchaseOrderLine> lines,
+        Guid? userId,
+        CancellationToken ct = default);
+
+    // Phase 9A — atomic status setter. fromStatus filter makes
+    // transitions idempotent (UPDATE WHERE Status=@from returns 0
+    // rows when already in target state). Returns true when a row
+    // was changed; false on no-op or missing PO.
+    Task<bool> SetStatusAsync(
+        Guid purchaseOrderId,
+        string fromStatus,
+        string toStatus,
+        Guid? userId,
+        CancellationToken ct = default);
+
+    // Phase 9A — Edit form lock check. Returns count of lines on this
+    // PO with ReceivedQuantity > 0. Edit form uses this to decide
+    // whether the Lines section is editable: zero = full edit allowed;
+    // any > 0 = lock lines, header-only edit (cancel-and-recreate is
+    // the upgrade path until receipt-aware line edit lands in Phase 10).
+    Task<int> CountReceivedLinesAsync(
+        Guid purchaseOrderId, CancellationToken ct = default);
+
+    // Phase 9A — service-level "all lines closed" predicate for
+    // MarkClosedAsync. True iff every line on this PO has
+    // ReceivedQuantity >= ExpectedQuantity (= line is full). Atomic
+    // single-query — used by GR service after a receipt to decide
+    // whether the PO transitions Receiving → Closed.
+    Task<bool> AllLinesFullyReceivedAsync(
+        Guid purchaseOrderId, CancellationToken ct = default);
+
+    // Phase 9A — bulk-cancel all open lines. Used by ArchiveAsync
+    // when the PO is cancelled — propagates Cancelled to children.
+    // Lines with ReceivedQuantity > 0 are left at their current
+    // status (PartiallyReceived or Closed); only Open / Partially-
+    // Received lines flip to Cancelled.
+    Task CancelOpenLinesAsync(
+        Guid purchaseOrderId, Guid? userId, CancellationToken ct = default);
 }

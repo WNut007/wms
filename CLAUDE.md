@@ -317,8 +317,8 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Phase 8.5 — Auth Picker + Hover Cleanup shipped (v0.8.2-picker-hover)
-**Current Focus**: pending decision — candidates include Phase 9 (ADR-004 + Putaway header), TD-014 Customer Activity half (blocked on Phase 7+ orders), Categories / UoMs / Carriers admin CRUD, TD-016 (putaway-pair grouping), TD-018 (picker empty-state refactor)
+**Active Sprint**: Phase 9A — Purchase Order Admin CRUD shipped (v0.9.0-po-crud)
+**Current Focus**: Phase 9B — Desktop Goods Receipt form (the headline; consumes Phase 9A's PO infrastructure)
 **Blockers**: none
 
 Update this section weekly during standups.
@@ -693,6 +693,51 @@ No tests touched — no controller / service / repo logic changed.
 Build green. Tests: 101 unit + 206 integration + 5 skipped —
 unchanged from Phase 6E.
 
+### Day 9 — Phase 9A (Purchase Order Admin CRUD)
+
+**Branch**: `feat/phase9a-po-crud` → merged to `main` · **Tag**: `v0.9.0-po-crud` · **Closes**: prereq for "ยังไม่เห็นหน้ารับสินค้าเลย" (Phase 9B GR is the headline; 9A is the foundation)
+
+Inbound module foundation phase. Phase 9 audit confirmed:
+- Schema ready (Phase 6A added Movement Log integration to receiving).
+- `inbound.PurchaseOrders` + `Lines` exist; `IPurchaseOrderRepository` had Create + Get only — no Paged / Update / status surface.
+- No PO UI at all — couldn't create/browse POs in the app.
+- Vendor = `master.Owners` with `OwnerType='Supplier'|'VMI'` (no formal Vendor master; deferred — TD-025).
+
+Locked decisions (per the Phase 9A brief Q1–Q3):
+- **Q1**: 3-section Create form (Header / Lines / Review).
+- **Q2**: Full-PO lock on Edit when any line has `ReceivedQuantity > 0` (simplest safe path; per-line lock deferred to TD-026).
+- **Q3**: User-entered `PoNumber` with async uniqueness check (auto-gen deferred).
+
+Data-layer additions:
+- New `IOwnerRepository.GetActiveSuppliersAsync()` — Vendor dropdown source, filtered to `OwnerType IN ('Supplier','VMI') AND IsActive=1`. Standard Phase 7 lookup-repo pattern (Carrier/Uom/Category trio).
+- New `IProductRepository.GetActiveAsync()` — flat lookup for PO line grid; Status='Active' filter. `IX_Products_Status` covers WHERE+ORDER.
+- New `IReceivingHeaderRepository.GetActivityByPoAsync()` — Activity tab feed for PO Detail. Same `ReceivingActivityRow` shape as Phase 6E warehouse method.
+- `PurchaseOrderListRow` DTO + `PurchaseOrderFilter` record + `PurchaseOrderSortMapper` whitelist (mirrors Phase 6B trio).
+- `IPurchaseOrderRepository` extensions:
+  - `GetPagedAsync` — JOINs Owners + Warehouses + per-PO line aggregate (LineCount + TotalExpectedQty + TotalReceivedQty) via CTE.
+  - `UpdateHeaderAsync` — `ExpectedDate` + `Notes` only; PoNumber/OwnerId/WarehouseId frozen.
+  - `ReplaceLinesAsync` — DELETE + multi-INSERT atomic; called only when receipts==0.
+  - `SetStatusAsync(from, to)` — atomic UPDATE WHERE Status=@from; idempotent.
+  - `CountReceivedLinesAsync` + `AllLinesFullyReceivedAsync` + `CancelOpenLinesAsync` — supporting status-transition predicates and bulk-cancel.
+
+Service-layer additions (`IPurchaseOrderService`):
+- `UpdateAsync` — header + optional `ReplaceLines`. Service-side guard: rejects with `InvalidOperationException` when ReplaceLines=true AND `CountReceivedLinesAsync > 0`.
+- `ArchiveAsync` — Open|Receiving → Cancelled; cascades Cancelled to open + partially-received lines.
+- `MarkReceivingAsync` / `MarkClosedAsync` — idempotent atomic transitions called by 9B's GR flow once it ships.
+
+UI surface:
+- `/PurchaseOrders` list — Alpine-driven (search + status chips + table + pagination).
+- `/PurchaseOrders/Create` — 3-section V1 stepper. **New pattern**: editable Alpine line grid (Section 2). `x-for` over `lines` reactive array; `x-model` per cell; indexed `Lines[N].FieldName` so ASP.NET Core model-binder rebuilds `List<Line>`. Add row / Remove row buttons.
+- `/PurchaseOrders/Edit/{id}` — single-page Edit. Lines table renders read-only when receipts exist (with explanatory banner); full editable grid when zero receipts.
+- `/PurchaseOrders/Detail/{id}` — shared `_DetailLayout`. 4 stat tiles (Lines / Expected qty / Received qty / Fill%); Activity tab pulls receipts.
+- Sidebar Inbound module now expandable submenu (matches Master pattern): Purchase Orders + Receive (mobile).
+
+Tests: 14 `PurchaseOrdersAdminTests` + status mapper Theory (4 cases) = +14 net. Test posture: **363 passing** (was 349). 101 unit + 257 integration + 5 skipped.
+
+Out of scope (logged): TD-022 (TransactionScope wrapper), TD-023 (GR cancellation), TD-024 (ASN), TD-025 (formal vendor master), TD-026 (per-line lock).
+
+Foundation for: Phase 9B desktop Goods Receipt form.
+
 ### Day 8 — Phase 8.5 (Auth Picker + Hover Cleanup)
 
 **Branch**: `feat/auth-picker-hover` → merged to `main` · **Tag**: `v0.8.2-picker-hover` · **Closes**: user feedback "Warehouse picker เลือกยาก" + "ทุกหน้ามี hover ที่ปุ่ม/menu ไม่เอา underline"
@@ -1017,5 +1062,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-09 (Phase 8.5 — Auth Picker + Hover Cleanup)
-**Version**: 1.13
+**Last updated**: 2026-05-09 (Phase 9A — Purchase Order Admin CRUD)
+**Version**: 1.14

@@ -1,0 +1,156 @@
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Purchase Orders";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Purchase Orders</p>
+        <div class="wms-breadcrumb">
+            <span>Operations</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Purchase Orders</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <a asp-controller="PurchaseOrders" asp-action="Create" class="wms-btn wms-btn-purple">
+            <i class="ti ti-plus" style="font-size: 14px;" aria-hidden="true"></i>
+            New PO
+        </a>
+    </div>
+</div>
+
+<div class="wms-card" style="padding: 0;" x-data="poList()">
+    <div class="wms-filter-bar">
+        <div class="wms-filter-search">
+            <i class="ti ti-search wms-filter-search-icon" aria-hidden="true"></i>
+            <input type="text" class="wms-input" placeholder="Search by PO number..." x-model.debounce.250ms="search" @@input="reload()" />
+        </div>
+
+        <div class="wmsp-chips" style="margin-left: 8px;">
+            <template x-for="s in statuses" :key="s.value">
+                <button type="button"
+                        class="wmsp-chip"
+                        :class="{ 'is-active': status === s.value }"
+                        @@click="status = s.value; reload()"
+                        x-text="s.label"></button>
+            </template>
+        </div>
+
+        <span style="margin-left: auto; font-size: 11px; color: var(--wms-text-secondary);" x-text="totalLabel()"></span>
+    </div>
+
+    <div style="overflow-x: auto;">
+        <table class="wms-table" style="width: 100%;">
+            <thead>
+                <tr>
+                    <th>PO Number</th>
+                    <th>Vendor</th>
+                    <th>Warehouse</th>
+                    <th>Expected</th>
+                    <th>Status</th>
+                    <th>Lines</th>
+                    <th>Expected qty</th>
+                    <th>Received qty</th>
+                    <th>Fill %</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="row in rows" :key="row.id">
+                    <tr style="cursor: pointer;" @@click="navigate(row.id)">
+                        <td><span class="mono" x-text="row.poNumber"></span></td>
+                        <td>
+                            <span x-text="row.vendor" style="font-weight: 500;"></span>
+                            <span style="font-size: 11px; color: var(--wms-text-secondary); display: block;" x-text="row.vendorName"></span>
+                        </td>
+                        <td><span class="mono" x-text="row.warehouse"></span></td>
+                        <td x-text="row.expectedDate || '—'"></td>
+                        <td>
+                            <span class="wmsd-badge" :class="badgeClass(row.status)" x-text="row.statusLabel"></span>
+                        </td>
+                        <td x-text="row.lineCount"></td>
+                        <td x-text="row.totalExpected.toFixed(2)"></td>
+                        <td x-text="row.totalReceived.toFixed(2)"></td>
+                        <td>
+                            <span x-text="row.fillPct + '%'" :style="row.fillPct >= 100 ? 'color: #1D9E75; font-weight: 500' : ''"></span>
+                        </td>
+                    </tr>
+                </template>
+                <tr x-show="!rows.length && !loading">
+                    <td colspan="9" style="padding: 36px; text-align: center; color: var(--wms-text-tertiary);">
+                        No purchase orders match the current filters.
+                    </td>
+                </tr>
+                <tr x-show="loading">
+                    <td colspan="9" style="padding: 24px; text-align: center; color: var(--wms-text-secondary);">
+                        Loading...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-top: 0.5px solid var(--wms-border); font-size: 12px;">
+        <span x-text="`Page ${page} of ${totalPages || 1}`"></span>
+        <div style="display: flex; gap: 6px;">
+            <button type="button" class="wms-btn" :disabled="page <= 1" @@click="page--; reload()">← Prev</button>
+            <button type="button" class="wms-btn" :disabled="page >= totalPages" @@click="page++; reload()">Next →</button>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function poList() {
+            return {
+                rows: [],
+                total: 0,
+                totalPages: 1,
+                page: 1,
+                pageSize: 20,
+                search: '',
+                status: 'all',
+                loading: false,
+                statuses: [
+                    { value: 'all',       label: 'All' },
+                    { value: 'open',      label: 'Open' },
+                    { value: 'receiving', label: 'Receiving' },
+                    { value: 'closed',    label: 'Closed' },
+                    { value: 'cancelled', label: 'Cancelled' },
+                ],
+                async init() { await this.reload(); },
+                async reload() {
+                    this.loading = true;
+                    const url = new URL('/PurchaseOrders/Data', window.location.origin);
+                    url.searchParams.set('page', this.page);
+                    url.searchParams.set('pageSize', this.pageSize);
+                    if (this.search.trim()) url.searchParams.set('search', this.search.trim());
+                    if (this.status !== 'all') url.searchParams.set('status', this.status);
+                    try {
+                        const r = await fetch(url);
+                        const data = await r.json();
+                        this.rows = data.items;
+                        this.total = data.total;
+                        this.totalPages = data.totalPages;
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                navigate(id) {
+                    window.location.href = `/PurchaseOrders/Detail/${id}`;
+                },
+                totalLabel() {
+                    return this.total === 1 ? '1 PO' : `${this.total} POs`;
+                },
+                badgeClass(status) {
+                    return {
+                        'open':      's-info',
+                        'receiving': 's-warning',
+                        'closed':    's-success',
+                        'cancelled': 's-neutral',
+                    }[status] || 's-neutral';
+                },
+            };
+        }
+    </script>
+}

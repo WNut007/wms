@@ -77,6 +77,161 @@ public sealed class PurchaseOrderService : IPurchaseOrderService
         Guid tenantId, string poNumber, CancellationToken ct = default) =>
         _repoFactory.For(tenantId).GetByNumberAsync(poNumber, ct);
 
+    // ====================================================================
+    // Phase 9A — Update / Archive / Status transitions
+    // ====================================================================
+
+    public async Task<PurchaseOrderDetail> UpdateAsync(
+        Guid tenantId,
+        Guid purchaseOrderId,
+        UpdatePurchaseOrderRequest request,
+        Guid? currentUserId,
+        CancellationToken ct = default)
+    {
+        var repo = _repoFactory.For(tenantId);
+
+        var existing = await repo.GetByIdAsync(purchaseOrderId, ct)
+            ?? throw new InvalidOperationException(
+                $"PurchaseOrder {purchaseOrderId} not found.");
+
+        // Update header always allowed. Line replacement gated on
+        // "no receipts have bumped any line yet" — once any line has
+        // ReceivedQty > 0, lines are read-only until Phase 10 ships
+        // receipt-aware line editing.
+        if (request.ReplaceLines)
+        {
+            ValidateLines(request.Lines);
+            var receivedLineCount = await repo.CountReceivedLinesAsync(purchaseOrderId, ct);
+            if (receivedLineCount > 0)
+            {
+                throw new InvalidOperationException(
+                    "Cannot replace lines — receipts have already been posted against this PO. " +
+                    "Cancel and recreate to change line shape.");
+            }
+        }
+
+        var headerEntity = new PurchaseOrder
+        {
+            Id = purchaseOrderId,
+            PoNumber = existing.Header.PoNumber,        // frozen
+            OwnerId = existing.Header.OwnerId,           // frozen
+            WarehouseId = existing.Header.WarehouseId,   // frozen
+            ExpectedDate = request.ExpectedDate,
+            Notes = request.Notes,
+            Status = existing.Header.Status,             // unchanged here
+        };
+
+        var ok = await repo.UpdateHeaderAsync(headerEntity, currentUserId, ct);
+        if (!ok)
+            throw new InvalidOperationException(
+                $"Failed to update PurchaseOrder {purchaseOrderId} header.");
+
+        if (request.ReplaceLines)
+        {
+            var newLines = request.Lines
+                .Select(l => new PurchaseOrderLine
+                {
+                    Id = Guid.NewGuid(),
+                    PurchaseOrderId = purchaseOrderId,
+                    LineNumber = l.LineNumber,
+                    ProductId = l.ProductId,
+                    UomId = l.UomId,
+                    ExpectedQuantity = l.ExpectedQuantity,
+                    ReceivedQuantity = 0m,
+                    Status = "Open",
+                })
+                .ToList();
+            await repo.ReplaceLinesAsync(purchaseOrderId, newLines, currentUserId, ct);
+        }
+
+        var detail = await repo.GetByIdAsync(purchaseOrderId, ct)
+            ?? throw new InvalidOperationException(
+                $"PurchaseOrder {purchaseOrderId} not found after update.");
+
+        _logger.LogInformation(
+            "Updated PO {PoNumber} ({PoId}) — replaceLines={ReplaceLines}",
+            detail.Header.PoNumber, purchaseOrderId, request.ReplaceLines);
+
+        return detail;
+    }
+
+    public async Task<bool> ArchiveAsync(
+        Guid tenantId,
+        Guid purchaseOrderId,
+        Guid? currentUserId,
+        CancellationToken ct = default)
+    {
+        var repo = _repoFactory.For(tenantId);
+
+        // Two valid source states: Open or Receiving. Try Open first,
+        // then Receiving. SetStatusAsync's WHERE Status=@from filter
+        // makes both attempts cheap and ordering-safe.
+        var changed =
+            await repo.SetStatusAsync(purchaseOrderId, "Open", "Cancelled", currentUserId, ct)
+         || await repo.SetStatusAsync(purchaseOrderId, "Receiving", "Cancelled", currentUserId, ct);
+
+        if (!changed) return false;
+
+        // Cascade to lines.
+        await repo.CancelOpenLinesAsync(purchaseOrderId, currentUserId, ct);
+
+        _logger.LogInformation(
+            "Archived (cancelled) PO {PoId} — child lines cascaded",
+            purchaseOrderId);
+
+        return true;
+    }
+
+    public async Task<bool> MarkReceivingAsync(
+        Guid tenantId,
+        Guid purchaseOrderId,
+        Guid? currentUserId,
+        CancellationToken ct = default)
+    {
+        var repo = _repoFactory.For(tenantId);
+        var changed = await repo.SetStatusAsync(
+            purchaseOrderId, "Open", "Receiving", currentUserId, ct);
+
+        if (changed)
+        {
+            _logger.LogInformation(
+                "PO {PoId} transitioned Open → Receiving",
+                purchaseOrderId);
+        }
+        return changed;
+    }
+
+    public async Task<bool> MarkClosedAsync(
+        Guid tenantId,
+        Guid purchaseOrderId,
+        Guid? currentUserId,
+        CancellationToken ct = default)
+    {
+        var repo = _repoFactory.For(tenantId);
+
+        // Only close when every non-Cancelled line is fully received.
+        var ready = await repo.AllLinesFullyReceivedAsync(purchaseOrderId, ct);
+        if (!ready) return false;
+
+        // Idempotent — accept either Open (rare; single-receipt PO that
+        // skips Receiving) or Receiving as the source state.
+        var changed =
+            await repo.SetStatusAsync(purchaseOrderId, "Receiving", "Closed", currentUserId, ct)
+         || await repo.SetStatusAsync(purchaseOrderId, "Open", "Closed", currentUserId, ct);
+
+        if (changed)
+        {
+            _logger.LogInformation(
+                "PO {PoId} transitioned to Closed — all lines fully received",
+                purchaseOrderId);
+        }
+        return changed;
+    }
+
+    // ====================================================================
+    // Validation
+    // ====================================================================
+
     private static void Validate(CreatePurchaseOrderRequest req)
     {
         if (string.IsNullOrWhiteSpace(req.PoNumber))
@@ -113,6 +268,28 @@ public sealed class PurchaseOrderService : IPurchaseOrderService
             if (line.UomId == Guid.Empty)
                 throw new ArgumentException(
                     $"Line {line.LineNumber}: UomId is required.", nameof(req));
+        }
+    }
+
+    private static void ValidateLines(IReadOnlyList<UpdatePurchaseOrderLineRequest> lines)
+    {
+        if (lines is null || lines.Count == 0)
+            throw new ArgumentException("At least one line is required.");
+
+        var seen = new HashSet<int>();
+        foreach (var line in lines)
+        {
+            if (line.LineNumber <= 0)
+                throw new ArgumentException($"LineNumber must be positive (got {line.LineNumber}).");
+            if (!seen.Add(line.LineNumber))
+                throw new ArgumentException($"Duplicate LineNumber {line.LineNumber}.");
+            if (line.ExpectedQuantity <= 0)
+                throw new ArgumentException(
+                    $"Line {line.LineNumber}: ExpectedQuantity must be positive.");
+            if (line.ProductId == Guid.Empty)
+                throw new ArgumentException($"Line {line.LineNumber}: ProductId is required.");
+            if (line.UomId == Guid.Empty)
+                throw new ArgumentException($"Line {line.LineNumber}: UomId is required.");
         }
     }
 }

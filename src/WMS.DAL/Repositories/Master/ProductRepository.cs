@@ -60,6 +60,18 @@ WHERE p.Code = @code",
             new { code },
             cancellationToken: ct));
 
+    public async Task<IReadOnlyList<LookupItem>> GetActiveAsync(CancellationToken ct = default)
+    {
+        // IX_Products_Status(Status, Code) covers WHERE+ORDER exactly.
+        var rows = await _connection.QueryAsync<LookupItem>(new CommandDefinition(
+            @"SELECT Id, Code, Name
+              FROM master.Products
+              WHERE Status = 'Active'
+              ORDER BY Code",
+            cancellationToken: ct));
+        return rows.AsList();
+    }
+
     public async Task<Guid> InsertAsync(
         Product entity, Guid? userId, CancellationToken ct = default)
     {
