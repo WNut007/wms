@@ -11,7 +11,17 @@ public sealed record PostReceivingRequest(
     Guid WarehouseId,
     DateTime? ReceivedAt,
     string? Notes,
-    IReadOnlyList<PostReceivingLineRequest> Lines);
+    IReadOnlyList<PostReceivingLineRequest> Lines,
+    // Phase 9B — IsDraft flag controls orchestration depth:
+    //   false (default): full receipt — header + lines + per-line stock
+    //                    upsert + Movement Log + PO line bumps + PO
+    //                    status transitions. Status='Posted'.
+    //   true:           header + lines only. Stock untouched, no
+    //                    Movement Log, no PO bumps. Status='Draft'.
+    //                    Used by the desktop GR form's "Save as Draft"
+    //                    button. Phase 9C+ adds the Post-Existing-Draft
+    //                    flow that completes orchestration on a Draft.
+    bool IsDraft = false);
 
 // One physical line: what was received, where it landed, optional
 // lot / pallet identifiers (passed through to β's GetOrCreate

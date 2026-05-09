@@ -194,10 +194,23 @@ public class ReceivingHeaderServiceTests
         var poFactory = new Mock<IPurchaseOrderRepositoryFactory>();
         poFactory.Setup(f => f.For(It.IsAny<Guid>())).Returns(poRepo.Object);
 
+        var poService = new Mock<IPurchaseOrderService>();
+        // Phase 9B — service now calls Mark{Receiving,Closed}Async on
+        // PO after each posted (non-Draft) receipt. Mock returns false
+        // (no-op transition) so existing tests don't have to set up
+        // verification on those calls.
+        poService.Setup(s => s.MarkReceivingAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+        poService.Setup(s => s.MarkClosedAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
         return new ReceivingHeaderService(
             receivingFactory.Object,
             poFactory.Object,
             receivingService.Object,
+            poService.Object,
             NullLogger<ReceivingHeaderService>.Instance);
     }
 

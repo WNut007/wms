@@ -28,17 +28,20 @@ public sealed class ReceivingHeaderService : IReceivingHeaderService
     private readonly IReceivingHeaderRepositoryFactory _receivingRepoFactory;
     private readonly IPurchaseOrderRepositoryFactory _poRepoFactory;
     private readonly IReceivingService _receivingService;
+    private readonly IPurchaseOrderService _purchaseOrderService;
     private readonly ILogger<ReceivingHeaderService> _logger;
 
     public ReceivingHeaderService(
         IReceivingHeaderRepositoryFactory receivingRepoFactory,
         IPurchaseOrderRepositoryFactory poRepoFactory,
         IReceivingService receivingService,
+        IPurchaseOrderService purchaseOrderService,
         ILogger<ReceivingHeaderService> logger)
     {
         _receivingRepoFactory = receivingRepoFactory;
         _poRepoFactory = poRepoFactory;
         _receivingService = receivingService;
+        _purchaseOrderService = purchaseOrderService;
         _logger = logger;
     }
 
@@ -60,7 +63,7 @@ public sealed class ReceivingHeaderService : IReceivingHeaderService
             PurchaseOrderId = request.PurchaseOrderId,
             WarehouseId = request.WarehouseId,
             ReceivedAt = receivedAt,
-            Status = "Posted",
+            Status = request.IsDraft ? "Draft" : "Posted",
             Notes = request.Notes,
         };
 
@@ -86,6 +89,24 @@ public sealed class ReceivingHeaderService : IReceivingHeaderService
         // Step 1 — persist header + lines atomically.
         var receivingRepo = _receivingRepoFactory.For(tenantId);
         await receivingRepo.CreateAsync(header, lines, currentUserId, ct);
+
+        // Phase 9B — Draft path skips stock orchestration. Header +
+        // lines exist (audit trail of intent); stock untouched; no
+        // Movement Log; no PO bumps; no PO status transitions.
+        // The Phase 9C+ Post-Existing-Draft flow will complete the
+        // orchestration when the operator confirms Post.
+        if (request.IsDraft)
+        {
+            var draftDetail = await receivingRepo.GetByIdAsync(headerId, ct)
+                ?? throw new InvalidOperationException(
+                    $"Draft ReceivingHeader {headerId} not found immediately after create.");
+            _logger.LogInformation(
+                "Saved DRAFT receiving {ReceivingNumber} ({HeaderId}) with {LineCount} line(s) " +
+                "against PO {PurchaseOrderId} at warehouse {WarehouseId}",
+                request.ReceivingNumber, headerId, lines.Count,
+                request.PurchaseOrderId, request.WarehouseId);
+            return draftDetail;
+        }
 
         var poRepo = _poRepoFactory.For(tenantId);
 
@@ -125,6 +146,21 @@ public sealed class ReceivingHeaderService : IReceivingHeaderService
                 await poRepo.IncrementLineReceivedQuantityAsync(
                     poLineId, req.ReceivedQuantity, currentUserId, ct);
             }
+        }
+
+        // Phase 9B — PO status auto-transitions. Idempotent; safe
+        // to call regardless of whether this is the first or Nth
+        // receipt against the PO. Order matters: try MarkReceiving
+        // first (Open → Receiving), then MarkClosed (any → Closed
+        // when AllLinesFullyReceived). A single-receipt PO that
+        // closes out completely will see MarkReceiving change the
+        // state then MarkClosed flip it again — both succeed.
+        if (request.PurchaseOrderId is { } poId)
+        {
+            await _purchaseOrderService.MarkReceivingAsync(
+                tenantId, poId, currentUserId, ct);
+            await _purchaseOrderService.MarkClosedAsync(
+                tenantId, poId, currentUserId, ct);
         }
 
         // Re-fetch — gives the caller the post-update Detail, including
