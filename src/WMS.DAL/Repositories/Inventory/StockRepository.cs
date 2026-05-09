@@ -349,4 +349,27 @@ WHERE LocationId = @ToLocationId
         var destination = await multi.ReadSingleAsync<Stock>();
         return (source, destination);
     }
+
+    public async Task<IReadOnlyList<Stock>> GetPositiveOnHandByWarehouseAsync(
+        Guid warehouseId, Guid? locationFilter, CancellationToken ct = default)
+    {
+        // Stock has LocationId, not WarehouseId. Resolve warehouse via
+        // Locations join. Filtering by IX_Stock_Location is fine because
+        // the warehouse-narrow predicate is on Locations (which has
+        // WarehouseId indexed via FK).
+        const string sql = @"
+SELECT s.Id, s.LocationId, s.ProductId, s.LotId, s.PalletId, s.OwnerId, s.UomId,
+       s.QuantityOnHand, s.QuantityAllocated, s.LastMovementAt,
+       s.CreatedAt, s.UpdatedAt, s.CreatedBy, s.UpdatedBy, s.Version
+FROM inventory.Stock s
+JOIN master.Locations loc ON loc.Id = s.LocationId
+WHERE loc.WarehouseId = @warehouseId
+  AND (@locationFilter IS NULL OR s.LocationId = @locationFilter)
+  AND s.QuantityOnHand > 0
+ORDER BY loc.Code, s.ProductId;";
+
+        var rows = await _connection.QueryAsync<Stock>(new CommandDefinition(
+            sql, new { warehouseId, locationFilter }, cancellationToken: ct));
+        return rows.AsList();
+    }
 }

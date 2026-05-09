@@ -1,0 +1,159 @@
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Cycle Counts";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Cycle Counts</p>
+        <div class="wms-breadcrumb">
+            <span>Operations</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span>Counts</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Cycle Counts</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <a asp-action="Create" class="wms-btn wms-btn-purple">
+            <i class="ti ti-plus" style="font-size: 14px;" aria-hidden="true"></i>
+            New count
+        </a>
+    </div>
+</div>
+
+<div class="wms-card" style="padding: 0;" x-data="cycleCountList()">
+    <div class="wms-filter-bar">
+        <div class="wms-filter-search">
+            <i class="ti ti-search wms-filter-search-icon" aria-hidden="true"></i>
+            <input type="text" class="wms-input"
+                   placeholder="Search by count number..."
+                   x-model.debounce.250ms="search"
+                   @@input="reload()" />
+        </div>
+
+        <div class="wmsp-chips" style="margin-left: 8px;">
+            <template x-for="s in statuses" :key="s.value">
+                <button type="button"
+                        class="wmsp-chip"
+                        :class="{ 'is-active': status === s.value }"
+                        @@click="status = s.value; reload()">
+                    <span x-text="s.label"></span>
+                    <span class="wmsp-chip-count" x-text="counts[s.value] ?? 0"></span>
+                </button>
+            </template>
+        </div>
+
+        <span style="margin-left: auto; font-size: 11px; color: var(--wms-text-secondary);" x-text="totalLabel()"></span>
+    </div>
+
+    <div style="overflow-x: auto;">
+        <table class="wms-table" style="width: 100%;">
+            <thead>
+                <tr>
+                    <th>Count #</th>
+                    <th>Warehouse</th>
+                    <th>Scope</th>
+                    <th>Status</th>
+                    <th style="text-align: right;">Lines</th>
+                    <th style="text-align: right;">Counted</th>
+                    <th style="text-align: right;">Variance</th>
+                    <th>Started</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="row in rows" :key="row.id">
+                    <tr style="cursor: pointer;" @@click="navigate(row.id)">
+                        <td><span class="mono" x-text="row.countNumber"></span></td>
+                        <td><span class="mono" x-text="row.warehouseCode"></span></td>
+                        <td>
+                            <span class="mono" style="font-size: 11px;" x-text="row.locationFilterCode"></span>
+                        </td>
+                        <td>
+                            <span class="wmsd-badge" :class="badgeClass(row.status)" x-text="row.statusLabel"></span>
+                        </td>
+                        <td style="text-align: right;" x-text="row.lineCount"></td>
+                        <td style="text-align: right;">
+                            <span x-text="`${row.countedLineCount} / ${row.lineCount}`"
+                                  :style="row.countedLineCount === row.lineCount && row.lineCount > 0 ? 'color:#0F6E56;font-weight:500' : ''"></span>
+                        </td>
+                        <td style="text-align: right;">
+                            <span x-text="row.varianceLineCount"
+                                  :style="row.varianceLineCount > 0 ? 'color:#854F0B;font-weight:500' : ''"></span>
+                        </td>
+                        <td>
+                            <span x-text="row.startedRelative"></span>
+                            <span style="font-size: 11px; color: var(--wms-text-secondary); display: block;" x-text="row.startedByName"></span>
+                        </td>
+                    </tr>
+                </template>
+                <tr x-show="!rows.length && !loading">
+                    <td colspan="8" style="padding: 36px; text-align: center; color: var(--wms-text-tertiary);">
+                        No cycle counts match the current filters.
+                    </td>
+                </tr>
+                <tr x-show="loading">
+                    <td colspan="8" style="padding: 24px; text-align: center; color: var(--wms-text-secondary);">
+                        Loading...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-top: 0.5px solid var(--wms-border); font-size: 12px;">
+        <span x-text="`Page ${page} of ${totalPages || 1}`"></span>
+        <div style="display: flex; gap: 6px;">
+            <button type="button" class="wms-btn" :disabled="page <= 1" @@click="page--; reload()">← Prev</button>
+            <button type="button" class="wms-btn" :disabled="page >= totalPages" @@click="page++; reload()">Next →</button>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function cycleCountList() {
+            return {
+                rows: [], total: 0, totalPages: 1, page: 1, pageSize: 20,
+                search: '', status: 'all', loading: false,
+                counts: { all: 0, counting: 0, review: 0, applied: 0, cancelled: 0 },
+                statuses: [
+                    { value: 'all',       label: 'All' },
+                    { value: 'counting',  label: 'Counting' },
+                    { value: 'review',    label: 'Review' },
+                    { value: 'applied',   label: 'Applied' },
+                    { value: 'cancelled', label: 'Cancelled' },
+                ],
+                async init() { await this.reload(); },
+                async reload() {
+                    this.loading = true;
+                    const url = new URL('/CycleCounts/Data', window.location.origin);
+                    url.searchParams.set('page', this.page);
+                    url.searchParams.set('pageSize', this.pageSize);
+                    if (this.search.trim()) url.searchParams.set('search', this.search.trim());
+                    if (this.status !== 'all') url.searchParams.set('status', this.status);
+                    try {
+                        const r = await fetch(url);
+                        const data = await r.json();
+                        this.rows = data.items;
+                        this.total = data.total;
+                        this.totalPages = data.totalPages;
+                        if (data.counts) this.counts = data.counts;
+                    } finally { this.loading = false; }
+                },
+                navigate(id) { window.location.href = `/CycleCounts/Detail/${id}`; },
+                totalLabel() {
+                    return this.total === 1 ? '1 count' : `${this.total} counts`;
+                },
+                badgeClass(status) {
+                    return {
+                        'counting':  's-warning',
+                        'review':    's-info',
+                        'applied':   's-success',
+                        'cancelled': 's-neutral',
+                    }[status] || 's-neutral';
+                },
+            };
+        }
+    </script>
+}

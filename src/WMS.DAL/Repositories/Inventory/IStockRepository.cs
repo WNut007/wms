@@ -59,4 +59,14 @@ public interface IStockRepository
         decimal quantity,
         StockMovementContext movementCtx,
         CancellationToken ct = default);
+
+    // Phase 12 — snapshot read for cycle-count session creation.
+    // Returns positive-OnHand rows whose Location belongs to the
+    // given warehouse. When locationFilter is set, narrows further
+    // to that single location. Sorted by Location.Code then
+    // ProductId for stable session ordering.
+    Task<IReadOnlyList<Stock>> GetPositiveOnHandByWarehouseAsync(
+        Guid warehouseId,
+        Guid? locationFilter,
+        CancellationToken ct = default);
 }

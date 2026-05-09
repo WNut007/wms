@@ -1,0 +1,146 @@
+@model WMS.Web.Models.Counts.CycleCountCreateViewModel
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "New cycle count";
+
+    var locationsJson = System.Text.Json.JsonSerializer.Serialize(
+        Model.Locations.Select(l => new { id = l.Id, code = l.Code, name = l.Name }));
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">New cycle count</p>
+        <div class="wms-breadcrumb">
+            <span>Operations</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span>Counts</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <a asp-action="Index">Cycle Counts</a>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">New</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <a asp-action="Index" class="wms-btn">
+            <i class="ti ti-arrow-left" aria-hidden="true"></i>
+            Cancel
+        </a>
+    </div>
+</div>
+
+<form asp-controller="CycleCounts" asp-action="Create" method="post"
+      x-data="cycleCreateForm({
+          warehouseId: '@(Model.WarehouseId == Guid.Empty ? "" : Model.WarehouseId.ToString())',
+          initialLocations: @Html.Raw(locationsJson)
+      })">
+    @Html.AntiForgeryToken()
+
+    @if (ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div style="padding:10px 14px;margin-bottom:12px;background:#FCEBEB;color:#A32D2D;border-radius:8px;font-size:13px;">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;">
+        <div class="wms-card" style="padding:18px;">
+            <h3 style="margin:0 0 4px;font-size:14px;font-weight:500;">
+                <i class="ti ti-list-check" style="color:#534AB7;margin-right:6px;"></i>
+                Count scope
+            </h3>
+            <p style="margin:0 0 16px;font-size:12px;color:var(--wms-text-secondary);">
+                The count session will snapshot all positive-on-hand stock at the chosen
+                warehouse (and optionally narrowed to one location). Operators count physical;
+                differences become Stock + Movement Log entries on Apply.
+            </p>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div>
+                    <label asp-for="WarehouseId" style="display:block;font-size:12px;font-weight:500;margin-bottom:4px;">Warehouse *</label>
+                    <select asp-for="WarehouseId" class="wms-input" required
+                            @@change="onWarehouseChanged($event.target.value)">
+                        <option value="">— Select —</option>
+                        @foreach (var w in Model.Warehouses)
+                        {
+                            <option value="@w.Id">@w.Code · @w.Name</option>
+                        }
+                    </select>
+                    <span asp-validation-for="WarehouseId" style="color:#A32D2D;font-size:11px;"></span>
+                </div>
+
+                <div>
+                    <label asp-for="LocationFilter" style="display:block;font-size:12px;font-weight:500;margin-bottom:4px;">
+                        Location filter <span style="font-weight:400;color:var(--wms-text-secondary);">(optional)</span>
+                    </label>
+                    <select asp-for="LocationFilter" class="wms-input"
+                            :disabled="!warehouseId">
+                        <option value="">— Whole warehouse —</option>
+                        <template x-for="loc in locations" :key="loc.id">
+                            <option :value="loc.id" x-text="loc.code + ' · ' + loc.name"></option>
+                        </template>
+                    </select>
+                </div>
+
+                <div style="grid-column:1 / -1;">
+                    <label asp-for="Notes" style="display:block;font-size:12px;font-weight:500;margin-bottom:4px;">Notes</label>
+                    <textarea asp-for="Notes" class="wms-input" rows="2" maxlength="1000"
+                              placeholder="Why this count? (e.g. 'Q2 quarterly cycle')"></textarea>
+                    <span asp-validation-for="Notes" style="color:#A32D2D;font-size:11px;"></span>
+                </div>
+            </div>
+        </div>
+
+        <aside style="display:flex;flex-direction:column;gap:12px;">
+            <div class="wms-card" style="padding:16px;">
+                <p style="margin:0 0 12px;font-size:12px;color:var(--wms-text-secondary);">
+                    On Create, the snapshot is generated and the session lands in
+                    <strong>Counting</strong>. You enter the physical counts on the next page.
+                </p>
+                <button type="submit" class="wms-btn wms-btn-purple" style="width:100%;">
+                    <i class="ti ti-camera" style="margin-right:6px;"></i>
+                    Create + snapshot
+                </button>
+                <a asp-action="Index" class="wms-btn" style="width:100%;display:block;text-align:center;margin-top:8px;">
+                    Cancel
+                </a>
+            </div>
+
+            <div class="wms-card" style="padding:16px;">
+                <p style="font-size:11px;color:var(--wms-text-secondary);margin:0 0 6px;text-transform:uppercase;letter-spacing:0.4px;">
+                    What's counted
+                </p>
+                <ul style="font-size:12px;color:var(--wms-text-secondary);padding-left:18px;margin:0;">
+                    <li>Only positive-on-hand stock rows</li>
+                    <li>Per (Location, Product, Lot, Pallet, Owner, UoM) tuple</li>
+                    <li>Zero rows skipped — adjust manually if found</li>
+                </ul>
+            </div>
+        </aside>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        function cycleCreateForm(opts) {
+            return {
+                warehouseId: opts.warehouseId,
+                locations: opts.initialLocations || [],
+                async onWarehouseChanged(newId) {
+                    this.warehouseId = newId;
+                    if (!newId) { this.locations = []; return; }
+                    try {
+                        const r = await fetch(`/CycleCounts/Locations/${newId}`);
+                        this.locations = await r.json();
+                    } catch (e) {
+                        console.error(e);
+                        this.locations = [];
+                    }
+                },
+            };
+        }
+    </script>
+}

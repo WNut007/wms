@@ -1,0 +1,154 @@
+@*
+    Phase 12 — Submit / Apply / Cancel modals for CycleCount Detail.
+    Same CSS-only :target activation pattern as Phase 10B + 11A.
+    Three independent overlays:
+      #submit-modal  — Counting → Review (no payload)
+      #apply-modal   — Review → Applied (no payload, gated by counter≠approver)
+      #cancel-modal  — Counting/Review → Cancelled (reason required)
+
+    Rendered conditionally by _DetailLayout when the corresponding
+    ViewBag flag is true.
+*@
+
+<style>
+    .wms-cyc-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        z-index: 9999;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+    }
+    .wms-cyc-overlay:target { display: flex; }
+
+    .wms-cyc-modal {
+        background: #fff;
+        border-radius: 12px;
+        max-width: 460px;
+        width: 100%;
+        padding: 24px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+    }
+    .wms-cyc-modal h2 {
+        margin: 0 0 6px;
+        font-size: 18px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .wms-cyc-modal h2.is-info    { color: #0C447C; }
+    .wms-cyc-modal h2.is-success { color: #0F6E56; }
+    .wms-cyc-modal h2.is-danger  { color: #A32D2D; }
+    .wms-cyc-modal p.lead {
+        margin: 0 0 16px;
+        font-size: 13px;
+        color: var(--wmsd-text-secondary, #6B7280);
+    }
+    .wms-cyc-modal label {
+        display: block; margin: 0 0 4px;
+        font-size: 12px; font-weight: 500;
+    }
+    .wms-cyc-modal textarea {
+        width: 100%; min-height: 84px; padding: 8px 10px;
+        font-size: 13px; font-family: inherit;
+        border: 1px solid #D1D5DB; border-radius: 6px;
+        resize: vertical; box-sizing: border-box;
+    }
+    .wms-cyc-modal textarea:focus {
+        outline: none; border-color: #534AB7;
+        box-shadow: 0 0 0 3px rgba(83, 74, 183, 0.15);
+    }
+    .wms-cyc-actions {
+        display: flex; justify-content: flex-end; gap: 8px;
+        margin-top: 16px;
+    }
+    .wms-cyc-btn {
+        padding: 8px 16px; font-size: 13px; font-weight: 500;
+        border-radius: 6px; border: 0.5px solid #D1D5DB;
+        background: #fff; color: #374151;
+        cursor: pointer; text-decoration: none; line-height: 1;
+    }
+    .wms-cyc-btn:hover { background: #F3F4F6; }
+    .wms-cyc-btn.is-info    { background: #0C447C; border-color: #0C447C; color: #fff; }
+    .wms-cyc-btn.is-info:hover    { background: #0A3760; }
+    .wms-cyc-btn.is-success { background: #0F6E56; border-color: #0F6E56; color: #fff; }
+    .wms-cyc-btn.is-success:hover { background: #0B5A47; }
+    .wms-cyc-btn.is-danger  { background: #A32D2D; border-color: #A32D2D; color: #fff; }
+    .wms-cyc-btn.is-danger:hover  { background: #8B2424; }
+</style>
+
+@if (ViewBag.IsCounting is true)
+{
+    <div id="submit-modal" class="wms-cyc-overlay">
+        <div class="wms-cyc-modal" role="dialog">
+            <h2 class="is-info">
+                <i class="ti ti-check"></i> Submit for review
+            </h2>
+            <p class="lead">
+                The session moves to <strong>Review</strong>. You won't be able to edit counts
+                after this. Another user (not you) approves the apply.
+            </p>
+            <form asp-controller="CycleCounts" asp-action="Submit"
+                  asp-route-id="@ViewBag.HeaderId" method="post">
+                @Html.AntiForgeryToken()
+                <div class="wms-cyc-actions">
+                    <a href="#" class="wms-cyc-btn">Cancel</a>
+                    <button type="submit" class="wms-cyc-btn is-info">Confirm submit</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
+@if (ViewBag.CanApply is true)
+{
+    <div id="apply-modal" class="wms-cyc-overlay">
+        <div class="wms-cyc-modal" role="dialog">
+            <h2 class="is-success">
+                <i class="ti ti-circle-check"></i> Approve & apply
+            </h2>
+            <p class="lead">
+                Counted lines with non-zero variance write to Stock + Movement Log
+                (MovementType=Cycle). Zero-variance lines are verified-as-correct.
+                Cannot be undone (a new cycle count is the path forward to revert).
+            </p>
+            <form asp-controller="CycleCounts" asp-action="Apply"
+                  asp-route-id="@ViewBag.HeaderId" method="post">
+                @Html.AntiForgeryToken()
+                <div class="wms-cyc-actions">
+                    <a href="#" class="wms-cyc-btn">Cancel</a>
+                    <button type="submit" class="wms-cyc-btn is-success">Confirm apply</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
+@if (ViewBag.CanCancel is true)
+{
+    <div id="cancel-modal" class="wms-cyc-overlay">
+        <div class="wms-cyc-modal" role="dialog">
+            <h2 class="is-danger">
+                <i class="ti ti-x"></i> Cancel cycle count
+            </h2>
+            <p class="lead">
+                The session is terminated. Stock is unchanged. Reason saved for audit.
+            </p>
+            <form asp-controller="CycleCounts" asp-action="Cancel"
+                  asp-route-id="@ViewBag.HeaderId" method="post">
+                @Html.AntiForgeryToken()
+                <label for="cyc-cancel-reason">Reason (required, 3–500 chars)</label>
+                <textarea id="cyc-cancel-reason" name="Reason"
+                          required minlength="3" maxlength="500"
+                          placeholder="e.g. count abandoned — physical recount needed"></textarea>
+                <div class="wms-cyc-actions">
+                    <a href="#" class="wms-cyc-btn">Keep session</a>
+                    <button type="submit" class="wms-cyc-btn is-danger">Confirm cancellation</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}

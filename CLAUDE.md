@@ -317,11 +317,44 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Day 10 · Phase 10A + 10B + 11A shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments`
-**Current Focus**: Phase 12 direction TBD — Outbound MVP (sales orders → pick) most likely candidate now that inbound + inventory ops are solid
-**Blockers**: none — migrations 20260510_008 + 20260510_009 already applied to dev tenant
+**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts`
+**Current Focus**: Phase 13 direction TBD — Outbound MVP (sales orders → pick → pack) most likely candidate now that inventory-management surfaces (Adjustment + Cycle Count) are complete
+**Blockers**: none — migrations 20260510_008 / _009 / _010 / _011 / _012 already applied to dev tenant
 
 Update this section weekly during standups.
+
+### Day 10 — Phase 12 (Cycle Count Workflow — counts.* domain)
+
+**Branch**: `feat/cycle-counts` → merged to `main` · **Tag**: `v1.2.0-cycle-counts` · **New domain**: `counts` schema
+
+Periodic stock reconciliation — the multi-line complement to Phase 11A's single-line manual Adjustment. Distinct table family per ADR-013 ("Don't use Adjustment for Cycle Count results").
+
+**Schema** (3 migrations):
+- `20260510_010` — `counts` schema (CREATE SCHEMA IF NOT EXISTS).
+- `20260510_011` — `counts.CycleCounts` header. 4-state machine (`Counting | Review | Applied | Cancelled`); `LocationFilter` nullable (null = whole-warehouse scope); per-state audit trio (`StartedBy/At` always set; `CountedBy/At`, `ReviewedBy/At` + `AppliedAt`, `CancelledBy/At` + `CancelReason`); `CK_CycleCounts_AuditMatchesStatus` invariant per status. Indexes: per-warehouse + per-status queue.
+- `20260510_012` — `counts.CycleCountLines` snapshot. Each line carries StockId + 6-tuple denormalized + ExpectedQuantity (snapshot) + nullable CountedQuantity + LineStatus (`Pending | Counted | Skipped`). 4 CHECK constraints: line-status enum, expected-qty non-negative, counted-qty non-negative, status-requires-quantity invariant. CASCADE delete on header→lines.
+
+**Service** (`ICycleCountService`):
+- `CreateAsync` — calls new `IStockRepository.GetPositiveOnHandByWarehouseAsync(warehouseId, locationFilter?)` to snapshot positive-OnHand stock at scope. Empty snapshot throws (no point counting nothing). Assigns `CYC-YYYYMMDD-NNNN`. Lines persist with `CountedQuantity=NULL` + `LineStatus='Pending'`.
+- `SaveCountedQuantitiesAsync` — bulk per-line update of `CountedQuantity` + `LineStatus` + `Notes`. Validates per-update: status-quantity invariant (Pending forbids qty; Counted requires qty), enum membership, non-negative qty. Allowed only when session is in `Counting` state. Atomic per call — all updates land or none.
+- `SubmitForReviewAsync` — `Counting → Review`. Records `CountedBy/At` on header. Idempotent.
+- `ApproveAndApplyAsync` — TransactionScope-wrapped (Phase 10B/11A pattern). Per-line apply policy: Counted lines with non-zero variance → `IStockRepository.UpsertOnHandAsync(key, variance, ctx)` with `MovementType=Cycle` + `ReferenceType='CycleCountLine'` + `ReferenceId=line.Id` + Notes carrying count number; Counted lines with zero variance → no Stock write (verified-as-correct); Pending/Skipped lines → ignored. Repo `SetAppliedAsync` flips status. CK_Stock_OnHand_NonNegative throws if a counted-down delta would underflow — TX rolls back. Separation of duties: `counter ≠ approver`.
+- `CancelAsync` — `Counting OR Review → Cancelled` with required reason. Cannot cancel Applied. Idempotent.
+
+**UI** (4 surfaces):
+- `/CycleCounts` — Alpine list with chip counts (`All / Counting / Review / Applied / Cancelled`). 8-col table includes per-session line counts + counted progress + variance count for at-a-glance review.
+- `/CycleCounts/Create` — single-page form. Cascading Warehouse → Location filter (AJAX `GET /CycleCounts/Locations/{whId}`); optional Notes. Submit creates the snapshot and redirects to Detail.
+- `/CycleCounts/Detail/{id}` — `_DetailLayout` with custom Lines tab. **Inline editable count form when Status=Counting** (Alpine reactive table with auto-status-flip on quantity entry — clearing the field reverts to Pending; entering a number flips to Counted); **read-only variance table when Status≠Counting** (variance column color-coded: green=zero, blue=positive, red=negative; status badge per line). Quick Actions state-gated: Submit (Counting only), Apply (Review only + counter≠user), Cancel (any non-terminal).
+- Decision modals — `_CycleCountDecisionModals` partial reuses Phase 10B/11A CSS-only `:target` pattern. Submit + Apply are no-payload confirms; Cancel requires reason.
+- Sidebar — Counts module (existing `ti-checklist` icon) now expands to Cycle Counts submenu. `COUNTS.CYCLE_COUNTS` permission already seeded by migration 042.
+
+**TempData generalization**: `_DetailLayout` banner block now coalesces three sets of TempData keys (`Cancel*`, `Adjustment*`, `CycleCount*`) into a single render. Future "POST then redirect to Detail" surfaces just need to write to either set.
+
+**Stock repo addition**: new `IStockRepository.GetPositiveOnHandByWarehouseAsync(warehouseId, locationFilter?, ct)` — JOIN through Locations to filter by warehouse, narrow to positive OnHand only, sorted by Location.Code + ProductId for stable session ordering.
+
+**Tests**: +37 net (17 service unit + 20 controller integration including 4 status-mapper Theory cases). Service-side tests cover snapshot creation (empty/happy), per-line save validation (4 paths), state transitions, separation-of-duties on Apply, and the per-line variance behavior (write only when Counted + non-zero variance; verified-as-correct when zero variance). Controller covers all 6 endpoints + state-driven Quick Action gating. Test posture: **460 passing** (was 423). 136 unit + 324 integration + 5 skipped.
+
+**Out of scope** (logged as TD-032): mobile PWA scan-driven counting, multi-counter coordination, per-line approve/reject, print count sheet, scheduled / recurring counts, variance-threshold gating. Each independent.
 
 ### Day 10 — Phase 11A (Stock Adjustment Workflow — ADR-013)
 
@@ -1284,5 +1317,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-10 (Day 10 — Phase 11A Adjustment Workflow; v1.1.0-adjustments)
-**Version**: 1.20
+**Last updated**: 2026-05-10 (Day 10 — Phase 12 Cycle Count Workflow; v1.2.0-cycle-counts)
+**Version**: 1.21

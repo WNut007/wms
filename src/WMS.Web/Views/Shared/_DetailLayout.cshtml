@@ -30,9 +30,11 @@
        module. *@
     @{
         var okMsg  = (TempData["CancelMessage"]     as string)
-                  ?? (TempData["AdjustmentMessage"] as string);
+                  ?? (TempData["AdjustmentMessage"] as string)
+                  ?? (TempData["CycleCountMessage"] as string);
         var errMsg = (TempData["CancelError"]       as string)
-                  ?? (TempData["AdjustmentError"]   as string);
+                  ?? (TempData["AdjustmentError"]   as string)
+                  ?? (TempData["CycleCountError"]   as string);
     }
     @if (!string.IsNullOrEmpty(okMsg))
     {
@@ -240,6 +242,14 @@
     @if (ViewBag.HeaderId is Guid && ViewBag.CanDecide is true)
     {
         @await Html.PartialAsync("Detail/_AdjustmentDecisionModals")
+    }
+    @* Phase 12 — Submit / Apply / Cancel modals for CycleCount Detail.
+       Each modal renders only when its corresponding ViewBag flag is
+       true (IsCounting / CanApply / CanCancel) so unauthorized users
+       don't see actionable affordances. *@
+    @if (ViewBag.HeaderId is Guid && Model.EntityType == "CycleCount")
+    {
+        @await Html.PartialAsync("Detail/_CycleCountDecisionModals")
     }
 </div>
 
