@@ -103,7 +103,7 @@ public partial class PurchaseOrdersController : Controller
                 expectedDate      = p.ExpectedDate?.ToString("yyyy-MM-dd"),
                 expectedRelative  = p.ExpectedDate is null
                     ? "—"
-                    : RelativeTime.Format(p.ExpectedDate.Value.ToDateTime(TimeOnly.MinValue)),
+                    : RelativeTime.Format(p.ExpectedDate.Value),
                 status            = PurchaseOrderStatusMapper.ToWire(p.Status),
                 statusLabel       = p.Status,
                 lineCount         = p.LineCount,

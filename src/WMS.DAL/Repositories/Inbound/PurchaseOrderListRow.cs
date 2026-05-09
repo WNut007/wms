@@ -15,7 +15,14 @@ public sealed record PurchaseOrderListRow(
     string OwnerName,
     Guid WarehouseId,
     string WarehouseCode,
-    DateOnly? ExpectedDate,
+    // DateTime?, not DateOnly?, even though the entity uses DateOnly.
+    // Dapper binds positional record ctors against the SQL column type
+    // exactly; SQL DATE materializes as DateTime here, not DateOnly
+    // (Dapper 2.1.72 has no built-in DateOnly handler). Records'
+    // ctor binding is stricter than the class+setter pattern used by
+    // PurchaseOrder entity (where Dapper does per-property type
+    // conversion, accepting SQL DATE → DateOnly setter cleanly).
+    DateTime? ExpectedDate,
     string Status,
     int LineCount,
     decimal TotalExpectedQty,
