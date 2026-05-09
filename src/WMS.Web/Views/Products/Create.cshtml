@@ -4,36 +4,87 @@
 }
 
 @*
-    Phase 7D Product Create — 2-step Alpine stepper.
+    Phase 8 polish — V1 horizontal Section tabs replacing the old
+    Alpine vertical stepper. State machine:
 
-    Stepper state: x-data="{ step: 1 }" on the form. Tabler-style steps
-    nav at the top reflects current step. Hidden sections use Alpine
-    x-show. Submit is only meaningful on the final step (UX hint via
-    button placement); the form posts the full VM regardless of step
-    visibility, so client-side ModelState validation runs across all
-    fields.
+      x-data: { step: 1, totalSteps: 2, touched: { ... }, errors: { ... } }
+        - step: which pane is visible
+        - touched: per-field "user has typed in this" tracker (set by
+          @input listener); fed by the wmsfStatusDot helper to color
+          the per-tab status dots in T7.
+        - errors: server-rendered ModelState errors keyed by section,
+          used to flip a tab's dot to red on first paint after a
+          failed POST.
+
+    Status dots use the wmsf-dot class with is-progress / is-complete /
+    is-error modifiers applied by Alpine.
 *@
 
-<div class="wms-page-header">
-    <div>
-        <p class="wms-page-title">New product</p>
-        <div class="wms-breadcrumb">
-            <a asp-controller="Home" asp-action="Index">Master Data</a>
-            <span class="wms-breadcrumb-sep">/</span>
-            <a asp-controller="Products" asp-action="Index">Products</a>
-            <span class="wms-breadcrumb-sep">/</span>
-            <span class="wms-breadcrumb-current">New</span>
-        </div>
-    </div>
-</div>
+@{
+    var hasStep1Error = ViewData.ModelState["Code"]?.Errors.Count > 0
+        || ViewData.ModelState["Name"]?.Errors.Count > 0
+        || ViewData.ModelState["Brand"]?.Errors.Count > 0;
+    var hasStep2Error = ViewData.ModelState["CategoryId"]?.Errors.Count > 0
+        || ViewData.ModelState["BaseUomId"]?.Errors.Count > 0
+        || ViewData.ModelState["TrackingMethod"]?.Errors.Count > 0
+        || ViewData.ModelState["Status"]?.Errors.Count > 0
+        || ViewData.ModelState["VelocityClass"]?.Errors.Count > 0;
+    // Land on the failing step so the user sees their error without
+    // navigating.
+    var initialStep = hasStep1Error ? 1 : (hasStep2Error ? 2 : 1);
+}
 
 <form asp-controller="Products" asp-action="Create" method="post"
-      x-data="{ step: 1, totalSteps: 2 }" autocomplete="off">
+      class="wmsf-page"
+      autocomplete="off"
+      x-data="wmsfFormState({
+          totalSteps: 2,
+          initialStep: @initialStep,
+          serverErrors: {
+              1: @(hasStep1Error ? "true" : "false"),
+              2: @(hasStep2Error ? "true" : "false")
+          },
+          required: {
+              1: ['Code', 'Name'],
+              2: ['CategoryId', 'BaseUomId', 'TrackingMethod', 'Status']
+          }
+      })">
 
-    @* Form-level errors (e.g. SqlException 547 catch-all) *@
+    <nav class="wmsf-breadcrumb" aria-label="Breadcrumb">
+        <a asp-controller="Home" asp-action="Index">Master Data</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <a asp-controller="Products" asp-action="Index">Products</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <span class="current">New product</span>
+    </nav>
+
+    <header class="wmsf-header">
+        <div class="wmsf-header-title">
+            <div class="wmsf-header-icon" aria-hidden="true">
+                <i class="ti ti-package"></i>
+            </div>
+            <div class="wmsf-header-text">
+                <h1>New product</h1>
+                <p>Create a new SKU and classify it for stock + allocation.</p>
+            </div>
+        </div>
+        <div class="wmsf-progress">
+            <span class="wmsf-progress-label">Progress</span>
+            <div class="wmsf-progress-row">
+                <div class="wmsf-progress-bar"
+                     :style="`--wmsf-progress-pct: ${(step / 2) * 100}%`"
+                     role="progressbar"
+                     aria-label="Form progress"></div>
+                <span class="wmsf-progress-count">
+                    <span x-text="step"></span> / 2
+                </span>
+            </div>
+        </div>
+    </header>
+
     @if (ViewData.ModelState[""]?.Errors.Count > 0)
     {
-        <div class="alert alert-danger mb-3" role="alert">
+        <div class="wmsf-form-error" role="alert">
             @foreach (var err in ViewData.ModelState[""]!.Errors)
             {
                 <div>@err.ErrorMessage</div>
@@ -41,125 +92,204 @@
         </div>
     }
 
-    @* Stepper nav *@
-    <ul class="steps steps-counter mb-4">
-        <li class="step-item"
-            :class="{ 'active': step >= 1 }"
-            @@click="step = 1"
-            style="cursor: pointer;">Identity</li>
-        <li class="step-item"
-            :class="{ 'active': step >= 2 }"
-            @@click="step = 2"
-            style="cursor: pointer;">Classification</li>
+    <ul class="wmsf-tabs" role="tablist">
+        <li>
+            <button type="button"
+                    class="wmsf-tab"
+                    :class="{ 'is-active': step === 1 }"
+                    @@click="goTo(1)"
+                    role="tab"
+                    :aria-selected="step === 1">
+                <span class="wmsf-tab-num">1</span>
+                <span class="wmsf-tab-text">
+                    <span class="wmsf-tab-eyebrow">Section</span>
+                    <span class="wmsf-tab-name">Identity</span>
+                </span>
+                <span class="wmsf-dot"
+                      :class="dotClass(1)"
+                      aria-hidden="true"></span>
+            </button>
+        </li>
+        <li>
+            <button type="button"
+                    class="wmsf-tab"
+                    :class="{ 'is-active': step === 2 }"
+                    @@click="goTo(2)"
+                    role="tab"
+                    :aria-selected="step === 2">
+                <span class="wmsf-tab-num">2</span>
+                <span class="wmsf-tab-text">
+                    <span class="wmsf-tab-eyebrow">Section</span>
+                    <span class="wmsf-tab-name">Classification</span>
+                </span>
+                <span class="wmsf-dot"
+                      :class="dotClass(2)"
+                      aria-hidden="true"></span>
+            </button>
+        </li>
     </ul>
 
-    @* Step 1: Identity *@
-    <div class="wms-card mb-3" x-show="step === 1" x-cloak>
-        <h6 class="mb-3">Identity</h6>
-
-        <div class="mb-3">
-            <label asp-for="Code" class="form-label"></label>
-            <input asp-for="Code" class="form-control" autofocus />
-            <span asp-validation-for="Code" class="text-danger small"></span>
+    @* === Pane 1 — Identity === *@
+    <section class="wmsf-pane" x-show="step === 1" x-cloak role="tabpanel">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Section 01</p>
+                <h2>Identity</h2>
+                <p class="wmsf-pane-desc">Code, name, and brand for the product. The SKU is permanent — pick something stable.</p>
+            </div>
+            <span class="wmsf-required-badge"
+                  :class="{ 'is-empty': sectionComplete(1) }"
+                  x-text="sectionRequiredHint(1)"></span>
         </div>
 
-        <div class="mb-3">
-            <label asp-for="Name" class="form-label"></label>
-            <input asp-for="Name" class="form-control" />
-            <span asp-validation-for="Name" class="text-danger small"></span>
+        <div class="wmsf-grid">
+            <div class="wmsf-field">
+                <label asp-for="Code" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Code) <span class="req">*</span>
+                </label>
+                <input asp-for="Code" class="wmsf-input"
+                       autofocus
+                       @@input="onTouch('Code')" />
+                <span asp-validation-for="Code" class="wmsf-error"></span>
+                <span class="wmsf-helper">Tenant-wide unique. Up to 50 characters; can include vendor prefixes.</span>
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="Name" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Name) <span class="req">*</span>
+                </label>
+                <input asp-for="Name" class="wmsf-input" @@input="onTouch('Name')" />
+                <span asp-validation-for="Name" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="Brand" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Brand)
+                </label>
+                <input asp-for="Brand" class="wmsf-input" @@input="onTouch('Brand')" />
+                <span asp-validation-for="Brand" class="wmsf-error"></span>
+                <span class="wmsf-helper">Optional. Leave blank for private-label / generic SKUs.</span>
+            </div>
+        </div>
+    </section>
+
+    @* === Pane 2 — Classification === *@
+    <section class="wmsf-pane" x-show="step === 2" x-cloak role="tabpanel">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Section 02</p>
+                <h2>Classification</h2>
+                <p class="wmsf-pane-desc">How this product behaves in stock allocation, lot tracking, and lifecycle.</p>
+            </div>
+            <span class="wmsf-required-badge"
+                  :class="{ 'is-empty': sectionComplete(2) }"
+                  x-text="sectionRequiredHint(2)"></span>
         </div>
 
-        <div class="mb-3">
-            <label asp-for="Brand" class="form-label"></label>
-            <input asp-for="Brand" class="form-control" />
-            <span asp-validation-for="Brand" class="text-danger small"></span>
-        </div>
-
-        <div class="d-flex justify-content-end mt-3">
-            <button type="button" class="btn btn-primary"
-                    @@click="step = 2">Next →</button>
-        </div>
-    </div>
-
-    @* Step 2: Classification *@
-    <div class="wms-card mb-3" x-show="step === 2" x-cloak>
-        <h6 class="mb-3">Classification</h6>
-
-        <div class="row g-3">
-            <div class="col-md-6">
-                <label asp-for="CategoryId" class="form-label"></label>
-                <select asp-for="CategoryId" class="form-select">
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field">
+                <label asp-for="CategoryId" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.CategoryId) <span class="req">*</span>
+                </label>
+                <select asp-for="CategoryId" class="wmsf-select" @@change="onTouch('CategoryId')">
                     <option value="">— Select category —</option>
                     @foreach (var c in Model.Categories)
                     {
                         <option value="@c.Id">@c.Code · @c.Name</option>
                     }
                 </select>
-                <span asp-validation-for="CategoryId" class="text-danger small"></span>
+                <span asp-validation-for="CategoryId" class="wmsf-error"></span>
             </div>
 
-            <div class="col-md-6">
-                <label asp-for="BaseUomId" class="form-label"></label>
-                <select asp-for="BaseUomId" class="form-select">
+            <div class="wmsf-field">
+                <label asp-for="BaseUomId" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.BaseUomId) <span class="req">*</span>
+                </label>
+                <select asp-for="BaseUomId" class="wmsf-select" @@change="onTouch('BaseUomId')">
                     <option value="">— Select unit —</option>
                     @foreach (var u in Model.BaseUoms)
                     {
                         <option value="@u.Id">@u.Code · @u.Name</option>
                     }
                 </select>
-                <span asp-validation-for="BaseUomId" class="text-danger small"></span>
+                <span asp-validation-for="BaseUomId" class="wmsf-error"></span>
+                <span class="wmsf-helper">Stock quantities settle in this unit.</span>
             </div>
 
-            <div class="col-md-6">
-                <label asp-for="TrackingMethod" class="form-label"></label>
-                <select asp-for="TrackingMethod" class="form-select">
+            <div class="wmsf-field">
+                <label asp-for="TrackingMethod" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.TrackingMethod) <span class="req">*</span>
+                </label>
+                <select asp-for="TrackingMethod" class="wmsf-select" @@change="onTouch('TrackingMethod')">
                     @foreach (var tm in WMS.Web.Models.Master.ProductCreateViewModel.AllTrackingMethods)
                     {
                         <option value="@tm">@tm</option>
                     }
                 </select>
-                <span asp-validation-for="TrackingMethod" class="text-danger small"></span>
+                <span asp-validation-for="TrackingMethod" class="wmsf-error"></span>
+                <span class="wmsf-helper">Most products = None. Enable Lot for fresh goods, Lot+Serial for high-value.</span>
             </div>
 
-            <div class="col-md-6">
-                <label asp-for="Status" class="form-label"></label>
-                <select asp-for="Status" class="form-select">
+            <div class="wmsf-field">
+                <label asp-for="Status" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Status) <span class="req">*</span>
+                </label>
+                <select asp-for="Status" class="wmsf-select" @@change="onTouch('Status')">
                     @foreach (var s in WMS.Web.Models.Master.ProductCreateViewModel.AllStatuses)
                     {
                         <option value="@s">@s</option>
                     }
                 </select>
-                <span asp-validation-for="Status" class="text-danger small"></span>
+                <span asp-validation-for="Status" class="wmsf-error"></span>
             </div>
 
-            <div class="col-md-6">
-                <label asp-for="VelocityClass" class="form-label"></label>
-                <input asp-for="VelocityClass" class="form-control" placeholder="A / B / C" />
-                <span asp-validation-for="VelocityClass" class="text-danger small"></span>
+            <div class="wmsf-field">
+                <label asp-for="VelocityClass" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.VelocityClass)
+                </label>
+                <input asp-for="VelocityClass" class="wmsf-input"
+                       placeholder="A / B / C"
+                       @@input="onTouch('VelocityClass')" />
+                <span asp-validation-for="VelocityClass" class="wmsf-error"></span>
+                <span class="wmsf-helper">Optional ABC classification. Leave blank for new SKUs.</span>
             </div>
 
-            <div class="col-md-6">
-                <div class="form-check mt-4 pt-2">
-                    <input asp-for="UseCatchWeight" class="form-check-input" />
-                    <label asp-for="UseCatchWeight" class="form-check-label"></label>
-                </div>
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Catch-weight</label>
+                <label class="wmsf-check-item">
+                    <input asp-for="UseCatchWeight" type="checkbox" />
+                    Weigh at pick (fresh-foods exception)
+                </label>
             </div>
         </div>
+    </section>
 
-        <div class="d-flex justify-content-between mt-4">
-            <button type="button" class="btn btn-outline-secondary"
-                    @@click="step = 1">← Back</button>
-            <button type="submit" class="btn btn-primary">
-                <i class="ti ti-check me-1"></i> Create product
-            </button>
-        </div>
+    @* === Sticky action bar === *@
+    <div class="wmsf-actions">
+        <a asp-controller="Products" asp-action="Index" class="wmsf-btn">
+            <i class="ti ti-x" aria-hidden="true"></i> Cancel
+        </a>
+        <span class="wmsf-actions-info"></span>
+        <button type="button" class="wmsf-btn"
+                @@click="prev()"
+                :disabled="step === 1">
+            <i class="ti ti-arrow-left" aria-hidden="true"></i> Back
+        </button>
+        <button type="button" class="wmsf-btn wmsf-btn-primary"
+                x-show="step < totalSteps"
+                @@click="next()">
+            Continue <i class="ti ti-arrow-right" aria-hidden="true"></i>
+        </button>
+        <button type="submit" class="wmsf-btn wmsf-btn-primary"
+                x-show="step === totalSteps">
+            <i class="ti ti-check" aria-hidden="true"></i> Create product
+        </button>
     </div>
 </form>
 
-<style>
-    [x-cloak] { display: none !important; }
-</style>
+<style>[x-cloak] { display: none !important; }</style>
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
+    <script src="~/js/wmsf-form-state.js" asp-append-version="true"></script>
 }
