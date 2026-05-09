@@ -36,12 +36,38 @@
 
 @foreach (var module in operations)
 {
-    <a href="@module.Url"
-       class="wms-sidebar-item @(IsActive(module.Code) ? "active" : "")"
-       title="@module.DisplayName">
-        <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
-        <span class="wms-sidebar-item-text">@module.DisplayName</span>
-    </a>
+    if (string.Equals(module.Code, "INBOUND", StringComparison.OrdinalIgnoreCase))
+    {
+        // Phase 9A — Inbound expands to Purchase Orders submenu (and
+        // future GR + ASN entries when 9B + 9C land).
+        var inboundActive = IsActive("INBOUND") || IsActive("PurchaseOrders") || IsActive("Receive");
+        <a href="@Url.Action("Index", "PurchaseOrders")"
+           class="wms-sidebar-item @(inboundActive ? "active" : "")"
+           title="@module.DisplayName">
+            <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
+            <span class="wms-sidebar-item-text">@module.DisplayName</span>
+            <i class="ti ti-chevron-down wms-sidebar-item-chevron"></i>
+        </a>
+        <div class="wms-sidebar-submenu">
+            <a href="@Url.Action("Index", "PurchaseOrders")"
+               class="wms-sidebar-item @(IsActive("PurchaseOrders") ? "active" : "")">
+                <span class="wms-sidebar-item-text">Purchase Orders</span>
+            </a>
+            <a href="@Url.Action("Index", "Receive")"
+               class="wms-sidebar-item @(IsActive("Receive") ? "active" : "")">
+                <span class="wms-sidebar-item-text">Receive (mobile)</span>
+            </a>
+        </div>
+    }
+    else
+    {
+        <a href="@module.Url"
+           class="wms-sidebar-item @(IsActive(module.Code) ? "active" : "")"
+           title="@module.DisplayName">
+            <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
+            <span class="wms-sidebar-item-text">@module.DisplayName</span>
+        </a>
+    }
 }
 
 @if (system.Count > 0)
