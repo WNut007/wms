@@ -41,4 +41,15 @@ public interface IWarehouseRepository
     // alongside the entity fields the Detail page needs, so the page
     // renders from a single round-trip without a separate count query.
     Task<WarehouseListRow?> GetListRowByCodeAsync(string code, CancellationToken ct = default);
+
+    // Inserts a new warehouse. Caller may pre-assign Id; if Empty, repo
+    // generates one. Throws SqlException 2627 on duplicate Code.
+    Task<Guid> InsertAsync(Warehouse entity, Guid? userId, CancellationToken ct = default);
+
+    // Updates a warehouse. Code NOT in SET — read-only on Edit (FK
+    // orphan risk: Code appears in inventory.Stock paths, location
+    // displays, audit trails). IsActive IS updatable from the Edit
+    // form (no separate "archive" button per the brief — toggle the
+    // checkbox). Returns rows-affected > 0.
+    Task<bool> UpdateAsync(Warehouse entity, Guid? userId, CancellationToken ct = default);
 }
