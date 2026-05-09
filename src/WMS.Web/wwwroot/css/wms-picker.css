@@ -1,0 +1,393 @@
+/* ================================================================
+   WMS Picker — Auth Step 3 (warehouse picker) polish (Phase 8.5)
+
+   Loaded after wms-custom.css from _AuthLayout.cshtml. Powers the
+   redesigned /Auth/SelectWarehouse view: thin purple-gradient
+   header strip + body with search + region chips + grouped cards.
+
+   Token names local to this file (--wmsp-*) — same separation as
+   wms-forms.css / wms-detail.css.
+   ================================================================ */
+
+:root {
+  --wmsp-purple-50:  #EEEDFE;
+  --wmsp-purple-100: #CECBF6;
+  --wmsp-purple-600: #534AB7;
+  --wmsp-purple-700: #4338CA;
+  --wmsp-purple-900: #26215C;
+  --wmsp-purple-grad: linear-gradient(135deg, #534AB7 0%, #7F77DD 100%);
+
+  --wmsp-success-bg: #E1F5EE; --wmsp-success-fg: #0F6E56;
+  --wmsp-warning-bg: #FAEEDA; --wmsp-warning-fg: #854F0B;
+  --wmsp-info-bg:    #E6F1FB; --wmsp-info-fg:    #0C447C;
+
+  --wmsp-text-secondary: #6B7280;
+  --wmsp-text-tertiary:  #9CA3AF;
+  --wmsp-border:         rgba(0, 0, 0, 0.08);
+  --wmsp-border-input:   rgba(0, 0, 0, 0.15);
+  --wmsp-bg-secondary:   #F5F4F8;
+}
+
+/* ================================================================
+   Page wrapper — single column, full-bleed
+   ================================================================ */
+.wmsp-page {
+  min-height: 100vh;
+  background: #FAFAFB;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ================================================================
+   Header strip (purple gradient, top)
+   ================================================================ */
+.wmsp-header {
+  background: var(--wmsp-purple-grad);
+  color: #fff;
+  padding: 14px 24px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 16px;
+}
+
+.wmsp-header-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wmsp-header-logo-icon {
+  width: 32px; height: 32px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+
+.wmsp-header-logo-text {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+}
+
+.wmsp-header-meta {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+.wmsp-header-meta strong { font-weight: 600; }
+
+.wmsp-header-back {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border: 0.5px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 150ms ease;
+}
+.wmsp-header-back:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+.wmsp-header-back .ti { font-size: 14px; }
+
+/* ================================================================
+   Body — centered column
+   ================================================================ */
+.wmsp-body {
+  max-width: 880px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 28px 24px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.wmsp-heading h1 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+}
+.wmsp-heading p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--wmsp-text-secondary);
+}
+
+.wmsp-form-error {
+  background: #FCEBEB;
+  color: #A32D2D;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  border: 0.5px solid rgba(163, 45, 45, 0.2);
+}
+
+/* ================================================================
+   Search input
+   ================================================================ */
+.wmsp-search-wrap {
+  position: relative;
+}
+
+.wmsp-search-icon {
+  position: absolute;
+  left: 14px; top: 50%;
+  transform: translateY(-50%);
+  font-size: 16px;
+  color: var(--wmsp-text-tertiary);
+  pointer-events: none;
+}
+
+.wmsp-search {
+  width: 100%;
+  height: 40px;
+  padding: 0 60px 0 40px;
+  font: inherit;
+  font-size: 13px;
+  color: #111827;
+  background: #fff;
+  border: 0.5px solid var(--wmsp-border-input);
+  border-radius: 10px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.wmsp-search:focus {
+  outline: none;
+  border-color: var(--wmsp-purple-600);
+  box-shadow: 0 0 0 3px rgba(83, 74, 183, 0.15);
+}
+
+.wmsp-kbd {
+  position: absolute;
+  right: 12px; top: 50%;
+  transform: translateY(-50%);
+  padding: 2px 6px;
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 11px;
+  color: var(--wmsp-text-tertiary);
+  background: var(--wmsp-bg-secondary);
+  border: 0.5px solid var(--wmsp-border);
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+/* ================================================================
+   Region filter chips
+   ================================================================ */
+.wmsp-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+
+.wmsp-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  background: #fff;
+  color: var(--wmsp-text-secondary);
+  border: 0.5px solid var(--wmsp-border-input);
+  border-radius: 100px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.wmsp-chip:hover {
+  background: var(--wmsp-bg-secondary);
+  color: #111827;
+}
+.wmsp-chip.is-active {
+  background: var(--wmsp-purple-600);
+  color: #fff;
+  border-color: var(--wmsp-purple-600);
+}
+.wmsp-chip-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  opacity: 0.85;
+}
+.wmsp-chip.is-active .wmsp-chip-count { opacity: 1; }
+
+/* ================================================================
+   Region groups + warehouse rows
+   ================================================================ */
+.wmsp-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wmsp-group-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--wmsp-text-secondary);
+}
+.wmsp-group-head .ti {
+  font-size: 14px;
+  color: var(--wmsp-purple-600);
+}
+.wmsp-group-count {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  background: var(--wmsp-bg-secondary);
+  color: #111827;
+  padding: 2px 8px;
+  border-radius: 100px;
+  letter-spacing: 0;
+}
+
+.wmsp-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 0.5px solid var(--wmsp-border);
+  border-radius: 10px;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+.wmsp-row:hover {
+  background: var(--wmsp-purple-50);
+  border-color: var(--wmsp-purple-100);
+  box-shadow: 0 2px 6px rgba(83, 74, 183, 0.08);
+}
+.wmsp-row:focus-visible {
+  outline: none;
+  border-color: var(--wmsp-purple-600);
+  box-shadow: 0 0 0 3px rgba(83, 74, 183, 0.18);
+}
+
+.wmsp-row-icon {
+  width: 28px; height: 28px;
+  background: var(--wmsp-purple-50);
+  color: var(--wmsp-purple-600);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.wmsp-row-code {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: #111827;
+}
+
+.wmsp-row-text { min-width: 0; }
+.wmsp-row-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #111827;
+  margin: 0 0 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wmsp-row-meta {
+  font-size: 11px;
+  color: var(--wmsp-text-secondary);
+  margin: 0;
+}
+
+.wmsp-row-badge {
+  display: inline-flex; align-items: center;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 100px;
+  flex-shrink: 0;
+}
+.wmsp-row-badge.t-main      { background: var(--wmsp-info-bg);    color: var(--wmsp-info-fg); }
+.wmsp-row-badge.t-satellite { background: var(--wmsp-purple-50);  color: var(--wmsp-purple-700); }
+.wmsp-row-badge.t-branch    { background: var(--wmsp-warning-bg); color: var(--wmsp-warning-fg); }
+
+.wmsp-row-chevron {
+  color: var(--wmsp-text-tertiary);
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.wmsp-row:hover .wmsp-row-chevron { color: var(--wmsp-purple-600); }
+
+/* ================================================================
+   Empty state
+   ================================================================ */
+.wmsp-empty {
+  background: #fff;
+  border: 0.5px dashed var(--wmsp-border-input);
+  border-radius: 12px;
+  padding: 36px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+.wmsp-empty-icon {
+  width: 44px; height: 44px;
+  background: var(--wmsp-bg-secondary);
+  color: var(--wmsp-text-tertiary);
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px;
+}
+.wmsp-empty-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #111827;
+}
+.wmsp-empty-text {
+  margin: 0;
+  font-size: 12px;
+  color: var(--wmsp-text-secondary);
+}
+.wmsp-empty-reset {
+  margin-top: 4px;
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  background: var(--wmsp-purple-600);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 150ms ease;
+}
+.wmsp-empty-reset:hover {
+  background: var(--wmsp-purple-700);
+  color: #fff;
+}
+
+@media (max-width: 600px) {
+  .wmsp-header { grid-template-columns: 1fr auto; }
+  .wmsp-header-meta { display: none; }
+  .wmsp-row { grid-template-columns: auto 1fr auto; }
+  .wmsp-row-code, .wmsp-row-badge { display: none; }
+  .wmsp-row-name { font-size: 12px; }
+}
