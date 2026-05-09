@@ -317,8 +317,8 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Phase 9C shipped + **v1.0.0-inbound-mvp milestone reached** 🎉
-**Current Focus**: Phase 10+ direction TBD — candidates include TD-022 (TransactionScope wrapper), TD-023 (GR cancellation), TD-027 (Edit-Draft-Promote), Outbound module, Mobile PWA polish (TD-007/008)
+**Active Sprint**: Day 9 done · Phase 9 (9A + 9B + 9C) shipped + 3 hotfixes + **v1.0.0-inbound-mvp at `0356e2c`** 🎉
+**Current Focus**: Day 10 direction — leaning Phase 10 = Inbound Hardening (TD-022 / TD-023 / TD-026 / TD-027). User suggested Adjustment workflow as alternative. Decision pending
 **Blockers**: none
 
 Update this section weekly during standups.
@@ -693,9 +693,25 @@ No tests touched — no controller / service / repo logic changed.
 Build green. Tests: 101 unit + 206 integration + 5 skipped —
 unchanged from Phase 6E.
 
+### Day 9 — Hotfix bundle (post-Phase-9C, pre-v1.0.0)
+
+Three hotfixes after the initial Phase 9C tag, all rooted in two failure classes that escaped the Moq-based controller test suite. `v1.0.0-inbound-mvp` retagged to follow each fix; final tag landed at `0356e2c`.
+
+| Commit | Bug class | Surface |
+|--------|-----------|---------|
+| `d8a0e52` | Dapper records — type mismatch | `PurchaseOrderListRow.ExpectedDate` declared `DateOnly?` to mirror entity; Dapper records need exact ctor-type match against SQL DATE → `DateTime?`. Reverted on the record |
+| `ac2a62e` | Dapper records — column-name mismatch | `LocationRepository.GetActiveByWarehouseAsync` SELECT'd `Name` from `master.Locations`; that table has `Code` + `Description` only. Fixed via `COALESCE(Description, Code) AS Name` |
+| `0356e2c` | CSS module load gap | `wms-picker.css` (defines `.wmsp-chip`) was loaded by `_AuthLayout` only; Phase 9A `/PurchaseOrders` + Phase 9C `/Receiving` use the chip class on `_OfficeLayout` pages → unstyled. Added the `<link>` to `_OfficeLayout` |
+
+Test gap: all three survive controller tests (Moq stubs the repo) and build green. Only manual / programmatic-smoke catches them. TD-006 family — write/SQL-path tests need a real fixture; CSS module load smoke needs HTML inspection.
+
+Memory entry written: `feedback_dapper_record_binding.md` documents the records-vs-classes binding strictness pattern. Decision rule: classes when columns evolve or types convert; records when projection is stable + you commit to verifying column names/types every time.
+
+TD logged: TD-028 (filter chip counts on list pages — cosmetic; picker has counts because server-rendered, list pages don't because Alpine + paged JSON).
+
 ### Day 9 — Phase 9C (GR List + Detail + GRN Print) · **v1.0.0-inbound-mvp milestone**
 
-**Branch**: `feat/phase9c-receiving-list` → merged to `main` · **Tags**: `v0.9.2-receiving-list` AND `v1.0.0-inbound-mvp` (same commit) · **Closes**: rounds out Phase 9 inbound module — Phase 9 done end-to-end on Day 9.
+**Branch**: `feat/phase9c-receiving-list` → merged to `main` · **Tags**: `v0.9.2-receiving-list` (merge `7373a66`) + `v0.9.2-receiving-list-fix` (`ac2a62e`) + **`v1.0.0-inbound-mvp` (final at `0356e2c`)** — see Hotfix bundle entry above for the three fixes after the initial Phase 9C ship · **Closes**: rounds out Phase 9 inbound module — Phase 9 done end-to-end on Day 9.
 
 Three new surfaces under `/Receiving` finishing the inbound MVP:
 
@@ -1144,5 +1160,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-09 (Phase 9C + v1.0.0-inbound-mvp milestone)
-**Version**: 1.16
+**Last updated**: 2026-05-09 (Day 9 wrap — Phase 9 complete + 3 hotfixes; v1.0.0-inbound-mvp at 0356e2c)
+**Version**: 1.17
