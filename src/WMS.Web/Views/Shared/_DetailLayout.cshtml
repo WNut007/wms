@@ -2,155 +2,189 @@
 @{
     Layout = "_OfficeLayout";
     ViewData["Title"] = Model.Title;
-}
 
-<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-size: 12px; color: var(--wms-text-secondary);">
-    <a href="@Model.BreadcrumbParentUrl" class="wms-btn" style="width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center;">
-        <i class="ti ti-arrow-left" style="font-size: 14px;" aria-hidden="true"></i>
-    </a>
-    <span>Master Data</span>
-    <i class="ti ti-chevron-right" style="font-size: 12px; opacity: 0.5;" aria-hidden="true"></i>
-    <a href="@Model.BreadcrumbParentUrl" style="color: inherit; text-decoration: none;">@Model.BreadcrumbParent</a>
-    <i class="ti ti-chevron-right" style="font-size: 12px; opacity: 0.5;" aria-hidden="true"></i>
-    <span style="color: var(--wms-text-primary); font-weight: 500;">@Model.EntityId</span>
-</div>
-
-<div class="wms-card" style="display: flex; align-items: center; gap: 16px; margin-bottom: 12px;">
-    <div style="width: 44px; height: 44px; background: @Model.IconBgColor; color: @Model.IconFgColor; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-        <i class="ti @Model.IconClass" style="font-size: 22px;" aria-hidden="true"></i>
-    </div>
-    <div style="flex: 1;">
-        <p style="margin: 0 0 2px; font-size: 17px; font-weight: 500;">@Model.Title</p>
-        <p style="margin: 0; font-size: 12px; color: var(--wms-text-secondary); font-family: var(--wms-font-mono);">@Model.Subtitle</p>
-    </div>
-    @if (!string.IsNullOrEmpty(Model.StatusLabel))
+    var editUrl = Model.EntityType switch
     {
-        <span class="wms-badge wms-badge-@Model.StatusVariant"><span class="wms-badge-dot"></span>@Model.StatusLabel</span>
-    }
-    <button type="button" class="wms-btn" style="display: inline-flex; align-items: center; gap: 6px;">
-        <i class="ti ti-pencil" style="font-size: 13px;" aria-hidden="true"></i>Edit
-    </button>
-    <button type="button" class="wms-btn" style="width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center;">
-        <i class="ti ti-dots-vertical" style="font-size: 16px;" aria-hidden="true"></i>
-    </button>
-</div>
+        "Product"   => Url.Action("Edit", "Products",   new { code = Model.EntityId }),
+        "Customer"  => Url.Action("Edit", "Customers",  new { code = Model.EntityId }),
+        "Warehouse" => Url.Action("Edit", "Warehouses", new { code = Model.EntityId }),
+        _ => "#"
+    };
 
-@if (Model.Stats.Any())
-{
-    <div style="display: grid; grid-template-columns: repeat(@Model.Stats.Count, 1fr); gap: 8px; margin-bottom: 12px;">
-        @foreach (var stat in Model.Stats)
-        {
-            <div class="wms-card" style="padding: 10px 14px;">
-                <p style="margin: 0 0 2px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--wms-text-secondary); font-weight: 500;">@stat.Label</p>
-                <p style="margin: 0; font-size: 17px; font-weight: 500; @(stat.AccentColor != null ? $"color: {stat.AccentColor};" : "")">@stat.Value</p>
-            </div>
-        }
-    </div>
+    var statBgVariant = Model.Stats.Count switch
+    {
+        <= 2 => 2,
+        3    => 3,
+        _    => 4,
+    };
 }
 
-<div style="display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 12px;">
+<div class="wmsd-page">
 
-    <div class="wms-card" style="padding: 0; overflow: hidden;">
-        <div style="display: flex; border-bottom: 0.5px solid var(--wms-border); padding: 0 16px;" id="detailTabs">
-            <button type="button" class="detail-tab active" data-tab="overview" style="padding: 12px 14px; font-size: 12px; font-weight: 500; color: var(--wms-text-primary); border: none; background: transparent; border-bottom: 2px solid var(--wms-primary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                <i class="ti ti-info-circle" style="font-size: 14px;" aria-hidden="true"></i>Overview
-            </button>
-            @if (Model.ShowImagesTab)
+    <nav class="wmsd-crumb" aria-label="Breadcrumb">
+        <a href="@Model.BreadcrumbParentUrl" class="wmsd-btn wmsd-btn-icon" title="Back" style="margin-right: 4px;">
+            <i class="ti ti-arrow-left" aria-hidden="true"></i>
+        </a>
+        <span>Master Data</span>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <a href="@Model.BreadcrumbParentUrl">@Model.BreadcrumbParent</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <span class="current">@Model.EntityId</span>
+    </nav>
+
+    @* === Header card (gradient avatar · title · status · actions) === *@
+    <header class="wmsd-head">
+        <div class="wmsd-avatar" aria-hidden="true">
+            @if (!string.IsNullOrWhiteSpace(Model.AvatarInitials))
             {
-                <button type="button" class="detail-tab" data-tab="images" style="padding: 12px 14px; font-size: 12px; font-weight: 400; color: var(--wms-text-secondary); border: none; background: transparent; border-bottom: 2px solid transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                    <i class="ti ti-photo" style="font-size: 14px;" aria-hidden="true"></i>Images
-                </button>
+                @Model.AvatarInitials
             }
-            <button type="button" class="detail-tab" data-tab="documents" style="padding: 12px 14px; font-size: 12px; font-weight: 400; color: var(--wms-text-secondary); border: none; background: transparent; border-bottom: 2px solid transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                <i class="ti ti-files" style="font-size: 14px;" aria-hidden="true"></i>Documents
-                <span style="background: var(--wms-bg-secondary); color: var(--wms-text-primary); font-size: 10px; padding: 1px 5px; border-radius: 100px; font-weight: 500;">@Model.Documents.Count</span>
-            </button>
-            <button type="button" class="detail-tab" data-tab="activity" style="padding: 12px 14px; font-size: 12px; font-weight: 400; color: var(--wms-text-secondary); border: none; background: transparent; border-bottom: 2px solid transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                <i class="ti ti-history" style="font-size: 14px;" aria-hidden="true"></i>Activity
-            </button>
+            else
+            {
+                <i class="ti @Model.IconClass"></i>
+            }
         </div>
 
-        <div class="detail-tab-panel" data-panel="overview" style="padding: 16px 20px;">
-            @await Html.PartialAsync("Detail/_OverviewPanel", Model)
-        </div>
-
-        @if (Model.ShowImagesTab)
-        {
-            <div class="detail-tab-panel" data-panel="images" style="padding: 16px 20px; display: none;">
-                @await Html.PartialAsync("Detail/_ImagesPanel", Model)
-            </div>
-        }
-
-        <div class="detail-tab-panel" data-panel="documents" style="padding: 16px 20px; display: none;">
-            @await Html.PartialAsync("Detail/_DocumentsPanel", Model)
-        </div>
-
-        <div class="detail-tab-panel" data-panel="activity" style="padding: 16px 20px; display: none;">
-            @await Html.PartialAsync("Detail/_ActivityPanel", Model)
-        </div>
-    </div>
-
-    <div style="display: flex; flex-direction: column; gap: 12px;">
-        @if (Model.QuickActions.Any())
-        {
-            <div class="wms-card" style="padding: 12px;">
-                <p style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--wms-text-secondary); font-weight: 500; margin: 0 0 8px;">Quick actions</p>
-                @foreach (var action in Model.QuickActions)
+        <div class="wmsd-head-text">
+            <div class="wmsd-head-title-row">
+                <h1>@Model.Title</h1>
+                @if (!string.IsNullOrEmpty(Model.StatusLabel))
                 {
-                    @if (action.Enabled)
-                    {
-                        <a href="@action.Url" class="wms-btn" style="width: 100%; justify-content: flex-start; padding: 7px 10px; font-size: 12px; height: auto; margin-bottom: 4px; display: inline-flex; align-items: center; gap: 8px; text-decoration: none;">
-                            <i class="ti @action.IconClass" style="font-size: 14px;" aria-hidden="true"></i>@action.Label
-                        </a>
-                    }
-                    else
-                    {
-                        @* TD-017: action target doesn't exist yet (Phase 7+ admin CRUD).
-                           Rendered as a muted, non-clickable button so users see what's
-                           coming without hitting a "#" link that does nothing. *@
-                        <span class="wms-btn" style="width: 100%; justify-content: flex-start; padding: 7px 10px; font-size: 12px; height: auto; margin-bottom: 4px; display: inline-flex; align-items: center; gap: 8px; text-decoration: none; opacity: 0.45; cursor: not-allowed;" title="Coming in a future phase" aria-disabled="true">
-                            <i class="ti @action.IconClass" style="font-size: 14px;" aria-hidden="true"></i>@action.Label
-                        </span>
-                    }
+                    <span class="wmsd-badge s-@Model.StatusVariant">@Model.StatusLabel</span>
+                }
+                @foreach (var b in Model.Badges)
+                {
+                    <span class="wmsd-badge s-@b.Variant">@b.Label</span>
                 }
             </div>
-        }
-        @if (Model.Properties.Any())
-        {
-            <div class="wms-card" style="padding: 12px;">
-                <p style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--wms-text-secondary); font-weight: 500; margin: 0 0 8px;">Properties</p>
-                <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px;">
+            <p class="wmsd-head-sub">@Model.Subtitle</p>
+        </div>
+
+        <div class="wmsd-head-actions">
+            <a href="@editUrl" class="wmsd-btn wmsd-btn-primary">
+                <i class="ti ti-pencil" aria-hidden="true"></i> Edit
+            </a>
+            <button type="button" class="wmsd-btn wmsd-btn-icon" aria-label="More actions">
+                <i class="ti ti-dots-vertical" aria-hidden="true"></i>
+            </button>
+        </div>
+    </header>
+
+    @* === Stat tiles === *@
+    @if (Model.Stats.Any())
+    {
+        <div class="wmsd-stats" style="--wmsd-stat-cols: @statBgVariant;">
+            @foreach (var stat in Model.Stats)
+            {
+                <div class="wmsd-stat">
+                    <p class="wmsd-stat-label">@stat.Label</p>
+                    <p class="wmsd-stat-value@(stat.AccentColor != null ? " success" : "")"
+                       @(stat.AccentColor != null ? $"style=color:{stat.AccentColor}" : "")>@stat.Value</p>
+                </div>
+            }
+        </div>
+    }
+
+    @* === Body grid (tabs left · sidebar right) === *@
+    <div class="wmsd-body">
+
+        <div class="wmsd-card">
+            <div class="wmsd-tabs" id="detailTabs" role="tablist">
+                <button type="button" class="wmsd-tab is-active" data-tab="overview" role="tab">
+                    <i class="ti ti-info-circle" aria-hidden="true"></i> Overview
+                </button>
+                @if (Model.ShowImagesTab)
+                {
+                    <button type="button" class="wmsd-tab" data-tab="images" role="tab">
+                        <i class="ti ti-photo" aria-hidden="true"></i> Images
+                    </button>
+                }
+                <button type="button" class="wmsd-tab" data-tab="documents" role="tab">
+                    <i class="ti ti-files" aria-hidden="true"></i> Documents
+                    <span class="wmsd-tab-count">@Model.Documents.Count</span>
+                </button>
+                <button type="button" class="wmsd-tab" data-tab="activity" role="tab">
+                    <i class="ti ti-history" aria-hidden="true"></i> Activity
+                </button>
+            </div>
+
+            <div class="wmsd-panel" data-panel="overview" role="tabpanel">
+                @await Html.PartialAsync("Detail/_OverviewPanel", Model)
+            </div>
+
+            @if (Model.ShowImagesTab)
+            {
+                <div class="wmsd-panel is-hidden" data-panel="images" role="tabpanel">
+                    @await Html.PartialAsync("Detail/_ImagesPanel", Model)
+                </div>
+            }
+
+            <div class="wmsd-panel is-hidden" data-panel="documents" role="tabpanel">
+                @await Html.PartialAsync("Detail/_DocumentsPanel", Model)
+            </div>
+
+            <div class="wmsd-panel is-hidden" data-panel="activity" role="tabpanel">
+                @await Html.PartialAsync("Detail/_ActivityPanel", Model)
+            </div>
+        </div>
+
+        @* === Sidebar === *@
+        <aside class="wmsd-sidebar">
+            @if (Model.QuickActions.Any())
+            {
+                <div class="wmsd-side-card">
+                    <p class="wmsd-side-label">Quick actions</p>
+                    @foreach (var action in Model.QuickActions)
+                    {
+                        @if (action.Enabled)
+                        {
+                            <a href="@action.Url" class="wmsd-action">
+                                <i class="ti @action.IconClass" aria-hidden="true"></i>
+                                <span>@action.Label</span>
+                            </a>
+                        }
+                        else
+                        {
+                            @* TD-017: target route doesn't exist yet (Phase 7+ admin CRUD).
+                               Rendered muted + non-clickable so the operator sees what's
+                               coming without hitting a "#" link that does nothing. *@
+                            <span class="wmsd-action is-disabled" title="Coming in a future phase" aria-disabled="true">
+                                <i class="ti @action.IconClass" aria-hidden="true"></i>
+                                <span>@action.Label</span>
+                            </span>
+                        }
+                    }
+                </div>
+            }
+            @if (Model.Properties.Any())
+            {
+                <div class="wmsd-side-card">
+                    <p class="wmsd-side-label">Properties</p>
                     @foreach (var kv in Model.Properties)
                     {
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: var(--wms-text-secondary);">@kv.Key</span>
-                            <span>@kv.Value</span>
+                        <div class="wmsd-meta">
+                            <span class="wmsd-meta-key">@kv.Key</span>
+                            <span class="wmsd-meta-value">@kv.Value</span>
                         </div>
                     }
                 </div>
-            </div>
-        }
+            }
+        </aside>
     </div>
 </div>
 
 @section Scripts {
     <script>
         (function () {
-            const tabs = document.querySelectorAll('.detail-tab');
-            const panels = document.querySelectorAll('.detail-tab-panel');
+            const tabs = document.querySelectorAll('.wmsd-tab');
+            const panels = document.querySelectorAll('.wmsd-panel');
             tabs.forEach(tab => {
                 tab.addEventListener('click', () => {
-                    tabs.forEach(t => {
-                        t.style.color = 'var(--wms-text-secondary)';
-                        t.style.fontWeight = '400';
-                        t.style.borderBottomColor = 'transparent';
-                        t.classList.remove('active');
+                    tabs.forEach(t => t.classList.remove('is-active'));
+                    tab.classList.add('is-active');
+                    panels.forEach(p => {
+                        p.classList.toggle('is-hidden', p.dataset.panel !== tab.dataset.tab);
                     });
-                    tab.style.color = 'var(--wms-text-primary)';
-                    tab.style.fontWeight = '500';
-                    tab.style.borderBottomColor = 'var(--wms-primary)';
-                    tab.classList.add('active');
-                    panels.forEach(p => p.style.display = p.dataset.panel === tab.dataset.tab ? 'block' : 'none');
                 });
             });
         })();

@@ -118,18 +118,38 @@ public partial class CustomersController : Controller
         };
 
         var avatarColor = CustomerAvatar.Color(customer.Name);
+        var initials = string.Concat(
+            customer.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Take(2)
+                .Select(w => char.ToUpperInvariant(w[0])));
+
+        // Phase 8 — extra badges next to the primary Status badge.
+        var customerBadges = new List<DetailBadge>
+        {
+            new(customer.CustomerType, "purple"),
+        };
+        if (!string.IsNullOrEmpty(customer.CustomerTier))
+        {
+            customerBadges.Add(new(customer.CustomerTier!, "info"));
+        }
+        if (customer.IsKeyAccount)
+        {
+            customerBadges.Add(new("Key account", "warning"));
+        }
 
         var vm = new DetailPageViewModel
         {
             EntityType = "Customer",
             EntityId = customer.Code,
             Title = customer.Name,
-            Subtitle = $"{customer.Code} · {customer.CustomerType} · {customer.Country ?? "—"}",
+            Subtitle = $"{customer.Code} · {customer.CompanyName ?? customer.Name} · {customer.Country ?? "—"}",
             IconClass = customer.CustomerType == "B2B" ? "ti-building" : "ti-user",
             IconBgColor = $"{avatarColor}1A",
             IconFgColor = avatarColor,
+            AvatarInitials = initials,
             StatusLabel = statusLabel,
             StatusVariant = statusVariant,
+            Badges = customerBadges,
             BreadcrumbParent = "Customers",
             BreadcrumbParentUrl = "/Customers",
             Stats = new()

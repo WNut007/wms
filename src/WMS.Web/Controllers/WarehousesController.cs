@@ -160,12 +160,20 @@ public partial class WarehousesController : Controller
             // Pull the city portion out of Address for the subtitle
             // (e.g. "Bangkok, TH" → "Bangkok"). Matches the way the
             // grid card derives its region label.
-            Subtitle = $"{row.Code} · {DeriveCity(row.Address)} · {row.Type}",
+            Subtitle = $"{row.Code} · {DeriveCity(row.Address)}",
             IconClass = "ti-building-warehouse",
             IconBgColor = "#E6F1FB",
             IconFgColor = "#0C447C",
+            // Phase 8 — keep the icon (visual differentiation from
+            // Customers' name initials) inside the gradient avatar.
+            AvatarInitials = "",
             StatusLabel = statusLabel,
             StatusVariant = statusVariant,
+            // Phase 8 — Type as an extra badge next to Status.
+            Badges = new()
+            {
+                new(row.Type, "purple"),
+            },
             BreadcrumbParent = "Warehouses",
             BreadcrumbParentUrl = "/Warehouses",
             Stats = new()

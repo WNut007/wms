@@ -1,31 +1,40 @@
 @model WMS.Web.ViewModels.Detail.DetailPageViewModel
 
+@*
+    Overview tab — top section is the optional image grid (Products
+    only); bottom is the OverviewFields rendered as a definition list
+    using the wmsd-section / wmsd-dl pattern from wms-detail.css.
+*@
+
 @if (Model.ShowImagesTab && Model.Images.Any())
 {
     var primary = Model.Images.FirstOrDefault(i => i.IsPrimary) ?? Model.Images.First();
-    <div style="background: #F1EFE8; border-radius: var(--wms-radius-md); height: 200px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; position: relative; overflow: hidden;">
-        <img src="@primary.Url" alt="@primary.Label" style="max-width: 100%; max-height: 100%; object-fit: contain;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
-        <div style="display: none; align-items: center; justify-content: center;"><i class="ti @Model.IconClass" style="font-size: 64px; color: #B4B2A9;"></i></div>
-        <span style="position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.6); color: white; font-size: 10px; padding: 3px 8px; border-radius: 100px;">@(primary.Order) / @Model.Images.Count · @primary.Label</span>
-    </div>
-
-    <div style="display: grid; grid-template-columns: repeat(@Math.Min(10, Model.Images.Count), 1fr); gap: 4px; margin-bottom: 16px;">
-        @foreach (var img in Model.Images.Take(10))
-        {
-            <div style="aspect-ratio: 1; background: #F1EFE8; border-radius: 4px; @(img.IsPrimary ? "border: 1.5px solid var(--wms-primary);" : "") display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: hidden;">
-                <img src="@img.Url" alt="@img.Label" style="max-width: 100%; max-height: 100%; object-fit: contain;" onerror="this.style.display='none';" />
-            </div>
-        }
-    </div>
+    <section class="wmsd-section">
+        <p class="wmsd-section-eyebrow">— Images</p>
+        <div style="background: #F1EFE8; border-radius: 6px; height: 200px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; position: relative; overflow: hidden;">
+            <img src="@primary.Url" alt="@primary.Label" style="max-width: 100%; max-height: 100%; object-fit: contain;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+            <div style="display: none; align-items: center; justify-content: center;"><i class="ti @Model.IconClass" style="font-size: 64px; color: #B4B2A9;"></i></div>
+            <span style="position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.6); color: white; font-size: 10px; padding: 3px 8px; border-radius: 100px;">@(primary.Order) / @Model.Images.Count · @primary.Label</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(@Math.Min(10, Model.Images.Count), 1fr); gap: 4px;">
+            @foreach (var img in Model.Images.Take(10))
+            {
+                <div style="aspect-ratio: 1; background: #F1EFE8; border-radius: 4px; @(img.IsPrimary ? "border: 1.5px solid #534AB7;" : "") display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: hidden;">
+                    <img src="@img.Url" alt="@img.Label" style="max-width: 100%; max-height: 100%; object-fit: contain;" onerror="this.style.display='none';" />
+                </div>
+            }
+        </div>
+    </section>
 }
 
-<p style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--wms-text-secondary); font-weight: 500; margin: 0 0 10px;">Details</p>
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; font-size: 12px;">
-    @foreach (var kv in Model.OverviewFields)
-    {
-        <div>
-            <p style="margin: 0 0 2px; color: var(--wms-text-tertiary); font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px;">@kv.Key</p>
-            <p style="margin: 0; font-weight: 500;">@Html.Raw(kv.Value)</p>
-        </div>
-    }
-</div>
+<section class="wmsd-section">
+    <p class="wmsd-section-eyebrow">— Overview</p>
+    <h2>Details</h2>
+    <dl class="wmsd-dl">
+        @foreach (var kv in Model.OverviewFields)
+        {
+            <dt>@kv.Key</dt>
+            <dd>@Html.Raw(kv.Value)</dd>
+        }
+    </dl>
+</section>
