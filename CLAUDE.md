@@ -317,11 +317,49 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Day 9 done · Phase 9 (9A + 9B + 9C) shipped + 3 hotfixes + **v1.0.0-inbound-mvp at `0356e2c`** 🎉
-**Current Focus**: Day 10 direction — leaning Phase 10 = Inbound Hardening (TD-022 / TD-023 / TD-026 / TD-027). User suggested Adjustment workflow as alternative. Decision pending
+**Active Sprint**: Day 10 in progress · Phase 10A (PO Detail Completeness) shipped → tag `v1.0.1-po-detail-complete`
+**Current Focus**: Phase 10B direction TBD — Adjustment workflow vs more inbound hardening (TD-022/023/026/027) vs reports
 **Blockers**: none
 
 Update this section weekly during standups.
+
+### Day 10 — Phase 10A (PO Detail Completeness)
+
+**Branch**: `feat/po-detail-completeness` → merged to `main` · **Tag**: `v1.0.1-po-detail-complete` · **Closes**: TD-028 + TD-029 + TD-030
+
+Three traceability gaps caught by user smoke after the v1.0.0-inbound-mvp ship. All three tightly coupled — same surfaces, shared layout work — so bundled as a single phase rather than three loose fixes.
+
+**Layout extension** (`_DetailLayout.cshtml`):
+- New `CustomTabs: List<DetailCustomTab>` slot on `DetailPageViewModel`. Empty list keeps the legacy 4-tab Master Data surface unchanged (zero regression on Products/Customers/Warehouses Detail). Tabs render between Overview and Documents in declaration order. Each `DetailCustomTab(Key, Label, IconClass, PartialName, Count?)` drives one button + one panel; partial receives the same VM with entity-specific data via ViewBag (existing convention — `ViewBag.Lines` already used by PO Detail).
+- Header `Edit` button now nullable — `editUrl` switch resolves null for entities without an Edit route (Receiving today). Previously rendered `<a href="#">` which was misleading.
+- Added `PurchaseOrder` to the editUrl switch → `/PurchaseOrders/Edit/{id}`.
+
+**TD-029 Lines tab**:
+- New `PurchaseOrderLineRow` DTO (`WMS.DAL.Repositories.Inbound`) — Id, LineNumber, ProductId, ProductCode, ProductName, UomId, UomCode, ExpectedQuantity, ReceivedQuantity, Status. Phase 6D pattern (matches `StockMovementListRow`).
+- New `IPurchaseOrderRepository.GetLineRowsByIdAsync(poId, ct)` — INNER JOINs `master.Products` + `master.UnitsOfMeasure`. Sorted by LineNumber.
+- New `_PoLinesPanel.cshtml` — 7-col table (#, Product code/name, UoM, Expected, Received, Fill%, Status). Per-line mini progress bar color-coded green (≥100%) / amber (partial) / gray (zero). Status badge per `s-info|warning|success|neutral` variant. Empty state: "No lines added".
+
+**TD-030 Receipts tab**:
+- New `PoReceiptRow` DTO — Id, ReceivingNumber, ReceivedAt, Status, LineCount, TotalReceivedQty. Distinct from `ReceivingActivityRow` (which carries PerformedByName for the chronological feed) — Receipts table needs the qty column.
+- New `IReceivingHeaderRepository.GetReceiptsByPoIdAsync(poId, ct)` — CTE for line aggregate, ORDER BY ReceivedAt DESC. Leverages existing `IX_ReceivingHeaders_PurchaseOrder` index.
+- New `_PoReceiptsPanel.cshtml` — 5-col table (Receiving #, Received at + relative, Status, Lines, Total qty). Click-through to `/Receiving/Detail/{ReceivingNumber}`. Empty state: "No receipts posted yet for this PO".
+- PO Detail's Activity tab still feeds from `GetActivityByPoAsync` (chronological, with PerformedByName) — the two will diverge once status-change events flow into Activity. Acceptable redundancy today.
+
+**TD-028 Filter chip counts**:
+- New `PurchaseOrderStatusCounts(All, Open, Receiving, Closed, Cancelled)` + `ReceivingStatusCounts(All, Draft, Posted, Cancelled)` records.
+- New `GetStatusCountsAsync` on both repos — single `SUM(CASE WHEN Status=...)` aggregate sharing the rows query's WHERE filter EXCEPT for `@Status` (so the inactive chips still display per-status totals).
+- Both controllers' `/Data` actions append `counts` object to JSON envelope.
+- Index views render `<span class="wmsp-chip-count">` next to chip labels using existing Phase 8.5 picker styling. `wms-picker.css` already loaded on `_OfficeLayout` per Phase 9C hotfix `0356e2c`.
+- Note: `[All]` SQL alias quoted (reserved keyword); records bind ctor positionally so column order matters.
+
+**Tests**: +7 net (5 PurchaseOrdersAdminTests on Detail tabs + counts; 2 ReceivingControllerTests on counts). `BuildAdmin` updated to default-stub `GetStatusCountsAsync` / `GetLineRowsByIdAsync` / `GetReceiptsByPoIdAsync` / `GetActivityByPoAsync` so existing Create/Edit/Archive tests stay compiling. Test posture: **388 passing** (was 381). 101 unit + 282 integration + 5 skipped.
+
+**Out of scope** (still open):
+- TD-022 TransactionScope wrapper on receiving orchestration.
+- TD-023 GR Cancellation flow (PO Detail "Cancel PO" QuickAction still inert).
+- TD-027 GR Edit-Draft-Promote (Receiving Detail "Edit draft" still inert).
+- "Receive against" QuickAction on PO Detail still disabled — would deep-link to `/GoodsReceipt/Create?poId={id}`. ~10 min when wanted.
+- Documents tab on PO Detail wired but no upload UI (same state as Receiving Detail).
 
 ### Day 5 — UI Phase 2 (Dashboard)
 
@@ -1160,5 +1198,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-09 (Day 9 wrap — Phase 9 complete + 3 hotfixes; v1.0.0-inbound-mvp at 0356e2c)
-**Version**: 1.17
+**Last updated**: 2026-05-10 (Day 10 — Phase 10A PO Detail completeness; v1.0.1-po-detail-complete)
+**Version**: 1.18

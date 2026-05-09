@@ -37,8 +37,10 @@
                 <button type="button"
                         class="wmsp-chip"
                         :class="{ 'is-active': status === s.value }"
-                        @@click="status = s.value; reload()"
-                        x-text="s.label"></button>
+                        @@click="status = s.value; reload()">
+                    <span x-text="s.label"></span>
+                    <span class="wmsp-chip-count" x-text="counts[s.value] ?? 0"></span>
+                </button>
             </template>
         </div>
 
@@ -109,6 +111,7 @@
             return {
                 rows: [], total: 0, totalPages: 1, page: 1, pageSize: 20,
                 search: '', status: 'all', loading: false,
+                counts: { all: 0, draft: 0, posted: 0, cancelled: 0 },
                 statuses: [
                     { value: 'all',       label: 'All' },
                     { value: 'draft',     label: 'Draft' },
@@ -129,6 +132,7 @@
                         this.rows = data.items;
                         this.total = data.total;
                         this.totalPages = data.totalPages;
+                        if (data.counts) this.counts = data.counts;
                     } finally { this.loading = false; }
                 },
                 navigate(receivingNumber) {

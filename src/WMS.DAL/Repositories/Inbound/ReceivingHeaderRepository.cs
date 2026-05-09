@@ -265,6 +265,68 @@ JOIN      master.Warehouses      wh ON wh.Id = h.WarehouseId
         return rows.AsList();
     }
 
+    public async Task<IReadOnlyList<PoReceiptRow>> GetReceiptsByPoIdAsync(
+        Guid purchaseOrderId, CancellationToken ct = default)
+    {
+        // Mirrors GetActivityByPoAsync's shape but adds the line-sum
+        // aggregate via a CTE so the table column renders without per-
+        // row queries. IX_ReceivingHeaders_PurchaseOrder covers WHERE.
+        const string sql = @"
+WITH agg AS (
+    SELECT ReceivingHeaderId,
+           COUNT(*) AS LineCount,
+           SUM(ReceivedQuantity) AS TotalReceivedQty
+    FROM inbound.ReceivingLines
+    GROUP BY ReceivingHeaderId
+)
+SELECT
+    h.Id,
+    h.ReceivingNumber,
+    h.ReceivedAt,
+    h.Status,
+    ISNULL(agg.LineCount,        0) AS LineCount,
+    ISNULL(agg.TotalReceivedQty, 0) AS TotalReceivedQty
+FROM inbound.ReceivingHeaders h
+LEFT JOIN agg ON agg.ReceivingHeaderId = h.Id
+WHERE h.PurchaseOrderId = @purchaseOrderId
+ORDER BY h.ReceivedAt DESC;";
+
+        var rows = await _connection.QueryAsync<PoReceiptRow>(new CommandDefinition(
+            sql, new { purchaseOrderId }, cancellationToken: ct));
+        return rows.AsList();
+    }
+
+    public async Task<ReceivingStatusCounts> GetStatusCountsAsync(
+        ReceivingFilter f, CancellationToken ct = default)
+    {
+        var searchLike = string.IsNullOrWhiteSpace(f.Search)
+            ? null
+            : $"%{f.Search.Trim()}%";
+
+        // LEFT JOINs on PurchaseOrders + Owners (blind receipts have
+        // null PO); JOIN on Warehouses (always set). Search matches
+        // ReceivingNumber OR PoNumber — same shape as GetPagedAsync.
+        const string sql = @"
+SELECT
+    COUNT(*)                                                    AS [All],
+    SUM(CASE WHEN h.Status = 'Draft'     THEN 1 ELSE 0 END)     AS Draft,
+    SUM(CASE WHEN h.Status = 'Posted'    THEN 1 ELSE 0 END)     AS Posted,
+    SUM(CASE WHEN h.Status = 'Cancelled' THEN 1 ELSE 0 END)     AS Cancelled
+FROM inbound.ReceivingHeaders h
+LEFT JOIN inbound.PurchaseOrders po ON po.Id = h.PurchaseOrderId
+JOIN      master.Warehouses     wh ON wh.Id = h.WarehouseId
+WHERE (@WarehouseCode IS NULL OR wh.Code = @WarehouseCode)
+  AND (@SearchLike    IS NULL
+       OR h.ReceivingNumber LIKE @SearchLike
+       OR po.PoNumber       LIKE @SearchLike);";
+
+        return await _connection.QuerySingleAsync<ReceivingStatusCounts>(
+            new CommandDefinition(
+                sql,
+                new { f.WarehouseCode, SearchLike = searchLike },
+                cancellationToken: ct));
+    }
+
     public async Task<IReadOnlyList<ReceivingActivityRow>> GetActivityByWarehouseAsync(
         Guid warehouseId, int limit = 20, CancellationToken ct = default)
     {

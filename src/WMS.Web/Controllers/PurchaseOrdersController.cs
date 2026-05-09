@@ -88,8 +88,12 @@ public partial class PurchaseOrdersController : Controller
             SortBy: sortBy,
             SortDesc: sortDesc);
 
-        var result = await _repos.For(_tenant.RequireTenantId())
-                                 .GetPagedAsync(filter, ct);
+        var repo = _repos.For(_tenant.RequireTenantId());
+        var result = await repo.GetPagedAsync(filter, ct);
+        // TD-028 — chip-count aggregates. Same filter shape; the repo
+        // method ignores Status so all chips render their per-status
+        // total even when the user has narrowed via a status chip.
+        var counts = await repo.GetStatusCountsAsync(filter, ct);
 
         return Json(new
         {
@@ -118,6 +122,14 @@ public partial class PurchaseOrdersController : Controller
             page       = result.Page,
             pageSize   = result.PageSize,
             totalPages = result.TotalPages,
+            counts     = new
+            {
+                all       = counts.All,
+                open      = counts.Open,
+                receiving = counts.Receiving,
+                closed    = counts.Closed,
+                cancelled = counts.Cancelled,
+            },
         });
     }
 
@@ -132,7 +144,16 @@ public partial class PurchaseOrdersController : Controller
         var po = detail.Header;
         var lines = detail.Lines;
 
-        // Activity feed — receipts that posted against this PO.
+        // Lines tab (TD-029) — resolved Product code/name + UoM via JOIN.
+        var lineRows = await repo.GetLineRowsByIdAsync(id, ct);
+
+        // Receipts tab (TD-030) — structured table with TotalReceivedQty.
+        var receiptRows = await _receivingRepos.For(tenantId)
+                                               .GetReceiptsByPoIdAsync(id, ct);
+
+        // Activity feed — receipts that posted against this PO. Same
+        // chronological feed; redundant with the new Receipts tab today
+        // but will diverge once status-change events feed Activity.
         var receipts = await _receivingRepos.For(tenantId)
                                             .GetActivityByPoAsync(id, ActivityFeedLimit, ct);
 
@@ -177,6 +198,16 @@ public partial class PurchaseOrdersController : Controller
                                        fillPct >= 100 ? "#1D9E75" : null),
             },
             ShowImagesTab = false,
+            CustomTabs = new()
+            {
+                // TD-029 — Lines tab. Count badge mirrors Documents.
+                new("lines",    "Lines",    "ti-list-details",
+                    "Detail/_PoLinesPanel",    lineRows.Count),
+                // TD-030 — Receipts tab. Count = number of GRs filed
+                // against this PO (Draft + Posted + Cancelled).
+                new("receipts", "Receipts", "ti-package-import",
+                    "Detail/_PoReceiptsPanel", receiptRows.Count),
+            },
             Documents = docs.Select(d => new DocumentItem(
                 d.DocumentId, d.FileName, d.Category,
                 CategoryColorBg(d.Category), CategoryColorFg(d.Category),
@@ -209,7 +240,9 @@ public partial class PurchaseOrdersController : Controller
             }
         };
 
-        ViewBag.Lines = lines;
+        ViewBag.Lines      = lines;       // existing — entity list (raw FKs)
+        ViewBag.PoLines    = lineRows;    // TD-029 — display-resolved rows
+        ViewBag.PoReceipts = receiptRows; // TD-030 — Receipts tab data
         return View("~/Views/Shared/_DetailLayout.cshtml", vm);
     }
 

@@ -1,0 +1,77 @@
+@model WMS.Web.ViewModels.Detail.DetailPageViewModel
+@{
+    var lines = ViewBag.PoLines as IReadOnlyList<WMS.DAL.Repositories.Inbound.PurchaseOrderLineRow>
+                ?? new List<WMS.DAL.Repositories.Inbound.PurchaseOrderLineRow>();
+}
+
+<section class="wmsd-section">
+    <p class="wmsd-section-eyebrow">— Lines</p>
+    <h2>Purchase order lines</h2>
+
+    @if (lines.Count == 0)
+    {
+        <p style="text-align: center; padding: 40px; color: var(--wms-text-tertiary); font-size: 12px;">
+            No lines added.
+        </p>
+    }
+    else
+    {
+        <div style="overflow-x: auto;">
+            <table class="wms-table" style="width: 100%;">
+                <thead>
+                    <tr>
+                        <th style="width: 60px;">#</th>
+                        <th>Product</th>
+                        <th style="width: 80px;">UoM</th>
+                        <th style="width: 110px; text-align: right;">Expected</th>
+                        <th style="width: 110px; text-align: right;">Received</th>
+                        <th style="width: 160px;">Fill</th>
+                        <th style="width: 120px;">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var line in lines)
+                    {
+                        var pct = line.ExpectedQuantity > 0
+                            ? Math.Min(100m, Math.Round(line.ReceivedQuantity / line.ExpectedQuantity * 100m, 1))
+                            : 0m;
+                        var pctColor = line.ReceivedQuantity >= line.ExpectedQuantity && line.ExpectedQuantity > 0
+                            ? "#1D9E75"
+                            : line.ReceivedQuantity > 0
+                                ? "#C77E0E"
+                                : "#9CA3AF";
+                        var statusVariant = line.Status switch
+                        {
+                            "Open"              => "s-info",
+                            "PartiallyReceived" => "s-warning",
+                            "Closed"            => "s-success",
+                            "Cancelled"         => "s-neutral",
+                            _                   => "s-neutral",
+                        };
+                        <tr>
+                            <td><span class="mono">@line.LineNumber</span></td>
+                            <td>
+                                <span class="mono" style="font-weight: 500;">@line.ProductCode</span>
+                                <span style="font-size: 11px; color: var(--wms-text-secondary); display: block;">@line.ProductName</span>
+                            </td>
+                            <td><span class="mono">@line.UomCode</span></td>
+                            <td style="text-align: right;">@line.ExpectedQuantity.ToString("N2")</td>
+                            <td style="text-align: right;">@line.ReceivedQuantity.ToString("N2")</td>
+                            <td>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <div style="flex: 1; height: 6px; background: var(--wms-bg-secondary); border-radius: 3px; overflow: hidden;">
+                                        <div style="height: 100%; width: @(pct.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%; background: @pctColor; transition: width 200ms ease;"></div>
+                                    </div>
+                                    <span style="font-size: 11px; color: var(--wms-text-secondary); font-variant-numeric: tabular-nums; min-width: 38px; text-align: right;">@pct.ToString("0.#")%</span>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="wmsd-badge @statusVariant">@line.Status</span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>

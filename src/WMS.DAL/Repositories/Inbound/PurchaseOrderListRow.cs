@@ -41,3 +41,13 @@ public sealed record PurchaseOrderFilter(
     string? WarehouseCode = null,
     string SortBy = "expectedDate",
     bool SortDesc = false);
+
+// Phase 10A (TD-028) — chip-count aggregate for /PurchaseOrders list.
+// All counts share the same WHERE filter (search + owner + warehouse)
+// but ignore Status so the inactive chips still display their totals.
+public sealed record PurchaseOrderStatusCounts(
+    int All,
+    int Open,
+    int Receiving,
+    int Closed,
+    int Cancelled);

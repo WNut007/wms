@@ -32,3 +32,12 @@ public sealed record ReceivingFilter(
     string? WarehouseCode = null,
     string SortBy = "receivedAt",
     bool SortDesc = true);
+
+// Phase 10A (TD-028) — chip-count aggregate for /Receiving list.
+// Counts share the search + warehouse filter; status is excluded so
+// the inactive chips display their per-status totals.
+public sealed record ReceivingStatusCounts(
+    int All,
+    int Draft,
+    int Posted,
+    int Cancelled);

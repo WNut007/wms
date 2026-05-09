@@ -5,10 +5,11 @@
 
     var editUrl = Model.EntityType switch
     {
-        "Product"   => Url.Action("Edit", "Products",   new { code = Model.EntityId }),
-        "Customer"  => Url.Action("Edit", "Customers",  new { code = Model.EntityId }),
-        "Warehouse" => Url.Action("Edit", "Warehouses", new { code = Model.EntityId }),
-        _ => "#"
+        "Product"       => Url.Action("Edit", "Products",       new { code = Model.EntityId }),
+        "Customer"      => Url.Action("Edit", "Customers",      new { code = Model.EntityId }),
+        "Warehouse"     => Url.Action("Edit", "Warehouses",     new { code = Model.EntityId }),
+        "PurchaseOrder" => Url.Action("Edit", "PurchaseOrders", new { id   = Model.EntityId }),
+        _ => null,
     };
 
     var statBgVariant = Model.Stats.Count switch
@@ -61,9 +62,12 @@
         </div>
 
         <div class="wmsd-head-actions">
-            <a href="@editUrl" class="wmsd-btn wmsd-btn-primary">
-                <i class="ti ti-pencil" aria-hidden="true"></i> Edit
-            </a>
+            @if (editUrl is not null)
+            {
+                <a href="@editUrl" class="wmsd-btn wmsd-btn-primary">
+                    <i class="ti ti-pencil" aria-hidden="true"></i> Edit
+                </a>
+            }
             <button type="button" class="wmsd-btn wmsd-btn-icon" aria-label="More actions">
                 <i class="ti ti-dots-vertical" aria-hidden="true"></i>
             </button>
@@ -99,6 +103,16 @@
                         <i class="ti ti-photo" aria-hidden="true"></i> Images
                     </button>
                 }
+                @foreach (var tab in Model.CustomTabs)
+                {
+                    <button type="button" class="wmsd-tab" data-tab="@tab.Key" role="tab">
+                        <i class="ti @tab.IconClass" aria-hidden="true"></i> @tab.Label
+                        @if (tab.Count.HasValue)
+                        {
+                            <span class="wmsd-tab-count">@tab.Count.Value</span>
+                        }
+                    </button>
+                }
                 <button type="button" class="wmsd-tab" data-tab="documents" role="tab">
                     <i class="ti ti-files" aria-hidden="true"></i> Documents
                     <span class="wmsd-tab-count">@Model.Documents.Count</span>
@@ -116,6 +130,13 @@
             {
                 <div class="wmsd-panel is-hidden" data-panel="images" role="tabpanel">
                     @await Html.PartialAsync("Detail/_ImagesPanel", Model)
+                </div>
+            }
+
+            @foreach (var tab in Model.CustomTabs)
+            {
+                <div class="wmsd-panel is-hidden" data-panel="@tab.Key" role="tabpanel">
+                    @await Html.PartialAsync(tab.PartialName, Model)
                 </div>
             }
 

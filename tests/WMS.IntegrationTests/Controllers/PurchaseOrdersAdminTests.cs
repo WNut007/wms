@@ -27,6 +27,7 @@ public class PurchaseOrdersAdminTests
     private record AdminBuild(
         PurchaseOrdersController Controller,
         Mock<IPurchaseOrderRepository> Repo,
+        Mock<IReceivingHeaderRepository> ReceivingRepo,
         Mock<IPurchaseOrderService> Service,
         Mock<IOwnerRepository> OwnerRepo,
         Mock<IProductRepository> ProductRepo,
@@ -48,7 +49,25 @@ public class PurchaseOrdersAdminTests
         receivingFactory.Setup(f => f.For(It.IsAny<Guid>())).Returns(receivingRepo.Object);
         tenant.Setup(t => t.RequireTenantId()).Returns(TenantId);
 
-        var docs = Mock.Of<IDocumentStorageService>();
+        // TD-028 / TD-029 / TD-030 — default-stub the new read methods so
+        // unrelated admin tests (Create/Edit/Archive) keep compiling.
+        // Detail-specific tests override individually below.
+        repo.Setup(r => r.GetStatusCountsAsync(
+                It.IsAny<PurchaseOrderFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PurchaseOrderStatusCounts(0, 0, 0, 0, 0));
+        repo.Setup(r => r.GetLineRowsByIdAsync(
+                It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<PurchaseOrderLineRow>());
+        receivingRepo.Setup(r => r.GetReceiptsByPoIdAsync(
+                It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<PoReceiptRow>());
+        receivingRepo.Setup(r => r.GetActivityByPoAsync(
+                It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<ReceivingActivityRow>());
+
+        var docs = Mock.Of<IDocumentStorageService>(d =>
+            d.ListByEntityAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())
+                == Task.FromResult(new List<DocumentMetadata>()));
 
         var ownerRepo    = new Mock<IOwnerRepository>();
         ownerRepo.Setup(r => r.GetActiveSuppliersAsync(It.IsAny<CancellationToken>()))
@@ -117,7 +136,8 @@ public class PurchaseOrdersAdminTests
             currentUser.Object);
 
         return new AdminBuild(
-            ctrl, repo, service, ownerRepo, productRepo, uomRepo, warehouseRepo,
+            ctrl, repo, receivingRepo, service,
+            ownerRepo, productRepo, uomRepo, warehouseRepo,
             createValidator, editValidator, userId);
     }
 
@@ -381,5 +401,122 @@ public class PurchaseOrdersAdminTests
         var wire = WMS.Web.Services.Mappers.PurchaseOrderStatusMapper.ToWire(db);
         var back = WMS.Web.Services.Mappers.PurchaseOrderStatusMapper.FromWire(wire);
         Assert.Equal(db, back);
+    }
+
+    // ================================================================
+    // Phase 10A — Detail tabs + chip counts
+    // ================================================================
+
+    [Fact]
+    public async Task Detail_NotFound_Returns404()
+    {
+        var b = BuildAdmin();
+        b.Repo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PurchaseOrderDetail?)null);
+
+        var result = await b.Controller.Detail(Guid.NewGuid(), default);
+        Assert.IsType<NotFoundResult>(result);
+    }
+
+    // TD-029 — Lines tab is wired to the resolved-row repo method and
+    // surfaces as a CustomTab on the DetailPageViewModel.
+    [Fact]
+    public async Task Detail_PopulatesLinesTab_FromResolvedRows()
+    {
+        var b = BuildAdmin();
+        var detail = SampleDetail("PO-LINES");
+        var lineRows = new List<PurchaseOrderLineRow>
+        {
+            new(Guid.NewGuid(), 1, Guid.NewGuid(), "PROD-1", "Product One",
+                Guid.NewGuid(), "EA", 10m, 4m, "PartiallyReceived"),
+            new(Guid.NewGuid(), 2, Guid.NewGuid(), "PROD-2", "Product Two",
+                Guid.NewGuid(), "BOX", 5m, 5m, "Closed"),
+        };
+        b.Repo.Setup(r => r.GetByIdAsync(detail.Header.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+        b.Repo.Setup(r => r.GetLineRowsByIdAsync(detail.Header.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(lineRows);
+
+        var result = await b.Controller.Detail(detail.Header.Id, default);
+        var view = Assert.IsType<ViewResult>(result);
+        Assert.Equal("~/Views/Shared/_DetailLayout.cshtml", view.ViewName);
+
+        var vm = Assert.IsType<WMS.Web.ViewModels.Detail.DetailPageViewModel>(view.Model);
+        var lines = vm.CustomTabs.FirstOrDefault(t => t.Key == "lines");
+        Assert.NotNull(lines);
+        Assert.Equal(2, lines!.Count);
+        Assert.Equal("Detail/_PoLinesPanel", lines.PartialName);
+
+        // ViewBag.PoLines carries the actual rows for the partial.
+        Assert.Same(lineRows, view.ViewData["PoLines"]);
+    }
+
+    // TD-030 — Receipts tab is wired to GetReceiptsByPoIdAsync and the
+    // count badge equals the receipt count.
+    [Fact]
+    public async Task Detail_PopulatesReceiptsTab_FromReceiptRows()
+    {
+        var b = BuildAdmin();
+        var detail = SampleDetail("PO-RCPT");
+        var receipts = new List<PoReceiptRow>
+        {
+            new(Guid.NewGuid(), "GR-001", DateTime.UtcNow.AddDays(-1), "Posted", 3, 12m),
+            new(Guid.NewGuid(), "GR-002", DateTime.UtcNow,             "Draft",  1,  4m),
+        };
+        b.Repo.Setup(r => r.GetByIdAsync(detail.Header.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+        b.ReceivingRepo.Setup(r => r.GetReceiptsByPoIdAsync(detail.Header.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(receipts);
+
+        var result = await b.Controller.Detail(detail.Header.Id, default);
+        var view = Assert.IsType<ViewResult>(result);
+        var vm = Assert.IsType<WMS.Web.ViewModels.Detail.DetailPageViewModel>(view.Model);
+
+        var receiptsTab = vm.CustomTabs.FirstOrDefault(t => t.Key == "receipts");
+        Assert.NotNull(receiptsTab);
+        Assert.Equal(2, receiptsTab!.Count);
+        Assert.Same(receipts, view.ViewData["PoReceipts"]);
+    }
+
+    // TD-029 + TD-030 — declaration order is Lines, then Receipts.
+    [Fact]
+    public async Task Detail_CustomTabs_AreInExpectedOrder()
+    {
+        var b = BuildAdmin();
+        var detail = SampleDetail("PO-ORDER");
+        b.Repo.Setup(r => r.GetByIdAsync(detail.Header.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+
+        var result = await b.Controller.Detail(detail.Header.Id, default);
+        var vm = Assert.IsType<WMS.Web.ViewModels.Detail.DetailPageViewModel>(
+            ((ViewResult)result).Model);
+        Assert.Equal(new[] { "lines", "receipts" },
+            vm.CustomTabs.Select(t => t.Key).ToArray());
+    }
+
+    // TD-028 — chip counts on the JSON envelope.
+    [Fact]
+    public async Task GetData_ReturnsCountsAlongsideRows()
+    {
+        var b = BuildAdmin();
+        b.Repo.Setup(r => r.GetStatusCountsAsync(
+                It.IsAny<PurchaseOrderFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PurchaseOrderStatusCounts(
+                All: 24, Open: 10, Receiving: 8, Closed: 5, Cancelled: 1));
+        b.Repo.Setup(r => r.GetPagedAsync(
+                It.IsAny<PurchaseOrderFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PagedResult<PurchaseOrderListRow>
+            {
+                Items = new(), Total = 24, Page = 1, PageSize = 20, TotalPages = 2,
+            });
+
+        var json = Assert.IsType<JsonResult>(await b.Controller.GetData());
+        var envelope = json.Value!;
+        var counts = envelope.GetType().GetProperty("counts")!.GetValue(envelope)!;
+        Assert.Equal(24, counts.GetType().GetProperty("all")!.GetValue(counts));
+        Assert.Equal(10, counts.GetType().GetProperty("open")!.GetValue(counts));
+        Assert.Equal(8,  counts.GetType().GetProperty("receiving")!.GetValue(counts));
+        Assert.Equal(5,  counts.GetType().GetProperty("closed")!.GetValue(counts));
+        Assert.Equal(1,  counts.GetType().GetProperty("cancelled")!.GetValue(counts));
     }
 }

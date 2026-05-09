@@ -33,6 +33,15 @@ public class DetailPageViewModel
     public List<QuickAction> QuickActions { get; init; } = new();
     public List<KeyValuePair<string, string>> OverviewFields { get; init; } = new();
     public List<KeyValuePair<string, string>> Properties { get; init; } = new();
+
+    // Phase 10A — additive tab slot for entity-specific panels (PO
+    // Lines / Receipts; future: Order Picks; etc.). Empty list keeps
+    // the legacy 4-tab Master Data surface unchanged. Custom tabs render
+    // between Overview and Documents in declaration order. The partial
+    // receives the same DetailPageViewModel; entity-specific data is
+    // passed alongside via ViewBag (existing convention — ViewBag.Lines
+    // already used by PO Detail).
+    public List<DetailCustomTab> CustomTabs { get; init; } = new();
 }
 
 public record StatCard(string Label, string Value, string? AccentColor = null);
@@ -74,3 +83,16 @@ public record ActivityItem(
 // (Phase 7+ admin CRUD). Default true so existing call sites stay
 // functional.
 public record QuickAction(string Label, string IconClass, string Url, bool Enabled = true);
+
+// Phase 10A — entity-specific tab slot for the Detail layout. Key is
+// the tab's data-tab attribute (must be unique per page); PartialName
+// is the Razor partial path passed to Html.PartialAsync (typically
+// "Detail/_PoLinesPanel" or full "~/Views/.../...cshtml"). Count
+// renders as a small pill next to the label (mirrors Documents tab);
+// null hides it.
+public record DetailCustomTab(
+    string Key,
+    string Label,
+    string IconClass,
+    string PartialName,
+    int? Count = null);
