@@ -1,8 +1,12 @@
+using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using WMS.BLL.Services.Inbound;
+using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
 using WMS.DAL.Repositories.Inbound;
 using WMS.DAL.Repositories.Inventory;
+using WMS.Web.Models.Inbound;
 using WMS.Web.Services;
 using WMS.Web.Services.Mappers;
 using WMS.Web.Services.Storage;
@@ -27,17 +31,26 @@ public sealed class ReceivingController : Controller
     private readonly IStockMovementRepositoryFactory _movementRepos;
     private readonly ITenantContext _tenant;
     private readonly IDocumentStorageService _docs;
+    private readonly IReceivingHeaderService _service;
+    private readonly IValidator<CancelReceivingViewModel> _cancelValidator;
+    private readonly ICurrentUser _currentUser;
 
     public ReceivingController(
         IReceivingHeaderRepositoryFactory repos,
         IStockMovementRepositoryFactory movementRepos,
         ITenantContext tenant,
-        IDocumentStorageService docs)
+        IDocumentStorageService docs,
+        IReceivingHeaderService service,
+        IValidator<CancelReceivingViewModel> cancelValidator,
+        ICurrentUser currentUser)
     {
         _repos = repos;
         _movementRepos = movementRepos;
         _tenant = tenant;
         _docs = docs;
+        _service = service;
+        _cancelValidator = cancelValidator;
+        _currentUser = currentUser;
     }
 
     [HttpGet("")]
@@ -177,28 +190,67 @@ public sealed class ReceivingController : Controller
                 // would re-open the GoodsReceipt/Create form pre-populated
                 // with this draft. Phase 10 candidate.
                 new("Edit draft",    "ti-edit", "#", Enabled: false),
-                new("Cancel receipt", "ti-x",   "#", Enabled: false),
+                // Phase 10B (TD-023) — Cancel button is interactive
+                // only on Posted receipts. The href targets a JS hook
+                // (`#cancel-modal`) the Detail view binds to open the
+                // confirm modal; the form itself POSTs to /Receiving
+                // /Cancel/{id}.
+                new("Cancel receipt", "ti-x",
+                    h.Status == "Posted" ? "#cancel-modal" : "#",
+                    Enabled: h.Status == "Posted"),
             },
-            OverviewFields = new()
-            {
-                new("Receiving #", $"<span class=\"mono\">{System.Net.WebUtility.HtmlEncode(h.ReceivingNumber)}</span>"),
-                new("PO",          h.PurchaseOrderId.HasValue
-                    ? $"<a href=\"/PurchaseOrders/Detail/{h.PurchaseOrderId.Value}\">View PO</a>"
-                    : "Blind receipt"),
-                new("Warehouse",   System.Net.WebUtility.HtmlEncode(h.WarehouseId.ToString())),
-                new("Received at", h.ReceivedAt.ToString("yyyy-MM-dd HH:mm:ss") + " UTC"),
-                new("Status",      System.Net.WebUtility.HtmlEncode(h.Status)),
-                new("Notes",       System.Net.WebUtility.HtmlEncode(h.Notes ?? "—")),
-            },
-            Properties = new()
-            {
-                new("Created", RelativeTime.Format(h.CreatedAt)),
-                new("Updated", h.UpdatedAt is null ? "—" : RelativeTime.Format(h.UpdatedAt.Value)),
-            }
+            OverviewFields = BuildOverviewFields(h),
+            Properties = BuildProperties(h),
         };
 
         ViewBag.Lines = lines;
+        // Phase 10B (TD-023) — pass header-level cancellation audit
+        // to the layout for the dismissible TempData banner + the
+        // hidden modal partial that the Quick Action triggers.
+        ViewBag.HeaderId        = h.Id;
+        ViewBag.IsPosted        = h.Status == "Posted";
+        ViewBag.CancelMessage   = TempData["CancelMessage"] as string;
+        ViewBag.CancelError     = TempData["CancelError"] as string;
         return View("~/Views/Shared/_DetailLayout.cshtml", vm);
+    }
+
+    private static List<KeyValuePair<string, string>> BuildOverviewFields(Domain.Entities.Inbound.ReceivingHeader h)
+    {
+        var fields = new List<KeyValuePair<string, string>>
+        {
+            new("Receiving #", $"<span class=\"mono\">{System.Net.WebUtility.HtmlEncode(h.ReceivingNumber)}</span>"),
+            new("PO",          h.PurchaseOrderId.HasValue
+                ? $"<a href=\"/PurchaseOrders/Detail/{h.PurchaseOrderId.Value}\">View PO</a>"
+                : "Blind receipt"),
+            new("Warehouse",   System.Net.WebUtility.HtmlEncode(h.WarehouseId.ToString())),
+            new("Received at", h.ReceivedAt.ToString("yyyy-MM-dd HH:mm:ss") + " UTC"),
+            new("Status",      System.Net.WebUtility.HtmlEncode(h.Status)),
+            new("Notes",       System.Net.WebUtility.HtmlEncode(h.Notes ?? "—")),
+        };
+
+        if (h.Status == "Cancelled")
+        {
+            fields.Add(new("Cancel reason",
+                System.Net.WebUtility.HtmlEncode(h.CancelReason ?? "—")));
+        }
+
+        return fields;
+    }
+
+    private static List<KeyValuePair<string, string>> BuildProperties(Domain.Entities.Inbound.ReceivingHeader h)
+    {
+        var props = new List<KeyValuePair<string, string>>
+        {
+            new("Created", RelativeTime.Format(h.CreatedAt)),
+            new("Updated", h.UpdatedAt is null ? "—" : RelativeTime.Format(h.UpdatedAt.Value)),
+        };
+
+        if (h.CancelledAt.HasValue)
+        {
+            props.Add(new("Cancelled", RelativeTime.Format(h.CancelledAt.Value)));
+        }
+
+        return props;
     }
 
     [HttpGet("Print/{number}")]
@@ -207,6 +259,64 @@ public sealed class ReceivingController : Controller
         var detail = await _repos.For(_tenant.RequireTenantId()).GetByNumberAsync(number, ct);
         if (detail is null) return NotFound();
         return View(detail);
+    }
+
+    // Phase 10B (TD-023) — POST /Receiving/Cancel/{id}. Idempotent
+    // (already-Cancelled returns success with a notice). Validation
+    // failures redirect back to Detail with field errors in TempData.
+    [HttpPost("Cancel/{id:guid}")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Cancel(
+        Guid id,
+        CancelReceivingViewModel vm,
+        CancellationToken ct)
+    {
+        // Bind id from route (form binds it too but route is the
+        // authoritative source — guards against tampering).
+        vm = vm with { Id = id };
+
+        var validation = await _cancelValidator.ValidateAsync(vm, ct);
+        if (!validation.IsValid)
+        {
+            // Surface the first validation error via TempData; the
+            // Detail view renders it in a banner. Modal-driven flow
+            // makes per-field error rendering noisy; a single message
+            // is the cleaner UX.
+            TempData["CancelError"] = validation.Errors.FirstOrDefault()?.ErrorMessage
+                ?? "Validation failed.";
+            return await RedirectToDetailByIdAsync(id, ct);
+        }
+
+        try
+        {
+            var changed = await _service.CancelReceivingAsync(
+                _tenant.RequireTenantId(), id, vm.Reason.Trim(), _currentUser.UserId, ct);
+
+            TempData["CancelMessage"] = changed
+                ? "Receipt cancelled. Stock reversed; PO status reverted."
+                : "Receipt was already cancelled — no action taken.";
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Underflow on CK_Stock_OnHand_NonNegative or invalid
+            // source state. Surface the message; nothing was written
+            // (TransactionScope rolled back).
+            TempData["CancelError"] = ex.Message;
+        }
+
+        return await RedirectToDetailByIdAsync(id, ct);
+    }
+
+    private async Task<IActionResult> RedirectToDetailByIdAsync(Guid id, CancellationToken ct)
+    {
+        // Detail's URL key is ReceivingNumber; resolve from the row
+        // we have. If the row vanished (shouldn't, but defensive),
+        // fall back to the list.
+        var detail = await _repos.For(_tenant.RequireTenantId()).GetByIdAsync(id, ct);
+        if (detail is null)
+            return RedirectToAction(nameof(Index));
+        return RedirectToAction(nameof(Detail),
+            new { number = detail.Header.ReceivingNumber });
     }
 
     private static string? NormaliseFilter(string? value) =>

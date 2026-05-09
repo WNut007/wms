@@ -22,6 +22,23 @@
 
 <div class="wmsd-page">
 
+    @* Phase 10B (TD-023) — TempData banners from POST redirects.
+       Used today by the Cancel-receipt flow; generic enough that any
+       future "POST then redirect to Detail" surface can reuse the
+       same TempData keys. *@
+    @if (TempData["CancelMessage"] is string okMsg && !string.IsNullOrEmpty(okMsg))
+    {
+        <div style="padding: 10px 14px; background: #E1F5EE; color: #0F6E56; border-radius: 8px; font-size: 13px; display: flex; align-items: center; gap: 8px;">
+            <i class="ti ti-check"></i> @okMsg
+        </div>
+    }
+    @if (TempData["CancelError"] is string errMsg && !string.IsNullOrEmpty(errMsg))
+    {
+        <div style="padding: 10px 14px; background: #FCEBEB; color: #A32D2D; border-radius: 8px; font-size: 13px; display: flex; align-items: center; gap: 8px;">
+            <i class="ti ti-alert-circle"></i> @errMsg
+        </div>
+    }
+
     <nav class="wmsd-crumb" aria-label="Breadcrumb">
         <a href="@Model.BreadcrumbParentUrl" class="wmsd-btn wmsd-btn-icon" title="Back" style="margin-right: 4px;">
             <i class="ti ti-arrow-left" aria-hidden="true"></i>
@@ -192,6 +209,14 @@
             }
         </aside>
     </div>
+
+    @* Phase 10B (TD-023) — cancel-receipt modal partial. Renders only
+       on Receiving Detail when the receipt is Posted. CSS-only :target
+       activation; the Quick Action's href="#cancel-modal" opens it. *@
+    @if (ViewBag.HeaderId is Guid && ViewBag.IsPosted is true)
+    {
+        @await Html.PartialAsync("Detail/_CancelReceiptModal")
+    }
 </div>
 
 @section Scripts {

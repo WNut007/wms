@@ -1,5 +1,12 @@
+using FluentValidation;
+using FluentValidation.Results;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
+using Microsoft.Extensions.Primitives;
 using Moq;
+using WMS.BLL.Services.Inbound;
+using WMS.Common.Auth;
 using WMS.Common.Inventory;
 using WMS.Common.Multitenancy;
 using WMS.DAL.Common;
@@ -7,6 +14,7 @@ using WMS.DAL.Repositories.Inbound;
 using WMS.DAL.Repositories.Inventory;
 using WMS.Domain.Entities.Inbound;
 using WMS.Web.Controllers;
+using WMS.Web.Models.Inbound;
 using WMS.Web.Services.Storage;
 
 namespace WMS.IntegrationTests.Controllers;
@@ -21,7 +29,9 @@ public class ReceivingControllerTests
     private record Build(
         ReceivingController Controller,
         Mock<IReceivingHeaderRepository> Repo,
-        Mock<IStockMovementRepository> Movements);
+        Mock<IStockMovementRepository> Movements,
+        Mock<IReceivingHeaderService> Service,
+        Mock<IValidator<CancelReceivingViewModel>> CancelValidator);
 
     private static Build BuildController()
     {
@@ -53,8 +63,25 @@ public class ReceivingControllerTests
             d.ListByEntityAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())
                 == Task.FromResult(new List<DocumentMetadata>()));
 
-        var ctrl = new ReceivingController(factory.Object, movementFactory.Object, tenant.Object, docs);
-        return new Build(ctrl, repo, movements);
+        // Phase 10B (TD-023) — IReceivingHeaderService for Cancel.
+        var service = new Mock<IReceivingHeaderService>();
+        var cancelValidator = new Mock<IValidator<CancelReceivingViewModel>>();
+        cancelValidator.Setup(v => v.ValidateAsync(
+                It.IsAny<CancelReceivingViewModel>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ValidationResult());
+
+        var currentUser = new Mock<ICurrentUser>();
+        currentUser.SetupGet(u => u.UserId).Returns(Guid.NewGuid());
+
+        var ctrl = new ReceivingController(
+            factory.Object, movementFactory.Object, tenant.Object, docs,
+            service.Object, cancelValidator.Object, currentUser.Object);
+
+        // TempData is required by Cancel POST → redirect.
+        var tempDataProvider = new Mock<ITempDataProvider>();
+        ctrl.TempData = new TempDataDictionary(new DefaultHttpContext(), tempDataProvider.Object);
+
+        return new Build(ctrl, repo, movements, service, cancelValidator);
     }
 
     private static ReceivingDetail SampleDetail(string number = "GR-TEST-001", string status = "Posted", bool blind = false)
@@ -251,5 +278,154 @@ public class ReceivingControllerTests
         Assert.NotNull(capturedCounts);
         Assert.Equal(capturedRows!.Search, capturedCounts!.Search);
         Assert.Equal(capturedRows.Status,  capturedCounts.Status);
+    }
+
+    // ================================================================
+    // Phase 10B (TD-023) — Cancel-receipt endpoint
+    // ================================================================
+
+    [Fact]
+    public async Task Cancel_HappyPath_CallsService_AndRedirectsToDetail()
+    {
+        var b = BuildController();
+        var detail = SampleDetail("GR-CXL-1", "Posted");
+        b.Repo.Setup(r => r.GetByIdAsync(detail.Header.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+        b.Service.Setup(s => s.CancelReceivingAsync(
+                It.IsAny<Guid>(), detail.Header.Id, It.IsAny<string>(),
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var vm = new CancelReceivingViewModel { Reason = "stock damaged" };
+        var result = await b.Controller.Cancel(detail.Header.Id, vm, default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal(nameof(b.Controller.Detail), redirect.ActionName);
+        Assert.Equal("GR-CXL-1", redirect.RouteValues!["number"]);
+        Assert.Contains("cancelled", (string)b.Controller.TempData["CancelMessage"]!);
+    }
+
+    [Fact]
+    public async Task Cancel_ValidationFails_DoesNotCallService_AndSetsError()
+    {
+        var b = BuildController();
+        var headerId = Guid.NewGuid();
+        b.Repo.Setup(r => r.GetByIdAsync(headerId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SampleDetail("GR-X", "Posted") with { Header = new ReceivingHeader
+                { Id = headerId, ReceivingNumber = "GR-X", Status = "Posted",
+                  WarehouseId = Guid.NewGuid(), ReceivedAt = DateTime.UtcNow } });
+
+        b.CancelValidator.Setup(v => v.ValidateAsync(
+                It.IsAny<CancelReceivingViewModel>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ValidationResult(new[]
+            {
+                new ValidationFailure("Reason", "Reason is required."),
+            }));
+
+        var result = await b.Controller.Cancel(headerId, new CancelReceivingViewModel(), default);
+
+        Assert.IsType<RedirectToActionResult>(result);
+        b.Service.Verify(s => s.CancelReceivingAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(),
+            It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
+        Assert.Equal("Reason is required.", b.Controller.TempData["CancelError"]);
+    }
+
+    [Fact]
+    public async Task Cancel_ServiceReturnsFalse_SurfacesAlreadyCancelledNotice()
+    {
+        var b = BuildController();
+        var detail = SampleDetail("GR-ALREADY", "Cancelled");
+        b.Repo.Setup(r => r.GetByIdAsync(detail.Header.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+        b.Service.Setup(s => s.CancelReceivingAsync(
+                It.IsAny<Guid>(), detail.Header.Id, It.IsAny<string>(),
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);  // idempotent — already cancelled
+
+        var vm = new CancelReceivingViewModel { Reason = "duplicate cancel" };
+        var result = await b.Controller.Cancel(detail.Header.Id, vm, default);
+
+        Assert.IsType<RedirectToActionResult>(result);
+        var msg = (string)b.Controller.TempData["CancelMessage"]!;
+        Assert.Contains("already cancelled", msg);
+    }
+
+    [Fact]
+    public async Task Cancel_ServiceThrowsInvalidOperation_SurfacesErrorBanner()
+    {
+        var b = BuildController();
+        var detail = SampleDetail("GR-UNDERFLOW", "Posted");
+        b.Repo.Setup(r => r.GetByIdAsync(detail.Header.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+        b.Service.Setup(s => s.CancelReceivingAsync(
+                It.IsAny<Guid>(), detail.Header.Id, It.IsAny<string>(),
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException(
+                "Cannot cancel — stock has been consumed."));
+
+        var vm = new CancelReceivingViewModel { Reason = "supplier error" };
+        var result = await b.Controller.Cancel(detail.Header.Id, vm, default);
+
+        Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Cannot cancel — stock has been consumed.",
+            b.Controller.TempData["CancelError"]);
+    }
+
+    // Detail surfaces cancellation audit fields when the header is
+    // Cancelled (Phase 10B UI wiring).
+    [Fact]
+    public async Task Detail_CancelledReceipt_SurfacesAuditFieldsOnVm()
+    {
+        var b = BuildController();
+        var headerId = Guid.NewGuid();
+        var cancelledAt = DateTime.UtcNow.AddMinutes(-15);
+        var header = new ReceivingHeader
+        {
+            Id = headerId,
+            ReceivingNumber = "GR-DONE",
+            PurchaseOrderId = null,
+            WarehouseId = Guid.NewGuid(),
+            ReceivedAt = DateTime.UtcNow.AddHours(-2),
+            Status = "Cancelled",
+            CancelledBy = Guid.NewGuid(),
+            CancelledAt = cancelledAt,
+            CancelReason = "supplier sent wrong SKU",
+        };
+        var detail = new ReceivingDetail(header, Array.Empty<ReceivingLine>());
+
+        b.Repo.Setup(r => r.GetByNumberAsync("GR-DONE", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+
+        var result = await b.Controller.Detail("GR-DONE", default);
+        var view = Assert.IsType<ViewResult>(result);
+        var vm = Assert.IsType<WMS.Web.ViewModels.Detail.DetailPageViewModel>(view.Model);
+
+        // Cancel reason appears in OverviewFields.
+        Assert.Contains(vm.OverviewFields,
+            kv => kv.Key == "Cancel reason" && kv.Value.Contains("wrong SKU"));
+        // Cancelled-at relative appears in Properties.
+        Assert.Contains(vm.Properties, kv => kv.Key == "Cancelled");
+
+        // Cancel QuickAction is disabled (already cancelled).
+        var cancelAction = vm.QuickActions.First(a => a.Label == "Cancel receipt");
+        Assert.False(cancelAction.Enabled);
+    }
+
+    [Fact]
+    public async Task Detail_PostedReceipt_CancelQuickActionIsEnabled()
+    {
+        var b = BuildController();
+        var detail = SampleDetail("GR-POSTED", "Posted");
+        b.Repo.Setup(r => r.GetByNumberAsync("GR-POSTED", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+
+        var view = (ViewResult)await b.Controller.Detail("GR-POSTED", default);
+        var vm = Assert.IsType<WMS.Web.ViewModels.Detail.DetailPageViewModel>(view.Model);
+
+        var cancelAction = vm.QuickActions.First(a => a.Label == "Cancel receipt");
+        Assert.True(cancelAction.Enabled);
+        Assert.Equal("#cancel-modal", cancelAction.Url);
+        Assert.True((bool)view.ViewData["IsPosted"]!);
     }
 }

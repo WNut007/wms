@@ -66,4 +66,19 @@ public interface IPurchaseOrderService
         Guid purchaseOrderId,
         Guid? currentUserId,
         CancellationToken ct = default);
+
+    // Phase 10B (TD-023) — called by GR cancellation flow after the
+    // per-line ReceivedQuantity decrements have landed. Computes the
+    // appropriate target header status from the post-decrement state:
+    //   AllLinesFullyReceived              → stay Closed (no-op)
+    //   No line has any receipts           → Open
+    //   Otherwise (some receipts remain)   → Receiving
+    // Idempotent — returns false on no-op (e.g. cancellation that
+    // didn't change the aggregate enough to flip the header). Will
+    // not touch a Cancelled PO (separate, user-driven state).
+    Task<bool> RevertStatusAfterCancelAsync(
+        Guid tenantId,
+        Guid purchaseOrderId,
+        Guid? currentUserId,
+        CancellationToken ct = default);
 }

@@ -1,8 +1,10 @@
 using System.Data;
+using System.Transactions;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using WMS.DAL.Common;
 using WMS.Domain.Entities.Inbound;
+using IsolationLevel = System.Data.IsolationLevel;
 
 namespace WMS.DAL.Repositories.Inbound;
 
@@ -39,7 +41,11 @@ internal sealed class PurchaseOrderRepository : IPurchaseOrderRepository
         if (_connection.State != ConnectionState.Open)
             (_connection as SqlConnection)?.Open();
 
-        using var tx = _connection.BeginTransaction();
+        // TD-022 — defer to ambient TransactionScope when one exists
+        // (orchestrator owns the transaction); else maintain the
+        // standalone local-TX behaviour.
+        var hasAmbient = Transaction.Current is not null;
+        using IDbTransaction? tx = hasAmbient ? null : _connection.BeginTransaction();
         try
         {
             await _connection.ExecuteAsync(new CommandDefinition(
@@ -93,11 +99,11 @@ internal sealed class PurchaseOrderRepository : IPurchaseOrderRepository
                     cancellationToken: ct));
             }
 
-            tx.Commit();
+            tx?.Commit();
         }
         catch
         {
-            tx.Rollback();
+            tx?.Rollback();
             throw;
         }
     }
@@ -274,7 +280,9 @@ WHERE Id = @Id;";
         if (_connection.State != ConnectionState.Open)
             (_connection as SqlConnection)?.Open();
 
-        using var tx = _connection.BeginTransaction();
+        // TD-022 — same ambient-aware pattern as CreateAsync.
+        var hasAmbient = Transaction.Current is not null;
+        using IDbTransaction? tx = hasAmbient ? null : _connection.BeginTransaction();
         try
         {
             await _connection.ExecuteAsync(new CommandDefinition(
@@ -308,11 +316,11 @@ WHERE Id = @Id;";
                     cancellationToken: ct));
             }
 
-            tx.Commit();
+            tx?.Commit();
         }
         catch
         {
-            tx.Rollback();
+            tx?.Rollback();
             throw;
         }
     }
@@ -420,6 +428,43 @@ ORDER BY pol.LineNumber;";
             sql, new { poId = purchaseOrderId }, cancellationToken: ct));
         return rows.AsList();
     }
+
+    public Task<bool> AnyLineHasReceiptsAsync(
+        Guid purchaseOrderId, CancellationToken ct = default) =>
+        _connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            @"SELECT CASE WHEN EXISTS (
+                  SELECT 1 FROM inbound.PurchaseOrderLines
+                  WHERE PurchaseOrderId = @poId
+                    AND Status <> 'Cancelled'
+                    AND ReceivedQuantity > 0
+              ) THEN 1 ELSE 0 END;",
+            new { poId = purchaseOrderId },
+            cancellationToken: ct));
+
+    public Task RevertLineStatusAsync(
+        Guid purchaseOrderLineId, Guid? userId, CancellationToken ct = default) =>
+        // Server-side derivation — UPDATE only when the computed
+        // target differs from current Status, to keep Version stable
+        // when nothing changed (e.g. the line was already Open).
+        _connection.ExecuteAsync(new CommandDefinition(
+            @"UPDATE inbound.PurchaseOrderLines
+              SET Status    = CASE
+                                WHEN ReceivedQuantity = 0                              THEN 'Open'
+                                WHEN ReceivedQuantity < ExpectedQuantity               THEN 'PartiallyReceived'
+                                ELSE                                                        'Closed'
+                              END,
+                  UpdatedAt = SYSUTCDATETIME(),
+                  UpdatedBy = @UserId,
+                  Version   = Version + 1
+              WHERE Id     = @LineId
+                AND Status <> 'Cancelled'
+                AND Status <> CASE
+                                WHEN ReceivedQuantity = 0                              THEN 'Open'
+                                WHEN ReceivedQuantity < ExpectedQuantity               THEN 'PartiallyReceived'
+                                ELSE                                                        'Closed'
+                              END;",
+            new { LineId = purchaseOrderLineId, UserId = userId },
+            cancellationToken: ct));
 
     public async Task<PurchaseOrderStatusCounts> GetStatusCountsAsync(
         PurchaseOrderFilter f, CancellationToken ct = default)

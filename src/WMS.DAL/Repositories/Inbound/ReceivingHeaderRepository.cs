@@ -1,8 +1,10 @@
 using System.Data;
+using System.Transactions;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using WMS.DAL.Common;
 using WMS.Domain.Entities.Inbound;
+using IsolationLevel = System.Data.IsolationLevel;
 
 namespace WMS.DAL.Repositories.Inbound;
 
@@ -14,6 +16,7 @@ internal sealed class ReceivingHeaderRepository : IReceivingHeaderRepository
     private const string HeaderColumns = @"
         Id, ReceivingNumber, PurchaseOrderId, WarehouseId, ReceivedAt,
         Status, Notes,
+        CancelledBy, CancelledAt, CancelReason,
         CreatedAt, UpdatedAt, CreatedBy, UpdatedBy, Version
         FROM inbound.ReceivingHeaders";
 
@@ -37,7 +40,15 @@ internal sealed class ReceivingHeaderRepository : IReceivingHeaderRepository
         if (_connection.State != ConnectionState.Open)
             (_connection as SqlConnection)?.Open();
 
-        using var tx = _connection.BeginTransaction();
+        // TD-022 — when the orchestrator already wraps us in a
+        // TransactionScope, the connection is enlisted in the ambient
+        // transaction and SqlConnection.BeginTransaction() throws
+        // ("SqlConnection does not support parallel transactions").
+        // Defer to the ambient TX in that case (Dapper auto-uses it
+        // when no explicit `transaction:` is passed); else keep the
+        // local-TX behaviour for callers running us standalone.
+        var hasAmbient = Transaction.Current is not null;
+        using IDbTransaction? tx = hasAmbient ? null : _connection.BeginTransaction();
         try
         {
             await _connection.ExecuteAsync(new CommandDefinition(
@@ -98,11 +109,11 @@ internal sealed class ReceivingHeaderRepository : IReceivingHeaderRepository
                     cancellationToken: ct));
             }
 
-            tx.Commit();
+            tx?.Commit();
         }
         catch
         {
-            tx.Rollback();
+            tx?.Rollback();
             throw;
         }
     }
@@ -294,6 +305,33 @@ ORDER BY h.ReceivedAt DESC;";
         var rows = await _connection.QueryAsync<PoReceiptRow>(new CommandDefinition(
             sql, new { purchaseOrderId }, cancellationToken: ct));
         return rows.AsList();
+    }
+
+    public async Task<bool> SetCancellationAsync(
+        Guid receivingHeaderId,
+        string reason,
+        Guid? userId,
+        CancellationToken ct = default)
+    {
+        // Idempotent: only Posted → Cancelled is a valid transition.
+        // Already-Cancelled returns 0 rows affected; missing row also
+        // returns 0; both surface as `false` to the caller.
+        const string sql = @"
+UPDATE inbound.ReceivingHeaders
+SET Status       = 'Cancelled',
+    CancelledBy  = @UserId,
+    CancelledAt  = SYSUTCDATETIME(),
+    CancelReason = @Reason,
+    UpdatedAt    = SYSUTCDATETIME(),
+    UpdatedBy    = @UserId,
+    Version      = Version + 1
+WHERE Id = @Id AND Status = 'Posted';";
+
+        var rows = await _connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            new { Id = receivingHeaderId, Reason = reason, UserId = userId },
+            cancellationToken: ct));
+        return rows > 0;
     }
 
     public async Task<ReceivingStatusCounts> GetStatusCountsAsync(
