@@ -3,25 +3,67 @@
     ViewData["Title"] = "New warehouse";
 }
 
-<div class="wms-page-header">
-    <div>
-        <p class="wms-page-title">New warehouse</p>
-        <div class="wms-breadcrumb">
-            <a asp-controller="Home" asp-action="Index">Master Data</a>
-            <span class="wms-breadcrumb-sep">/</span>
-            <a asp-controller="Warehouses" asp-action="Index">Warehouses</a>
-            <span class="wms-breadcrumb-sep">/</span>
-            <span class="wms-breadcrumb-current">New</span>
-        </div>
-    </div>
-</div>
+@{
+    var hasS1Err = ViewData.ModelState["Code"]?.Errors.Count > 0
+        || ViewData.ModelState["Name"]?.Errors.Count > 0
+        || ViewData.ModelState["Type"]?.Errors.Count > 0
+        || ViewData.ModelState["Address"]?.Errors.Count > 0;
+    var hasS2Err = ViewData.ModelState["PhoneNumber"]?.Errors.Count > 0
+        || ViewData.ModelState["ManagerName"]?.Errors.Count > 0
+        || ViewData.ModelState["TimeZoneId"]?.Errors.Count > 0;
+    var initialStep = hasS1Err ? 1 : (hasS2Err ? 2 : 1);
+}
 
 <form asp-controller="Warehouses" asp-action="Create" method="post"
-      x-data="{ step: 1 }" autocomplete="off">
+      class="wmsf-page"
+      autocomplete="off"
+      x-data="wmsfFormState({
+          totalSteps: 2,
+          initialStep: @initialStep,
+          serverErrors: {
+              1: @(hasS1Err ? "true" : "false"),
+              2: @(hasS2Err ? "true" : "false")
+          },
+          required: {
+              1: ['Code', 'Name', 'Type'],
+              2: []
+          }
+      })">
+
+    <nav class="wmsf-breadcrumb" aria-label="Breadcrumb">
+        <a asp-controller="Home" asp-action="Index">Master Data</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <a asp-controller="Warehouses" asp-action="Index">Warehouses</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <span class="current">New warehouse</span>
+    </nav>
+
+    <header class="wmsf-header">
+        <div class="wmsf-header-title">
+            <div class="wmsf-header-icon" aria-hidden="true">
+                <i class="ti ti-building-warehouse"></i>
+            </div>
+            <div class="wmsf-header-text">
+                <h1>New warehouse</h1>
+                <p>Add a new physical site for receiving, storage, and dispatch.</p>
+            </div>
+        </div>
+        <div class="wmsf-progress">
+            <span class="wmsf-progress-label">Progress</span>
+            <div class="wmsf-progress-row">
+                <div class="wmsf-progress-bar"
+                     :style="`--wmsf-progress-pct: ${(step / 2) * 100}%`"
+                     role="progressbar"></div>
+                <span class="wmsf-progress-count">
+                    <span x-text="step"></span> / 2
+                </span>
+            </div>
+        </div>
+    </header>
 
     @if (ViewData.ModelState[""]?.Errors.Count > 0)
     {
-        <div class="alert alert-danger mb-3" role="alert">
+        <div class="wmsf-form-error" role="alert">
             @foreach (var err in ViewData.ModelState[""]!.Errors)
             {
                 <div>@err.ErrorMessage</div>
@@ -29,99 +71,144 @@
         </div>
     }
 
-    <ul class="steps steps-counter mb-4">
-        <li class="step-item" :class="{ 'active': step >= 1 }" @@click="step = 1" style="cursor: pointer;">Identity</li>
-        <li class="step-item" :class="{ 'active': step >= 2 }" @@click="step = 2" style="cursor: pointer;">Operations</li>
+    <ul class="wmsf-tabs" role="tablist">
+        <li>
+            <button type="button" class="wmsf-tab" :class="{ 'is-active': step === 1 }" @@click="goTo(1)" role="tab">
+                <span class="wmsf-tab-num">1</span>
+                <span class="wmsf-tab-text">
+                    <span class="wmsf-tab-eyebrow">Section</span>
+                    <span class="wmsf-tab-name">Identity</span>
+                </span>
+                <span class="wmsf-dot" :class="dotClass(1)" aria-hidden="true"></span>
+            </button>
+        </li>
+        <li>
+            <button type="button" class="wmsf-tab" :class="{ 'is-active': step === 2 }" @@click="goTo(2)" role="tab">
+                <span class="wmsf-tab-num">2</span>
+                <span class="wmsf-tab-text">
+                    <span class="wmsf-tab-eyebrow">Section</span>
+                    <span class="wmsf-tab-name">Operations</span>
+                </span>
+                <span class="wmsf-dot" :class="dotClass(2)" aria-hidden="true"></span>
+            </button>
+        </li>
     </ul>
 
-    @* Step 1 — Identity *@
-    <div class="wms-card mb-3" x-show="step === 1" x-cloak>
-        <h6 class="mb-3">Identity</h6>
+    @* === Pane 1 — Identity === *@
+    <section class="wmsf-pane" x-show="step === 1" x-cloak role="tabpanel">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Section 01</p>
+                <h2>Identity</h2>
+                <p class="wmsf-pane-desc">Code, name, classification, and address. Code is permanent.</p>
+            </div>
+            <span class="wmsf-required-badge" :class="{ 'is-empty': sectionComplete(1) }" x-text="sectionRequiredHint(1)"></span>
+        </div>
 
-        <div class="row g-3">
-            <div class="col-md-6">
-                <label asp-for="Code" class="form-label"></label>
-                <input asp-for="Code" class="form-control" autofocus />
-                <span asp-validation-for="Code" class="text-danger small"></span>
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field">
+                <label asp-for="Code" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Code) <span class="req">*</span>
+                </label>
+                <input asp-for="Code" class="wmsf-input" autofocus @@input="onTouch('Code')" />
+                <span asp-validation-for="Code" class="wmsf-error"></span>
             </div>
 
-            <div class="col-md-6">
-                <label asp-for="Name" class="form-label"></label>
-                <input asp-for="Name" class="form-control" />
-                <span asp-validation-for="Name" class="text-danger small"></span>
+            <div class="wmsf-field">
+                <label asp-for="Name" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Name) <span class="req">*</span>
+                </label>
+                <input asp-for="Name" class="wmsf-input" @@input="onTouch('Name')" />
+                <span asp-validation-for="Name" class="wmsf-error"></span>
             </div>
 
-            <div class="col-12">
-                <label asp-for="Type" class="form-label"></label>
-                <div>
+            <div class="wmsf-field col-span-2">
+                <label class="wmsf-field-label">
+                    Type <span class="req">*</span>
+                </label>
+                <div class="wmsf-radio-group">
                     @foreach (var t in WMS.Web.Models.Master.WarehouseCreateViewModel.AllTypes)
                     {
-                        <div class="form-check form-check-inline">
-                            <input asp-for="Type" type="radio" value="@t" id="type-@t" class="form-check-input" />
-                            <label for="type-@t" class="form-check-label">@t</label>
-                        </div>
+                        <label class="wmsf-radio-item">
+                            <input asp-for="Type" type="radio" value="@t" @@change="onTouch('Type')" />
+                            @t
+                        </label>
                     }
                 </div>
-                <span asp-validation-for="Type" class="text-danger small"></span>
+                <span asp-validation-for="Type" class="wmsf-error"></span>
             </div>
 
-            <div class="col-12">
-                <label asp-for="Address" class="form-label"></label>
-                <textarea asp-for="Address" class="form-control" rows="2"></textarea>
-                <span asp-validation-for="Address" class="text-danger small"></span>
-            </div>
-        </div>
-
-        <div class="d-flex justify-content-end mt-3">
-            <button type="button" class="btn btn-primary" @@click="step = 2">Next →</button>
-        </div>
-    </div>
-
-    @* Step 2 — Operations *@
-    <div class="wms-card mb-3" x-show="step === 2" x-cloak>
-        <h6 class="mb-3">Operations</h6>
-
-        <div class="row g-3">
-            <div class="col-md-6">
-                <label asp-for="PhoneNumber" class="form-label"></label>
-                <input asp-for="PhoneNumber" class="form-control" />
-                <span asp-validation-for="PhoneNumber" class="text-danger small"></span>
-            </div>
-
-            <div class="col-md-6">
-                <label asp-for="ManagerName" class="form-label"></label>
-                <input asp-for="ManagerName" class="form-control" />
-                <span asp-validation-for="ManagerName" class="text-danger small"></span>
-            </div>
-
-            <div class="col-md-6">
-                <label asp-for="TimeZoneId" class="form-label"></label>
-                <input asp-for="TimeZoneId" class="form-control" placeholder="Asia/Bangkok" />
-                <small class="text-muted d-block">IANA time-zone ID. Falls back to tenant default if blank.</small>
-                <span asp-validation-for="TimeZoneId" class="text-danger small"></span>
-            </div>
-
-            <div class="col-md-6">
-                <div class="form-check mt-4 pt-2">
-                    <input asp-for="IsActive" class="form-check-input" />
-                    <label asp-for="IsActive" class="form-check-label"></label>
-                </div>
+            <div class="wmsf-field col-span-2">
+                <label asp-for="Address" class="wmsf-field-label">@Html.DisplayNameFor(m => m.Address)</label>
+                <textarea asp-for="Address" class="wmsf-textarea" rows="2"></textarea>
+                <span asp-validation-for="Address" class="wmsf-error"></span>
             </div>
         </div>
+    </section>
 
-        <div class="d-flex justify-content-between mt-4">
-            <button type="button" class="btn btn-outline-secondary" @@click="step = 1">← Back</button>
-            <button type="submit" class="btn btn-primary">
-                <i class="ti ti-check me-1"></i> Create warehouse
-            </button>
+    @* === Pane 2 — Operations === *@
+    <section class="wmsf-pane" x-show="step === 2" x-cloak role="tabpanel">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Section 02</p>
+                <h2>Operations</h2>
+                <p class="wmsf-pane-desc">Day-to-day operational details. All optional.</p>
+            </div>
+            <span class="wmsf-required-badge is-empty">All optional</span>
         </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field">
+                <label asp-for="PhoneNumber" class="wmsf-field-label">@Html.DisplayNameFor(m => m.PhoneNumber)</label>
+                <input asp-for="PhoneNumber" class="wmsf-input" />
+                <span asp-validation-for="PhoneNumber" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="ManagerName" class="wmsf-field-label">@Html.DisplayNameFor(m => m.ManagerName)</label>
+                <input asp-for="ManagerName" class="wmsf-input" />
+                <span asp-validation-for="ManagerName" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="TimeZoneId" class="wmsf-field-label">@Html.DisplayNameFor(m => m.TimeZoneId)</label>
+                <input asp-for="TimeZoneId" class="wmsf-input" placeholder="Asia/Bangkok" />
+                <span asp-validation-for="TimeZoneId" class="wmsf-error"></span>
+                <span class="wmsf-helper">IANA time-zone ID. Blank falls back to tenant default.</span>
+            </div>
+
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Active</label>
+                <label class="wmsf-check-item">
+                    <input asp-for="IsActive" type="checkbox" />
+                    Available for receiving + picking
+                </label>
+            </div>
+        </div>
+    </section>
+
+    <div class="wmsf-actions">
+        <a asp-controller="Warehouses" asp-action="Index" class="wmsf-btn">
+            <i class="ti ti-x" aria-hidden="true"></i> Cancel
+        </a>
+        <span class="wmsf-actions-info"></span>
+        <button type="button" class="wmsf-btn" @@click="prev()" :disabled="step === 1">
+            <i class="ti ti-arrow-left" aria-hidden="true"></i> Back
+        </button>
+        <button type="button" class="wmsf-btn wmsf-btn-primary"
+                x-show="step < totalSteps" @@click="next()">
+            Continue <i class="ti ti-arrow-right" aria-hidden="true"></i>
+        </button>
+        <button type="submit" class="wmsf-btn wmsf-btn-primary"
+                x-show="step === totalSteps">
+            <i class="ti ti-check" aria-hidden="true"></i> Create warehouse
+        </button>
     </div>
 </form>
 
-<style>
-    [x-cloak] { display: none !important; }
-</style>
+<style>[x-cloak] { display: none !important; }</style>
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
+    <script src="~/js/wmsf-form-state.js" asp-append-version="true"></script>
 }
