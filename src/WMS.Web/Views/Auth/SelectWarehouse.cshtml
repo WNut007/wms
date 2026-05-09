@@ -21,143 +21,190 @@
         .Where(grouped.ContainsKey)
         .ToList();
     var totalCount = Model.Items.Count;
-
     var initialAlpineState = "{ search: '', region: 'All' }";
 }
 
-<div class="wmsp-page" x-data="@initialAlpineState">
+@*
+    Phase 8.5 (patch) — restored split-screen layout to match
+    /Auth/Login + /Auth/SelectTenant. Brand panel (purple gradient)
+    on the left; picker UI (search + chips + groups) on the right.
 
-    @* === Top header strip === *@
-    <header class="wmsp-header">
-        <div class="wmsp-header-logo">
-            <div class="wmsp-header-logo-icon" aria-hidden="true">
-                <i class="ti ti-package"></i>
+    The full-bleed .wmsp-page / .wmsp-header wrappers from the
+    initial Phase 8.5 ship are gone — they were a layout choice the
+    user reversed. The picker's interior classes (.wmsp-search /
+    .wmsp-chip / .wmsp-group / .wmsp-row / .wmsp-empty) are reused
+    as-is inside .wms-login-form's inner container.
+*@
+
+<div class="wms-login-page" x-data="@initialAlpineState">
+
+    @* === Left: brand panel (matches SelectTenant pattern) === *@
+    <aside class="wms-login-hero">
+        <div class="wms-login-hero-content">
+            <div class="wms-login-logo">
+                <div class="wms-login-logo-icon">
+                    <i class="ti ti-package" style="font-size: 22px; color: white;"></i>
+                </div>
+                <span class="wms-login-logo-text">WMS</span>
             </div>
-            <span class="wmsp-header-logo-text">WMS</span>
+
+            <p style="font-size: 11px; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 500; margin: 0 0 8px;">
+                @if (!string.IsNullOrEmpty(Model.TenantCode))
+                {
+                    @Model.TenantCode<text> · </text>
+                }
+                Step 3 of 3
+            </p>
+            <h1 class="wms-login-tagline">Choose warehouse</h1>
+            <p style="font-size: 14px; opacity: 0.7; color: var(--wms-hero-text); margin: 0;">
+                Pick the warehouse you'll be working from. You can switch later from the topbar.
+            </p>
         </div>
-        <div class="wmsp-header-meta">
-            @if (!string.IsNullOrEmpty(Model.TenantCode))
+
+        <div class="wms-login-stats">
+            <div class="wms-login-stat">
+                <p class="wms-login-stat-value">@totalCount</p>
+                <p class="wms-login-stat-label">Active warehouses</p>
+            </div>
+            <div class="wms-login-stat">
+                <p class="wms-login-stat-value">@regionOrder.Count</p>
+                <p class="wms-login-stat-label">Regions</p>
+            </div>
+            <div class="wms-login-stat">
+                <p class="wms-login-stat-value">3PL+</p>
+                <p class="wms-login-stat-label">Multi-tenant</p>
+            </div>
+        </div>
+    </aside>
+
+    @* === Right: picker form === *@
+    <main class="wms-login-form">
+        <div class="wms-login-form-inner wms-login-form-inner-picker">
+
+            @* Top action: back to tenant select (small icon-button at top-right) *@
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px;">
+                <div>
+                    <h2 class="wms-login-form-title" style="margin: 0;">Choose your warehouse</h2>
+                    <p class="wms-login-form-subtitle" style="margin: 4px 0 0;">
+                        Search by code, name, or city — or filter by region.
+                    </p>
+                </div>
+                <a asp-controller="Auth" asp-action="SelectTenant"
+                   class="wmsp-header-back"
+                   style="background: var(--wms-bg-secondary); color: var(--wms-text-secondary); border-color: var(--wms-border);"
+                   title="Back to tenant select">
+                    <i class="ti ti-arrow-left" aria-hidden="true"></i> Back
+                </a>
+            </div>
+
+            @if (ViewData.ModelState.ErrorCount > 0)
             {
-                <strong>@Model.TenantCode</strong> <text>·</text>
+                <div asp-validation-summary="ModelOnly" class="wmsp-form-error" style="margin-bottom: 14px;"></div>
             }
-            Step 3 of 3
-        </div>
-        <a asp-controller="Auth" asp-action="SelectTenant" class="wmsp-header-back">
-            <i class="ti ti-arrow-left" aria-hidden="true"></i> Back
-        </a>
-    </header>
 
-    <main class="wmsp-body">
+            @* Search === *@
+            <div class="wmsp-search-wrap" style="margin-bottom: 12px;">
+                <i class="ti ti-search wmsp-search-icon" aria-hidden="true"></i>
+                <input type="search"
+                       class="wmsp-search"
+                       placeholder="Search by code, name, or city..."
+                       x-model="search"
+                       x-ref="search"
+                       x-init="$nextTick(() => $refs.search.focus())"
+                       autocomplete="off" />
+                <span class="wmsp-kbd" aria-hidden="true">⌘K</span>
+            </div>
 
-        <div class="wmsp-heading">
-            <h1>Choose your warehouse</h1>
-            <p>Pick the warehouse you'll be working from. You can switch later from the topbar.</p>
-        </div>
-
-        @if (ViewData.ModelState.ErrorCount > 0)
-        {
-            <div asp-validation-summary="ModelOnly" class="wmsp-form-error"></div>
-        }
-
-        @* === Search === *@
-        <div class="wmsp-search-wrap">
-            <i class="ti ti-search wmsp-search-icon" aria-hidden="true"></i>
-            <input type="search"
-                   class="wmsp-search"
-                   placeholder="Search by code, name, or city..."
-                   x-model="search"
-                   x-ref="search"
-                   x-init="$nextTick(() => $refs.search.focus())"
-                   autocomplete="off" />
-            <span class="wmsp-kbd" aria-hidden="true">⌘K</span>
-        </div>
-
-        @* === Region chips === *@
-        <div class="wmsp-chips" role="tablist">
-            <button type="button"
-                    class="wmsp-chip"
-                    :class="{ 'is-active': region === 'All' }"
-                    @@click="region = 'All'">
-                All <span class="wmsp-chip-count">@totalCount</span>
-            </button>
-            @foreach (var region in regionOrder)
-            {
+            @* Region chips === *@
+            <div class="wmsp-chips" role="tablist" style="margin-bottom: 16px;">
                 <button type="button"
                         class="wmsp-chip"
-                        :class="{ 'is-active': region === '@region' }"
-                        @@click="region = '@region'">
-                    @region <span class="wmsp-chip-count">@grouped[region].Count</span>
+                        :class="{ 'is-active': region === 'All' }"
+                        @@click="region = 'All'">
+                    All <span class="wmsp-chip-count">@totalCount</span>
                 </button>
-            }
-        </div>
-
-        @* === Region groups + warehouse rows ===
-
-           Filter logic — both per-row x-show:
-             - search (case-insensitive substring against Code+Name+City)
-             - region (chip selection; 'All' = no region filter)
-           Group is hidden if every row is hidden (computed against
-           visible-row count via querySelectorAll). *@
-
-        <form asp-action="SelectWarehouse" method="post" style="display: contents;">
-            @Html.AntiForgeryToken()
-
-            @foreach (var region in regionOrder)
-            {
-                <section class="wmsp-group"
-                         x-show="region === 'All' || region === '@region'">
-                    <div class="wmsp-group-head">
-                        <i class="ti ti-map-pin" aria-hidden="true"></i>
-                        <span>@region</span>
-                        <span class="wmsp-group-count">@grouped[region].Count</span>
-                    </div>
-
-                    @foreach (var entry in grouped[region])
-                    {
-                        var w = entry.Item;
-                        var typeClass = w.Type.ToLowerInvariant() switch
-                        {
-                            "main"      => "t-main",
-                            "satellite" => "t-satellite",
-                            "branch"    => "t-branch",
-                            _           => "t-satellite",
-                        };
-                        var haystack = $"{w.Code} {w.Name} {entry.City}".ToLowerInvariant();
-
-                        <button type="submit"
-                                name="SelectedWarehouseId"
-                                value="@w.Id"
-                                class="wmsp-row"
-                                x-show="!search.trim() || '@haystack'.indexOf(search.toLowerCase().trim()) !== -1">
-                            <div class="wmsp-row-icon" aria-hidden="true">
-                                <i class="ti ti-building-warehouse"></i>
-                            </div>
-                            <span class="wmsp-row-code">@w.Code</span>
-                            <div class="wmsp-row-text">
-                                <p class="wmsp-row-name">@w.Name</p>
-                                <p class="wmsp-row-meta">@entry.City · @w.Type</p>
-                            </div>
-                            <span class="wmsp-row-badge @typeClass">@w.Type</span>
-                            <i class="ti ti-chevron-right wmsp-row-chevron" aria-hidden="true"></i>
-                        </button>
-                    }
-                </section>
-            }
-        </form>
-
-        @* === Empty state === *@
-        <div class="wmsp-empty"
-             x-show="search.trim() && document.querySelectorAll('.wmsp-row[style*=\'display: none\']').length === @totalCount"
-             x-cloak>
-            <div class="wmsp-empty-icon" aria-hidden="true">
-                <i class="ti ti-mood-empty"></i>
+                @foreach (var region in regionOrder)
+                {
+                    <button type="button"
+                            class="wmsp-chip"
+                            :class="{ 'is-active': region === '@region' }"
+                            @@click="region = '@region'">
+                        @region <span class="wmsp-chip-count">@grouped[region].Count</span>
+                    </button>
+                }
             </div>
-            <p class="wmsp-empty-title">No warehouses match</p>
-            <p class="wmsp-empty-text">Try a different search term or reset the filters.</p>
-            <button type="button" class="wmsp-empty-reset"
-                    @@click="search = ''; region = 'All'; $refs.search.focus()">
-                <i class="ti ti-refresh" aria-hidden="true"></i> Reset filters
-            </button>
+
+            @* Region groups + warehouse rows ===
+
+               Filter logic — both per-row x-show:
+                 - search (case-insensitive substring against Code+Name+City)
+                 - region (chip selection; 'All' = no region filter)
+               Group section is hidden when its region isn't selected; rows
+               within the section are individually hidden by search match. *@
+
+            <form asp-action="SelectWarehouse" method="post" style="display: contents;">
+                @Html.AntiForgeryToken()
+
+                <div style="display: flex; flex-direction: column; gap: 16px;">
+                    @foreach (var region in regionOrder)
+                    {
+                        <section class="wmsp-group"
+                                 x-show="region === 'All' || region === '@region'">
+                            <div class="wmsp-group-head">
+                                <i class="ti ti-map-pin" aria-hidden="true"></i>
+                                <span>@region</span>
+                                <span class="wmsp-group-count">@grouped[region].Count</span>
+                            </div>
+
+                            @foreach (var entry in grouped[region])
+                            {
+                                var w = entry.Item;
+                                var typeClass = w.Type.ToLowerInvariant() switch
+                                {
+                                    "main"      => "t-main",
+                                    "satellite" => "t-satellite",
+                                    "branch"    => "t-branch",
+                                    _           => "t-satellite",
+                                };
+                                var haystack = $"{w.Code} {w.Name} {entry.City}".ToLowerInvariant();
+
+                                <button type="submit"
+                                        name="SelectedWarehouseId"
+                                        value="@w.Id"
+                                        class="wmsp-row"
+                                        x-show="!search.trim() || '@haystack'.indexOf(search.toLowerCase().trim()) !== -1">
+                                    <div class="wmsp-row-icon" aria-hidden="true">
+                                        <i class="ti ti-building-warehouse"></i>
+                                    </div>
+                                    <span class="wmsp-row-code">@w.Code</span>
+                                    <div class="wmsp-row-text">
+                                        <p class="wmsp-row-name">@w.Name</p>
+                                        <p class="wmsp-row-meta">@entry.City · @w.Type</p>
+                                    </div>
+                                    <span class="wmsp-row-badge @typeClass">@w.Type</span>
+                                    <i class="ti ti-chevron-right wmsp-row-chevron" aria-hidden="true"></i>
+                                </button>
+                            }
+                        </section>
+                    }
+                </div>
+            </form>
+
+            @* Empty state === *@
+            <div class="wmsp-empty"
+                 x-show="search.trim() && document.querySelectorAll('.wmsp-row[style*=\'display: none\']').length === @totalCount"
+                 x-cloak
+                 style="margin-top: 16px;">
+                <div class="wmsp-empty-icon" aria-hidden="true">
+                    <i class="ti ti-mood-empty"></i>
+                </div>
+                <p class="wmsp-empty-title">No warehouses match</p>
+                <p class="wmsp-empty-text">Try a different search term or reset the filters.</p>
+                <button type="button" class="wmsp-empty-reset"
+                        @@click="search = ''; region = 'All'; $refs.search.focus()">
+                    <i class="ti ti-refresh" aria-hidden="true"></i> Reset filters
+                </button>
+            </div>
         </div>
     </main>
 </div>

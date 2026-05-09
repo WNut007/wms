@@ -391,3 +391,24 @@
   .wmsp-row-code, .wmsp-row-badge { display: none; }
   .wmsp-row-name { font-size: 12px; }
 }
+
+/* ================================================================
+   Phase 8.5 patch — Picker inside the split-screen Auth shell
+   ----------------------------------------------------------------
+   The picker now lives inside .wms-login-form (matches Login +
+   SelectTenant). The form's default .wms-login-form-inner caps at
+   380px which is fine for those 2 steps, but the picker's groups +
+   rows need ~600px to breathe. The .wms-login-form-inner-picker
+   modifier widens the container.
+   ================================================================ */
+.wms-login-form-inner.wms-login-form-inner-picker {
+  max-width: 640px;
+}
+
+/* Allow the right form pane to scroll when content exceeds viewport
+   height (24+ warehouses easily overflow at typical desktop heights). */
+.wms-login-page:has(.wms-login-form-inner-picker) .wms-login-form {
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 36px 48px;
+}

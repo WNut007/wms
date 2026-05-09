@@ -2165,4 +2165,28 @@ a:active {
   color: white !important;
 }
 
+/* --- Topbar avatar (purple bg, white initial letter) -------------
+   The previous .wms-topbar-avatar:hover { opacity: 0.85 } dimmed
+   the entire button INCLUDING the white letter — at 85% the letter
+   reads washed-out against the slightly-dimmed purple bg. Replace
+   opacity-dim with a deliberate bg shift that leaves the letter
+   fully visible. */
+.wms-topbar-avatar,
+.wms-topbar-avatar:hover,
+.wms-topbar-avatar:active,
+.wms-topbar-avatar:focus,
+.wms-topbar-avatar:focus-visible {
+  color: white !important;
+  opacity: 1 !important; /* override the legacy opacity:0.85 hover */
+}
+
+.wms-topbar-avatar:hover {
+  background: #4338CA;   /* purple-700 — darker but still on-brand */
+  border-color: #4338CA;
+}
+
+.wms-topbar-avatar:active {
+  background: #3730A3;   /* purple-800 */
+}
+
 /* End wms-custom.css */
