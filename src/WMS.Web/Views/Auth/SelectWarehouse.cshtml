@@ -48,6 +48,17 @@
                 <span class="wms-login-logo-text">WMS</span>
             </div>
 
+            @* Phase 8.5 patch — Back button on the dark panel so the
+               white text stays readable. The earlier right-panel
+               placement sat on the white form background where it was
+               hard to see (user feedback "ปุ่ม back เห็นไม่ชัด"). *@
+            <a asp-controller="Auth" asp-action="SelectTenant"
+               class="wmsp-header-back"
+               style="margin-bottom: 24px;"
+               title="Back to tenant select">
+                <i class="ti ti-arrow-left" aria-hidden="true"></i> Back
+            </a>
+
             <p style="font-size: 11px; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 500; margin: 0 0 8px;">
                 @if (!string.IsNullOrEmpty(Model.TenantCode))
                 {
@@ -81,20 +92,13 @@
     <main class="wms-login-form">
         <div class="wms-login-form-inner wms-login-form-inner-picker">
 
-            @* Top action: back to tenant select (small icon-button at top-right) *@
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px;">
-                <div>
-                    <h2 class="wms-login-form-title" style="margin: 0;">Choose your warehouse</h2>
-                    <p class="wms-login-form-subtitle" style="margin: 4px 0 0;">
-                        Search by code, name, or city — or filter by region.
-                    </p>
-                </div>
-                <a asp-controller="Auth" asp-action="SelectTenant"
-                   class="wmsp-header-back"
-                   style="background: var(--wms-bg-secondary); color: var(--wms-text-secondary); border-color: var(--wms-border);"
-                   title="Back to tenant select">
-                    <i class="ti ti-arrow-left" aria-hidden="true"></i> Back
-                </a>
+            @* Heading — Back button moved to left brand panel for
+               contrast (Phase 8.5 patch). *@
+            <div style="margin-bottom: 18px;">
+                <h2 class="wms-login-form-title" style="margin: 0;">Choose your warehouse</h2>
+                <p class="wms-login-form-subtitle" style="margin: 4px 0 0;">
+                    Search by code, name, or city — or filter by region.
+                </p>
             </div>
 
             @if (ViewData.ModelState.ErrorCount > 0)
