@@ -13,6 +13,15 @@ public class DetailPageViewModel
     public string StatusLabel { get; init; } = "";
     public string StatusVariant { get; init; } = "success";
 
+    // Phase 8 polish — extra badges shown next to the primary Status
+    // badge (e.g. CustomerType, CustomerTier, Warehouse Type). Empty by
+    // default; only Customer + Warehouse Detail populate.
+    public List<DetailBadge> Badges { get; init; } = new();
+
+    // Phase 8 polish — 2-letter avatar initials. Empty falls back to
+    // rendering the IconClass icon inside the gradient avatar.
+    public string AvatarInitials { get; init; } = "";
+
     public string BreadcrumbParent { get; init; } = "";
     public string BreadcrumbParentUrl { get; init; } = "";
 
@@ -27,6 +36,10 @@ public class DetailPageViewModel
 }
 
 public record StatCard(string Label, string Value, string? AccentColor = null);
+
+// Phase 8 — extra status badge beside the primary StatusLabel.
+// Variant is one of: success / warning / danger / info / neutral / purple.
+public record DetailBadge(string Label, string Variant);
 
 public record ImageItem(int Order, string Label, string Url, bool IsPrimary);
 

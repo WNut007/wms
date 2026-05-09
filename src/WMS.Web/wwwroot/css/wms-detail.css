@@ -1,0 +1,373 @@
+/* ================================================================
+   WMS Detail — White card + 3px purple accent bar polish (Phase 8)
+
+   Loaded AFTER wms-custom.css. Powers the Detail pages
+   (_DetailLayout.cshtml + 4 partials) for Products / Customers /
+   Warehouses with a consistent visual language: gradient avatar,
+   stat tiles with accent bars, underlined tabs, 2-column body,
+   sidebar cards.
+
+   Token names are local to this file (--wmsd-*) — same separation as
+   wms-forms.css.
+   ================================================================ */
+
+:root {
+  --wmsd-purple-50:  #EEEDFE;
+  --wmsd-purple-100: #CECBF6;
+  --wmsd-purple-200: #B5B0EF;
+  --wmsd-purple-600: #534AB7;
+  --wmsd-purple-700: #3E369A;
+  --wmsd-purple-grad: linear-gradient(135deg, #534AB7 0%, #7F77DD 100%);
+
+  --wmsd-border:  rgba(0, 0, 0, 0.08);
+  --wmsd-divider: rgba(0, 0, 0, 0.06);
+  --wmsd-tile-success: #1D9E75;
+  --wmsd-text-secondary: #6B7280;
+}
+
+/* ================================================================
+   Page wrapper (replaces inline styles in _DetailLayout)
+   ================================================================ */
+.wmsd-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ================================================================
+   Breadcrumb
+   ================================================================ */
+.wmsd-crumb {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px;
+  color: var(--wmsd-text-secondary);
+}
+.wmsd-crumb a { color: inherit; text-decoration: none; }
+.wmsd-crumb a:hover { color: var(--wmsd-purple-600); }
+.wmsd-crumb .sep { font-size: 10px; opacity: 0.45; }
+.wmsd-crumb .current { color: #111827; font-weight: 500; }
+
+/* ================================================================
+   Header card (gradient avatar · title · status · actions)
+   ================================================================ */
+.wmsd-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 18px;
+  align-items: center;
+  padding: 18px 22px;
+  background: #fff;
+  border: 0.5px solid var(--wmsd-border);
+  border-radius: 12px;
+}
+
+.wmsd-avatar {
+  width: 50px; height: 50px;
+  border-radius: 12px;
+  background: var(--wmsd-purple-grad);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+  font-family: 'Inter', sans-serif;
+}
+.wmsd-avatar .ti { font-size: 22px; }
+
+.wmsd-head-text { min-width: 0; }
+.wmsd-head-title-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.wmsd-head-text h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+}
+.wmsd-head-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--wmsd-text-secondary);
+  font-family: 'JetBrains Mono', Consolas, monospace;
+}
+
+.wmsd-head-actions {
+  display: flex; align-items: center; gap: 6px;
+}
+
+.wmsd-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 100px;
+}
+.wmsd-badge::before {
+  content: '';
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+}
+.wmsd-badge.s-success { background: #E1F5EE; color: #0F6E56; }
+.wmsd-badge.s-warning { background: #FAEEDA; color: #854F0B; }
+.wmsd-badge.s-danger  { background: #FCEBEB; color: #A32D2D; }
+.wmsd-badge.s-info    { background: #E6F1FB; color: #0C447C; }
+.wmsd-badge.s-neutral { background: #F1EFE8; color: #444441; }
+.wmsd-badge.s-purple  { background: var(--wmsd-purple-50); color: var(--wmsd-purple-600); }
+
+.wmsd-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 8px;
+  border: 0.5px solid rgba(0, 0, 0, 0.15);
+  background: #fff;
+  color: #111827;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+.wmsd-btn:hover { background: #FAFAF8; }
+.wmsd-btn .ti { font-size: 13px; }
+.wmsd-btn-icon {
+  width: 32px; padding: 0;
+  justify-content: center;
+}
+.wmsd-btn-primary {
+  background: var(--wmsd-purple-600);
+  color: #fff;
+  border-color: var(--wmsd-purple-600);
+}
+.wmsd-btn-primary:hover {
+  background: var(--wmsd-purple-700);
+  border-color: var(--wmsd-purple-700);
+}
+
+/* ================================================================
+   Stat tiles (4-col grid, white cards, 3px purple accent bar)
+   ================================================================ */
+.wmsd-stats {
+  display: grid;
+  grid-template-columns: repeat(var(--wmsd-stat-cols, 4), minmax(0, 1fr));
+  gap: 10px;
+}
+
+.wmsd-stat {
+  position: relative;
+  background: #fff;
+  border: 0.5px solid var(--wmsd-border);
+  border-left: 3px solid var(--wmsd-purple-600);
+  border-radius: 6px;
+  padding: 12px 14px;
+}
+.wmsd-stat-label {
+  margin: 0 0 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--wmsd-text-secondary);
+  font-weight: 500;
+}
+.wmsd-stat-value {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+}
+.wmsd-stat-value.success { color: var(--wmsd-tile-success); }
+
+@media (max-width: 900px) {
+  .wmsd-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ================================================================
+   Tab nav (underlined)
+   ================================================================ */
+.wmsd-body {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .wmsd-body { grid-template-columns: 1fr; }
+}
+
+.wmsd-card {
+  background: #fff;
+  border: 0.5px solid var(--wmsd-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.wmsd-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 16px;
+  border-bottom: 0.5px solid var(--wmsd-border);
+}
+
+.wmsd-tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 12px 14px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--wmsd-text-secondary);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.wmsd-tab:hover { color: #111827; }
+.wmsd-tab.is-active {
+  color: var(--wmsd-purple-600);
+  font-weight: 500;
+  border-bottom-color: var(--wmsd-purple-600);
+}
+.wmsd-tab .ti { font-size: 14px; }
+.wmsd-tab-count {
+  background: #F1EFE8;
+  color: #444441;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 100px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.wmsd-tab.is-active .wmsd-tab-count {
+  background: var(--wmsd-purple-50);
+  color: var(--wmsd-purple-600);
+}
+
+.wmsd-panel { padding: 18px 20px; }
+.wmsd-panel.is-hidden { display: none; }
+
+/* ================================================================
+   Sections + definition lists
+   ================================================================ */
+.wmsd-section + .wmsd-section {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 0.5px solid var(--wmsd-divider);
+}
+.wmsd-section-eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--wmsd-purple-600);
+  margin: 0 0 4px;
+}
+.wmsd-section h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+}
+
+.wmsd-dl {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 8px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+.wmsd-dl dt {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--wmsd-text-secondary);
+}
+.wmsd-dl dt .ti {
+  font-size: 13px;
+  opacity: 0.75;
+}
+.wmsd-dl dd {
+  margin: 0;
+  color: #111827;
+}
+.wmsd-dl dd .mono { font-family: 'JetBrains Mono', Consolas, monospace; }
+.wmsd-dl dd a { color: var(--wmsd-purple-600); text-decoration: none; }
+.wmsd-dl dd a:hover { text-decoration: underline; }
+
+/* ================================================================
+   Sidebar cards (Quick Actions · Created/Updated)
+   ================================================================ */
+.wmsd-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wmsd-side-card {
+  position: relative;
+  background: #fff;
+  border: 0.5px solid var(--wmsd-border);
+  border-left: 3px solid var(--wmsd-purple-600);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.wmsd-side-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--wmsd-text-secondary);
+  font-weight: 500;
+  margin: 0 0 8px;
+}
+
+.wmsd-action {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  margin: 0 -10px;
+  font-size: 12px;
+  color: #111827;
+  text-decoration: none;
+  border-radius: 6px;
+  transition: background 120ms ease;
+  cursor: pointer;
+}
+.wmsd-action:hover {
+  background: var(--wmsd-purple-50);
+  color: var(--wmsd-purple-700);
+}
+.wmsd-action .ti {
+  font-size: 14px;
+  color: var(--wmsd-purple-600);
+  flex-shrink: 0;
+}
+.wmsd-action.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.wmsd-action.is-disabled .ti { color: var(--wmsd-text-secondary); }
+
+.wmsd-meta {
+  font-size: 11px;
+}
+.wmsd-meta + .wmsd-meta { margin-top: 10px; }
+.wmsd-meta-key {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--wmsd-text-secondary);
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+.wmsd-meta-value { color: #111827; }
+.wmsd-meta-value strong { font-weight: 500; }
+.wmsd-meta-when {
+  display: block;
+  color: var(--wmsd-text-secondary);
+  font-size: 10px;
+  margin-top: 1px;
+}

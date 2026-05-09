@@ -24,7 +24,8 @@ This is the WMS (Warehouse Management System) rebuild project. This file is your
 **Interactivity**: HTMX 2.0 + Alpine 3.14
 
 **Design system**: `docs/UI_DESIGN_REFERENCE.md` (LOCKED v1.0)
-**Custom CSS**: `wwwroot/css/wms-custom.css` (loaded AFTER Tabler)
+**Custom CSS**: `wwwroot/css/wms-custom.css` (Phase 1 design system, loaded AFTER Tabler)
+**Phase 8 polish modules**: `wwwroot/css/wms-forms.css` (Section tabs, status dots, panes) + `wwwroot/css/wms-detail.css` (gradient avatar, accent bars, stat tiles). Both loaded after wms-custom.css. Tokens prefixed `--wmsf-` / `--wmsd-` (purple-600 #534AB7 system) — distinct from legacy `--wms-primary` (#5D4FA0) which the sidebar still owns.
 
 **Color tokens**:
 - Primary: `#5D4FA0` → `#7B5DBF` (purple gradient — sidebar)
@@ -316,8 +317,8 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Phase 7 — Admin CRUD shipped (v0.8.0-admin-crud)
-**Current Focus**: pending decision — candidates include TD-014 Customer Activity half (still blocked on Phase 7+ orders schema), TD-007/TD-008 (mobile PWA design-system styling pass), TD-016 (putaway-pair grouping, naturally blocked on TD-004 / ADR-004), Categories / UoMs / Carriers admin CRUD (next admin sweep)
+**Active Sprint**: Phase 8 — Master Data UI Polish shipped (v0.8.1-master-polish)
+**Current Focus**: pending decision — candidates include Phase 9 (ADR-004 + Putaway header), TD-014 Customer Activity half (blocked on Phase 7+ orders), Categories / UoMs / Carriers admin CRUD, TD-016 (putaway-pair grouping)
 **Blockers**: none
 
 Update this section weekly during standups.
@@ -692,6 +693,47 @@ No tests touched — no controller / service / repo logic changed.
 Build green. Tests: 101 unit + 206 integration + 5 skipped —
 unchanged from Phase 6E.
 
+### Day 8 — Phase 8 (Master Data UI Polish)
+
+**Branch**: `feat/master-data-polish` → merged to `main` · **Tag**: `v0.8.1-master-polish` · **Closes**: user feedback "UI Manage Master ดูประถม" (Phase 7 forms felt primitive)
+
+Visual-only polish across the 9 Master Data surfaces shipped in Phase 7. No controller-logic changes, no test count delta — 349 passing throughout.
+
+Locked decisions (3 mockups approved going in):
+- **D1 Insert forms**: V1 horizontal Section tabs (numbered, with eyebrow + name + per-tab status dot) replacing the Phase 7D vertical Alpine stepper. Tabs go full-width with the active state in purple-50 / 1px purple border. Status dots: gray (untouched) / amber (touched, in progress) / green (complete) / red (validation error).
+- **D2 Edit forms**: same V1 Section tabs visual, but with edit-mode dot precedence (touched > complete) — initial paint shows green dots (data already valid); any field edit flips that section's dot to amber until save. Header gains 50px gradient avatar with 2-letter initials, Status badge, and a "View" link to /Detail.
+- **D3 Detail pages**: white cards with 3px purple accent bar (border-left), 50px gradient avatar (135deg #534AB7 → #7F77DD), 4-column stat tile grid, underlined tab nav with count badges, 2-column body (2fr/1fr) with sidebar Quick Actions + Properties cards (both wear the accent bar).
+
+CSS module strategy:
+- `wms-custom.css` (1940 lines, Phase 1 design system) — untouched. Owns the sidebar/topbar/legacy --wms-primary (#5D4FA0).
+- New `wms-forms.css` (Phase 8) — owns Form-side polish. Tokens prefixed `--wmsf-` (purple-600 #534AB7 etc.) so the brief's purple-600 system stays distinct from --wms-primary; sidebar regression risk is zero.
+- New `wms-detail.css` (Phase 8) — owns Detail-side polish. Tokens prefixed `--wmsd-`.
+- Both new modules loaded after wms-custom.css in _OfficeLayout so component classes win cleanly.
+
+Alpine helper: `wmsf-form-state.js` (new). One function `wmsfFormState(opts)` powers all 6 forms:
+- `step / totalSteps` drive `x-show` pane visibility + `--wmsf-progress-pct` for the header progress bar.
+- `touched: {}` tracks field-level user interaction via `@input/@change="onTouch('FieldName')"`.
+- `serverErrors: {stepNum: bool}` rendered server-side from ModelState; sticky until user touches a field in that section (= they're fixing it).
+- `required: {stepNum: ['FieldName', ...]}` — exposed on the state object so per-form overrides can extend it (Customer Create's B2B/B2C dynamic requiredness).
+- `mode: 'create'|'edit'` flips the dot precedence: create = error > complete > touched (touched = "started"); edit = error > touched > complete (touched = "unsaved changes").
+- `dotClass(sec)` → 'is-error' | 'is-complete' | 'is-progress' | '' returned to `:class` on each tab's `.wmsf-dot`.
+
+Customer Create's B2B/B2C special case: extends the base helper via `Object.assign(wmsfFormState({...}), { customerType: '...', requiredFor(sec) {...}, ... })`. When CustomerType==='B2B', Section 02 (Contact) picks up CompanyName + TaxId as required, the dot reflects this dynamically, and inline "(required for B2B)" hints appear next to the labels via x-show.
+
+ViewModel additions (DetailPageViewModel):
+- `AvatarInitials: string` — 2-letter overlay text. Empty falls back to rendering the IconClass icon inside the gradient avatar. Customer Detail uses initials (e.g. "AC"); Products + Warehouses keep the icon.
+- `Badges: List<DetailBadge>` — extra badges next to the primary StatusLabel. DetailBadge(Label, Variant) where Variant is success/warning/danger/info/neutral/purple. Customers carry CustomerType + CustomerTier + "Key account" (if flagged); Warehouses carry Type; Products carry CategoryCode.
+
+Bug found during T14 mental review (caught before browser smoke):
+- `wmsfFormState` originally kept `required` as a closure local, not on the returned state object. Customer Create's B2B `requiredFor` override fell back to `this.required[sec]` which was undefined → "Cannot read properties of undefined". Fix: expose `required` on the state object; normalised internal references from closure → `this.`.
+
+Out of scope (logged):
+- "Last updated X ago by {User}" sticky banner on Edit (brief D2) — requires UpdatedAt + UpdatedByName resolution on each Edit VM, threading IUserRepository into all 3 admin controllers. Visual coverage already strong from the new header + the form's "Unsaved changes" Alpine indicator. Will revisit if requested.
+- Settings tab on Detail (brief D3) — no underlying functionality; would render an empty panel. Existing 4 tabs (Overview / Images-on-Products / Documents / Activity) stay.
+- Inner-panel polish (_ActivityPanel / _DocumentsPanel / _ImagesPanel) — still on legacy inline styles. Visual delta is dominated by the layout shell + header + tabs + sidebar; deeper refactor not needed for the brief's "ดูประถม" feedback.
+
+Commit cadence: 7 commits across 7 sub-phases (T2-T3 CSS, T4 Products Create, T5-T6 Customer/Warehouse Create, T8-T10 Edit forms, T11-T13 Detail, T14 bugfix). Final repo state: 349 tests passing, 0 build warnings.
+
 ### Day 8 — Phase 7 (Admin CRUD: Products / Customers / Warehouses)
 
 **Branch**: `feat/phase7-admin-crud` → merged to `main` · **Tag**: `v0.8.0-admin-crud` · **Partial close**: TD-017 (3 of 9 → 5 of 12 quick actions wired)
@@ -944,5 +986,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-09 (Phase 7 — Admin CRUD)
-**Version**: 1.11
+**Last updated**: 2026-05-09 (Phase 8 — Master Data UI Polish)
+**Version**: 1.12

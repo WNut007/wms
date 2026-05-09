@@ -159,8 +159,16 @@ public partial class ProductsController : Controller
             IconClass = iconClass,
             IconBgColor = $"{iconColor}1A",
             IconFgColor = iconColor,
+            // Phase 8 — Products use the icon inside the gradient avatar
+            // (kept entity-distinct vs Customer/Warehouse initials).
+            AvatarInitials = "",
             StatusLabel = statusLabel,
             StatusVariant = statusVariant,
+            // Phase 8 — extra badge for category context next to Status.
+            Badges = new()
+            {
+                new(row.CategoryCode, "purple"),
+            },
             BreadcrumbParent = "Products",
             BreadcrumbParentUrl = "/Products",
             Stats = new()

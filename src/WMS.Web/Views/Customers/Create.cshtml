@@ -4,32 +4,110 @@
 }
 
 @*
-    Phase 7D Customer Create — 4-step Alpine stepper. Largest of the
-    three forms (18 fields). CompanyName + TaxId are conditionally
-    REQUIRED when CustomerType='B2B'; the FluentValidation rule on the
-    server is authoritative — the view just hints by appending
-    "(required for B2B)" via x-text when relevant.
+    Phase 8 polish — V1 horizontal Section tabs for the largest of the
+    three forms (4 sections, 18 fields). The B2B/B2C cross-field rule
+    requires CompanyName + TaxId when CustomerType=='B2B'; the dot
+    state for Section 02 (Contact) reflects this dynamically — those
+    two fields enter the section's `required` list only when type=B2B.
 *@
 
-<div class="wms-page-header">
-    <div>
-        <p class="wms-page-title">New customer</p>
-        <div class="wms-breadcrumb">
-            <a asp-controller="Home" asp-action="Index">Master Data</a>
-            <span class="wms-breadcrumb-sep">/</span>
-            <a asp-controller="Customers" asp-action="Index">Customers</a>
-            <span class="wms-breadcrumb-sep">/</span>
-            <span class="wms-breadcrumb-current">New</span>
-        </div>
-    </div>
-</div>
+@{
+    var hasS1Err = ViewData.ModelState["Code"]?.Errors.Count > 0
+        || ViewData.ModelState["Name"]?.Errors.Count > 0
+        || ViewData.ModelState["CustomerType"]?.Errors.Count > 0;
+    var hasS2Err = ViewData.ModelState["CompanyName"]?.Errors.Count > 0
+        || ViewData.ModelState["TaxId"]?.Errors.Count > 0
+        || ViewData.ModelState["Email"]?.Errors.Count > 0
+        || ViewData.ModelState["Phone"]?.Errors.Count > 0
+        || ViewData.ModelState["Country"]?.Errors.Count > 0;
+    var hasS3Err = ViewData.ModelState["CustomerTier"]?.Errors.Count > 0
+        || ViewData.ModelState["AnnualRevenue"]?.Errors.Count > 0
+        || ViewData.ModelState["PromisedFillRate"]?.Errors.Count > 0;
+    var hasS4Err = ViewData.ModelState["Status"]?.Errors.Count > 0;
+    var initialStep = hasS1Err ? 1 : (hasS2Err ? 2 : (hasS3Err ? 3 : (hasS4Err ? 4 : 1)));
+}
 
 <form asp-controller="Customers" asp-action="Create" method="post"
-      x-data="{ step: 1, customerType: '@Model.CustomerType' }" autocomplete="off">
+      class="wmsf-page"
+      autocomplete="off"
+      x-data="Object.assign(wmsfFormState({
+          totalSteps: 4,
+          initialStep: @initialStep,
+          serverErrors: {
+              1: @(hasS1Err ? "true" : "false"),
+              2: @(hasS2Err ? "true" : "false"),
+              3: @(hasS3Err ? "true" : "false"),
+              4: @(hasS4Err ? "true" : "false")
+          },
+          required: {
+              1: ['Code', 'Name', 'CustomerType'],
+              2: [],
+              3: [],
+              4: ['Status']
+          }
+      }), {
+          customerType: '@Model.CustomerType',
+          // Section 02 picks up CompanyName + TaxId requirement
+          // dynamically when type === B2B.
+          requiredFor(sec) {
+              if (sec === 2 && this.customerType === 'B2B') {
+                  return ['CompanyName', 'TaxId'];
+              }
+              return this.required[sec] || [];
+          },
+          sectionComplete(sec) {
+              const fields = this.requiredFor(sec);
+              if (fields.length === 0) return true;
+              return fields.every(f => this._fieldValue(f).length > 0);
+          },
+          sectionTouched(sec) {
+              const fields = this.requiredFor(sec);
+              return fields.some(f => this.touched[f]);
+          },
+          sectionRequiredHint(sec) {
+              const fields = this.requiredFor(sec);
+              if (fields.length === 0) return '';
+              const filled = fields.filter(f => this._fieldValue(f).length > 0).length;
+              const missing = fields.length - filled;
+              if (missing === 0) return 'All set';
+              return missing + (missing === 1 ? ' required' : ' required');
+          }
+      })">
+
+    <nav class="wmsf-breadcrumb" aria-label="Breadcrumb">
+        <a asp-controller="Home" asp-action="Index">Master Data</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <a asp-controller="Customers" asp-action="Index">Customers</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <span class="current">New customer</span>
+    </nav>
+
+    <header class="wmsf-header">
+        <div class="wmsf-header-title">
+            <div class="wmsf-header-icon" aria-hidden="true">
+                <i class="ti ti-user-plus"></i>
+            </div>
+            <div class="wmsf-header-text">
+                <h1>New customer</h1>
+                <p>Create a B2B or B2C customer with commercial preferences.</p>
+            </div>
+        </div>
+        <div class="wmsf-progress">
+            <span class="wmsf-progress-label">Progress</span>
+            <div class="wmsf-progress-row">
+                <div class="wmsf-progress-bar"
+                     :style="`--wmsf-progress-pct: ${(step / 4) * 100}%`"
+                     role="progressbar"></div>
+                <span class="wmsf-progress-count">
+                    <span x-text="step"></span> / 4
+                </span>
+            </div>
+        </div>
+    </header>
 
     @if (ViewData.ModelState[""]?.Errors.Count > 0)
     {
-        <div class="alert alert-danger mb-3" role="alert">
+        <div class="wmsf-form-error" role="alert">
             @foreach (var err in ViewData.ModelState[""]!.Errors)
             {
                 <div>@err.ErrorMessage</div>
@@ -37,221 +115,296 @@
         </div>
     }
 
-    <ul class="steps steps-counter mb-4">
-        <li class="step-item" :class="{ 'active': step >= 1 }" @@click="step = 1" style="cursor: pointer;">Identity</li>
-        <li class="step-item" :class="{ 'active': step >= 2 }" @@click="step = 2" style="cursor: pointer;">Contact</li>
-        <li class="step-item" :class="{ 'active': step >= 3 }" @@click="step = 3" style="cursor: pointer;">Commercial</li>
-        <li class="step-item" :class="{ 'active': step >= 4 }" @@click="step = 4" style="cursor: pointer;">Status</li>
+    <ul class="wmsf-tabs" role="tablist">
+        <li>
+            <button type="button" class="wmsf-tab" :class="{ 'is-active': step === 1 }" @@click="goTo(1)" role="tab">
+                <span class="wmsf-tab-num">1</span>
+                <span class="wmsf-tab-text">
+                    <span class="wmsf-tab-eyebrow">Section</span>
+                    <span class="wmsf-tab-name">Identity</span>
+                </span>
+                <span class="wmsf-dot" :class="dotClass(1)" aria-hidden="true"></span>
+            </button>
+        </li>
+        <li>
+            <button type="button" class="wmsf-tab" :class="{ 'is-active': step === 2 }" @@click="goTo(2)" role="tab">
+                <span class="wmsf-tab-num">2</span>
+                <span class="wmsf-tab-text">
+                    <span class="wmsf-tab-eyebrow">Section</span>
+                    <span class="wmsf-tab-name">Contact</span>
+                </span>
+                <span class="wmsf-dot" :class="dotClass(2)" aria-hidden="true"></span>
+            </button>
+        </li>
+        <li>
+            <button type="button" class="wmsf-tab" :class="{ 'is-active': step === 3 }" @@click="goTo(3)" role="tab">
+                <span class="wmsf-tab-num">3</span>
+                <span class="wmsf-tab-text">
+                    <span class="wmsf-tab-eyebrow">Section</span>
+                    <span class="wmsf-tab-name">Commercial</span>
+                </span>
+                <span class="wmsf-dot" :class="dotClass(3)" aria-hidden="true"></span>
+            </button>
+        </li>
+        <li>
+            <button type="button" class="wmsf-tab" :class="{ 'is-active': step === 4 }" @@click="goTo(4)" role="tab">
+                <span class="wmsf-tab-num">4</span>
+                <span class="wmsf-tab-text">
+                    <span class="wmsf-tab-eyebrow">Section</span>
+                    <span class="wmsf-tab-name">Status</span>
+                </span>
+                <span class="wmsf-dot" :class="dotClass(4)" aria-hidden="true"></span>
+            </button>
+        </li>
     </ul>
 
-    @* Step 1 — Identity *@
-    <div class="wms-card mb-3" x-show="step === 1" x-cloak>
-        <h6 class="mb-3">Identity</h6>
+    @* === Pane 1 — Identity === *@
+    <section class="wmsf-pane" x-show="step === 1" x-cloak role="tabpanel">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Section 01</p>
+                <h2>Identity</h2>
+                <p class="wmsf-pane-desc">Code, name, and whether this is a business or consumer account.</p>
+            </div>
+            <span class="wmsf-required-badge" :class="{ 'is-empty': sectionComplete(1) }" x-text="sectionRequiredHint(1)"></span>
+        </div>
 
-        <div class="row g-3">
-            <div class="col-md-6">
-                <label asp-for="Code" class="form-label"></label>
-                <input asp-for="Code" class="form-control" autofocus />
-                <span asp-validation-for="Code" class="text-danger small"></span>
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field">
+                <label asp-for="Code" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Code) <span class="req">*</span>
+                </label>
+                <input asp-for="Code" class="wmsf-input" autofocus @@input="onTouch('Code')" />
+                <span asp-validation-for="Code" class="wmsf-error"></span>
             </div>
 
-            <div class="col-md-6">
-                <label asp-for="Name" class="form-label"></label>
-                <input asp-for="Name" class="form-control" />
-                <span asp-validation-for="Name" class="text-danger small"></span>
+            <div class="wmsf-field">
+                <label asp-for="Name" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Name) <span class="req">*</span>
+                </label>
+                <input asp-for="Name" class="wmsf-input" @@input="onTouch('Name')" />
+                <span asp-validation-for="Name" class="wmsf-error"></span>
             </div>
 
-            <div class="col-12">
-                <label asp-for="CustomerType" class="form-label"></label>
-                <div>
+            <div class="wmsf-field col-span-2">
+                <label class="wmsf-field-label">
+                    Customer type <span class="req">*</span>
+                </label>
+                <div class="wmsf-radio-group">
                     @foreach (var ct in WMS.Web.Models.Master.CustomerCreateViewModel.AllCustomerTypes)
                     {
-                        <div class="form-check form-check-inline">
-                            <input asp-for="CustomerType" type="radio" value="@ct" id="ct-@ct"
-                                   class="form-check-input" x-model="customerType" />
-                            <label for="ct-@ct" class="form-check-label">@ct</label>
-                        </div>
+                        <label class="wmsf-radio-item">
+                            <input asp-for="CustomerType" type="radio" value="@ct"
+                                   x-model="customerType"
+                                   @@change="onTouch('CustomerType')" />
+                            @ct
+                        </label>
                     }
                 </div>
-                <span asp-validation-for="CustomerType" class="text-danger small"></span>
+                <span asp-validation-for="CustomerType" class="wmsf-error"></span>
+                <span class="wmsf-helper">B2B unlocks Company name + Tax ID requirements on Contact.</span>
             </div>
         </div>
+    </section>
 
-        <div class="d-flex justify-content-end mt-3">
-            <button type="button" class="btn btn-primary" @@click="step = 2">Next →</button>
+    @* === Pane 2 — Contact === *@
+    <section class="wmsf-pane" x-show="step === 2" x-cloak role="tabpanel">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Section 02</p>
+                <h2>Contact</h2>
+                <p class="wmsf-pane-desc">Reach details and address. B2B accounts also need legal-entity information.</p>
+            </div>
+            <span class="wmsf-required-badge" :class="{ 'is-empty': sectionComplete(2) }" x-text="sectionRequiredHint(2)"></span>
         </div>
-    </div>
 
-    @* Step 2 — Contact *@
-    <div class="wms-card mb-3" x-show="step === 2" x-cloak>
-        <h6 class="mb-3">Contact</h6>
-
-        <div class="row g-3">
-            <div class="col-md-6">
-                <label asp-for="CompanyName" class="form-label">
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field">
+                <label asp-for="CompanyName" class="wmsf-field-label">
                     Company name
-                    <small class="text-muted" x-show="customerType === 'B2B'">(required for B2B)</small>
+                    <template x-if="customerType === 'B2B'">
+                        <span class="req">*</span>
+                    </template>
+                    <span class="hint-inline" x-show="customerType === 'B2B'">— required for B2B</span>
                 </label>
-                <input asp-for="CompanyName" class="form-control" />
-                <span asp-validation-for="CompanyName" class="text-danger small"></span>
+                <input asp-for="CompanyName" class="wmsf-input" @@input="onTouch('CompanyName')" />
+                <span asp-validation-for="CompanyName" class="wmsf-error"></span>
             </div>
 
-            <div class="col-md-6">
-                <label asp-for="TaxId" class="form-label">
+            <div class="wmsf-field">
+                <label asp-for="TaxId" class="wmsf-field-label">
                     Tax ID
-                    <small class="text-muted" x-show="customerType === 'B2B'">(required for B2B)</small>
+                    <template x-if="customerType === 'B2B'">
+                        <span class="req">*</span>
+                    </template>
+                    <span class="hint-inline" x-show="customerType === 'B2B'">— required for B2B</span>
                 </label>
-                <input asp-for="TaxId" class="form-control" />
-                <span asp-validation-for="TaxId" class="text-danger small"></span>
+                <input asp-for="TaxId" class="wmsf-input" @@input="onTouch('TaxId')" />
+                <span asp-validation-for="TaxId" class="wmsf-error"></span>
             </div>
 
-            <div class="col-md-6">
-                <label asp-for="Email" class="form-label"></label>
-                <input asp-for="Email" type="email" class="form-control" />
-                <span asp-validation-for="Email" class="text-danger small"></span>
+            <div class="wmsf-field">
+                <label asp-for="Email" class="wmsf-field-label">@Html.DisplayNameFor(m => m.Email)</label>
+                <input asp-for="Email" type="email" class="wmsf-input" @@input="onTouch('Email')" />
+                <span asp-validation-for="Email" class="wmsf-error"></span>
             </div>
 
-            <div class="col-md-6">
-                <label asp-for="Phone" class="form-label"></label>
-                <input asp-for="Phone" class="form-control" />
-                <span asp-validation-for="Phone" class="text-danger small"></span>
+            <div class="wmsf-field">
+                <label asp-for="Phone" class="wmsf-field-label">@Html.DisplayNameFor(m => m.Phone)</label>
+                <input asp-for="Phone" class="wmsf-input" @@input="onTouch('Phone')" />
+                <span asp-validation-for="Phone" class="wmsf-error"></span>
             </div>
 
-            <div class="col-md-6">
-                <label asp-for="Country" class="form-label"></label>
-                <input asp-for="Country" class="form-control" />
-                <span asp-validation-for="Country" class="text-danger small"></span>
+            <div class="wmsf-field">
+                <label asp-for="Country" class="wmsf-field-label">@Html.DisplayNameFor(m => m.Country)</label>
+                <input asp-for="Country" class="wmsf-input" @@input="onTouch('Country')" />
+                <span asp-validation-for="Country" class="wmsf-error"></span>
             </div>
         </div>
+    </section>
 
-        <div class="d-flex justify-content-between mt-3">
-            <button type="button" class="btn btn-outline-secondary" @@click="step = 1">← Back</button>
-            <button type="button" class="btn btn-primary" @@click="step = 3">Next →</button>
+    @* === Pane 3 — Commercial === *@
+    <section class="wmsf-pane" x-show="step === 3" x-cloak role="tabpanel">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Section 03</p>
+                <h2>Commercial</h2>
+                <p class="wmsf-pane-desc">Tier, allocation priority, fill rate, and carrier preference. All optional.</p>
+            </div>
+            <span class="wmsf-required-badge is-empty">All optional</span>
         </div>
-    </div>
 
-    @* Step 3 — Commercial *@
-    <div class="wms-card mb-3" x-show="step === 3" x-cloak>
-        <h6 class="mb-3">Commercial</h6>
-
-        <div class="row g-3">
-            <div class="col-md-4">
-                <label asp-for="CustomerTier" class="form-label"></label>
-                <select asp-for="CustomerTier" class="form-select">
+        <div class="wmsf-grid wmsf-grid-3">
+            <div class="wmsf-field">
+                <label asp-for="CustomerTier" class="wmsf-field-label">@Html.DisplayNameFor(m => m.CustomerTier)</label>
+                <select asp-for="CustomerTier" class="wmsf-select">
                     <option value="">— None —</option>
                     @foreach (var t in WMS.Web.Models.Master.CustomerCreateViewModel.AllTiers)
                     {
                         <option value="@t">@t</option>
                     }
                 </select>
-                <span asp-validation-for="CustomerTier" class="text-danger small"></span>
+                <span asp-validation-for="CustomerTier" class="wmsf-error"></span>
             </div>
 
-            <div class="col-md-4">
-                <label asp-for="AnnualRevenue" class="form-label"></label>
-                <input asp-for="AnnualRevenue" type="number" step="0.01" class="form-control" />
-                <span asp-validation-for="AnnualRevenue" class="text-danger small"></span>
+            <div class="wmsf-field">
+                <label asp-for="AnnualRevenue" class="wmsf-field-label">@Html.DisplayNameFor(m => m.AnnualRevenue)</label>
+                <input asp-for="AnnualRevenue" type="number" step="0.01" class="wmsf-input" />
+                <span asp-validation-for="AnnualRevenue" class="wmsf-error"></span>
             </div>
 
-            <div class="col-md-4">
-                <label asp-for="OrdersPerMonth" class="form-label"></label>
-                <input asp-for="OrdersPerMonth" type="number" class="form-control" />
-                <span asp-validation-for="OrdersPerMonth" class="text-danger small"></span>
+            <div class="wmsf-field">
+                <label asp-for="OrdersPerMonth" class="wmsf-field-label">@Html.DisplayNameFor(m => m.OrdersPerMonth)</label>
+                <input asp-for="OrdersPerMonth" type="number" class="wmsf-input" />
+                <span asp-validation-for="OrdersPerMonth" class="wmsf-error"></span>
             </div>
 
-            <div class="col-md-4">
-                <label asp-for="AvgOrderValue" class="form-label"></label>
-                <input asp-for="AvgOrderValue" type="number" step="0.01" class="form-control" />
-                <span asp-validation-for="AvgOrderValue" class="text-danger small"></span>
+            <div class="wmsf-field">
+                <label asp-for="AvgOrderValue" class="wmsf-field-label">@Html.DisplayNameFor(m => m.AvgOrderValue)</label>
+                <input asp-for="AvgOrderValue" type="number" step="0.01" class="wmsf-input" />
+                <span asp-validation-for="AvgOrderValue" class="wmsf-error"></span>
             </div>
 
-            <div class="col-md-4">
-                <label asp-for="AllocationPriority" class="form-label"></label>
-                <input asp-for="AllocationPriority" type="number" class="form-control" />
-                <span asp-validation-for="AllocationPriority" class="text-danger small"></span>
+            <div class="wmsf-field">
+                <label asp-for="AllocationPriority" class="wmsf-field-label">@Html.DisplayNameFor(m => m.AllocationPriority)</label>
+                <input asp-for="AllocationPriority" type="number" class="wmsf-input" />
+                <span asp-validation-for="AllocationPriority" class="wmsf-error"></span>
+                <span class="wmsf-helper">Lower = higher priority.</span>
             </div>
 
-            <div class="col-md-4">
-                <label asp-for="SafetyStockDays" class="form-label"></label>
-                <input asp-for="SafetyStockDays" type="number" class="form-control" />
-                <span asp-validation-for="SafetyStockDays" class="text-danger small"></span>
+            <div class="wmsf-field">
+                <label asp-for="SafetyStockDays" class="wmsf-field-label">@Html.DisplayNameFor(m => m.SafetyStockDays)</label>
+                <input asp-for="SafetyStockDays" type="number" class="wmsf-input" />
+                <span asp-validation-for="SafetyStockDays" class="wmsf-error"></span>
             </div>
 
-            <div class="col-md-4">
-                <label asp-for="PromisedFillRate" class="form-label"></label>
-                <input asp-for="PromisedFillRate" type="number" step="0.01" min="0" max="100" class="form-control" />
-                <span asp-validation-for="PromisedFillRate" class="text-danger small"></span>
+            <div class="wmsf-field">
+                <label asp-for="PromisedFillRate" class="wmsf-field-label">@Html.DisplayNameFor(m => m.PromisedFillRate)</label>
+                <input asp-for="PromisedFillRate" type="number" step="0.01" min="0" max="100" class="wmsf-input" />
+                <span asp-validation-for="PromisedFillRate" class="wmsf-error"></span>
+                <span class="wmsf-helper">0–100%.</span>
             </div>
 
-            <div class="col-md-4">
-                <label asp-for="PreferredCarrierId" class="form-label"></label>
-                <select asp-for="PreferredCarrierId" class="form-select">
+            <div class="wmsf-field">
+                <label asp-for="PreferredCarrierId" class="wmsf-field-label">@Html.DisplayNameFor(m => m.PreferredCarrierId)</label>
+                <select asp-for="PreferredCarrierId" class="wmsf-select">
                     <option value="">— None —</option>
                     @foreach (var c in Model.Carriers)
                     {
                         <option value="@c.Id">@c.Code · @c.Name</option>
                     }
                 </select>
-                <span asp-validation-for="PreferredCarrierId" class="text-danger small"></span>
+                <span asp-validation-for="PreferredCarrierId" class="wmsf-error"></span>
             </div>
 
-            <div class="col-md-4">
-                <label asp-for="DefaultPaymentTerms" class="form-label"></label>
-                <input asp-for="DefaultPaymentTerms" class="form-control" placeholder="Net 30, COD, ..." />
-                <span asp-validation-for="DefaultPaymentTerms" class="text-danger small"></span>
+            <div class="wmsf-field">
+                <label asp-for="DefaultPaymentTerms" class="wmsf-field-label">@Html.DisplayNameFor(m => m.DefaultPaymentTerms)</label>
+                <input asp-for="DefaultPaymentTerms" class="wmsf-input" placeholder="Net 30, COD, ..." />
+                <span asp-validation-for="DefaultPaymentTerms" class="wmsf-error"></span>
             </div>
 
-            <div class="col-md-6">
-                <div class="form-check mt-4">
-                    <input asp-for="IsKeyAccount" class="form-check-input" />
-                    <label asp-for="IsKeyAccount" class="form-check-label"></label>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="form-check mt-4">
-                    <input asp-for="IsStrategic" class="form-check-input" />
-                    <label asp-for="IsStrategic" class="form-check-label"></label>
-                </div>
+            <div class="wmsf-field col-span-3" style="display: flex; gap: 24px; flex-wrap: wrap;">
+                <label class="wmsf-check-item">
+                    <input asp-for="IsKeyAccount" type="checkbox" />
+                    Key account
+                </label>
+                <label class="wmsf-check-item">
+                    <input asp-for="IsStrategic" type="checkbox" />
+                    Strategic
+                </label>
             </div>
         </div>
+    </section>
 
-        <div class="d-flex justify-content-between mt-3">
-            <button type="button" class="btn btn-outline-secondary" @@click="step = 2">← Back</button>
-            <button type="button" class="btn btn-primary" @@click="step = 4">Next →</button>
-        </div>
-    </div>
-
-    @* Step 4 — Status *@
-    <div class="wms-card mb-3" x-show="step === 4" x-cloak>
-        <h6 class="mb-3">Status</h6>
-
-        <div class="mb-3">
-            <label asp-for="Status" class="form-label"></label>
-            <select asp-for="Status" class="form-select">
-                @foreach (var s in WMS.Web.Models.Master.CustomerCreateViewModel.AllStatuses)
-                {
-                    <option value="@s">@s</option>
-                }
-            </select>
-            <span asp-validation-for="Status" class="text-danger small"></span>
-            <small class="text-muted d-block mt-1">
-                Draft customers are saved but excluded from active flows. Suspended is for credit holds.
-            </small>
+    @* === Pane 4 — Status === *@
+    <section class="wmsf-pane" x-show="step === 4" x-cloak role="tabpanel">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Section 04</p>
+                <h2>Status</h2>
+                <p class="wmsf-pane-desc">Lifecycle state. Draft = saved but excluded from active flows. Suspended = credit hold.</p>
+            </div>
+            <span class="wmsf-required-badge" :class="{ 'is-empty': sectionComplete(4) }" x-text="sectionRequiredHint(4)"></span>
         </div>
 
-        <div class="d-flex justify-content-between mt-3">
-            <button type="button" class="btn btn-outline-secondary" @@click="step = 3">← Back</button>
-            <button type="submit" class="btn btn-primary">
-                <i class="ti ti-check me-1"></i> Create customer
-            </button>
+        <div class="wmsf-grid">
+            <div class="wmsf-field" style="max-width: 320px;">
+                <label asp-for="Status" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Status) <span class="req">*</span>
+                </label>
+                <select asp-for="Status" class="wmsf-select" @@change="onTouch('Status')">
+                    @foreach (var s in WMS.Web.Models.Master.CustomerCreateViewModel.AllStatuses)
+                    {
+                        <option value="@s">@s</option>
+                    }
+                </select>
+                <span asp-validation-for="Status" class="wmsf-error"></span>
+            </div>
         </div>
+    </section>
+
+    <div class="wmsf-actions">
+        <a asp-controller="Customers" asp-action="Index" class="wmsf-btn">
+            <i class="ti ti-x" aria-hidden="true"></i> Cancel
+        </a>
+        <span class="wmsf-actions-info"></span>
+        <button type="button" class="wmsf-btn" @@click="prev()" :disabled="step === 1">
+            <i class="ti ti-arrow-left" aria-hidden="true"></i> Back
+        </button>
+        <button type="button" class="wmsf-btn wmsf-btn-primary"
+                x-show="step < totalSteps" @@click="next()">
+            Continue <i class="ti ti-arrow-right" aria-hidden="true"></i>
+        </button>
+        <button type="submit" class="wmsf-btn wmsf-btn-primary"
+                x-show="step === totalSteps">
+            <i class="ti ti-check" aria-hidden="true"></i> Create customer
+        </button>
     </div>
 </form>
 
-<style>
-    [x-cloak] { display: none !important; }
-</style>
+<style>[x-cloak] { display: none !important; }</style>
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
+    <script src="~/js/wmsf-form-state.js" asp-append-version="true"></script>
 }
