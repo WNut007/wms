@@ -9,6 +9,7 @@
         "Customer"      => Url.Action("Edit", "Customers",      new { code = Model.EntityId }),
         "Warehouse"     => Url.Action("Edit", "Warehouses",     new { code = Model.EntityId }),
         "PurchaseOrder" => Url.Action("Edit", "PurchaseOrders", new { id   = Model.EntityId }),
+        "SalesOrder"    => Url.Action("Edit", "SalesOrders",    new { id   = Model.EntityId }),
         _ => null,
     };
 
