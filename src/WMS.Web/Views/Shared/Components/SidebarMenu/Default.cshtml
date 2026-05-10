@@ -112,12 +112,12 @@
     else if (string.Equals(module.Code, "OUTBOUND", StringComparison.OrdinalIgnoreCase))
     {
         // Phase 14A — Sales Orders.
-        // Phase 14C added Pick Task execution surface (Detail-only —
-        // operator reaches it via the Generate redirect from SO Detail).
-        // Pick Tasks sidebar entry waits for the list-page chunk.
-        // 14D/E will add Packs, Shipments submenu entries.
+        // Phase 14C/D/E added Pick / Pack / Shipment execution surfaces.
+        // Phase 15A added list pages (Index actions) — submenu fills out
+        // T1/T2/T3 chunk-by-chunk as each list lands.
         var outboundActive = IsActive("OUTBOUND")
-            || IsActive("SalesOrders") || IsActive("PickTasks");
+            || IsActive("SalesOrders") || IsActive("PickTasks")
+            || IsActive("PackTasks") || IsActive("Shipments");
         <a href="@Url.Action("Index", "SalesOrders")"
            class="wms-sidebar-item @(outboundActive ? "active" : "")"
            title="@module.DisplayName">
@@ -129,6 +129,10 @@
             <a href="@Url.Action("Index", "SalesOrders")"
                class="wms-sidebar-item @(IsActive("SalesOrders") ? "active" : "")">
                 <span class="wms-sidebar-item-text">Sales Orders</span>
+            </a>
+            <a href="@Url.Action("Index", "PickTasks")"
+               class="wms-sidebar-item @(IsActive("PickTasks") ? "active" : "")">
+                <span class="wms-sidebar-item-text">Pick Tasks</span>
             </a>
         </div>
     }

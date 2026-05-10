@@ -1,3 +1,4 @@
+using WMS.DAL.Common;
 using WMS.Domain.Entities.Outbound;
 
 namespace WMS.DAL.Repositories.Outbound;
@@ -80,6 +81,19 @@ public interface IPickTaskRepository
     // PICK-YYYYMMDD-NNNN — count of tasks with PickNumber LIKE prefix.
     Task<int> CountForDatePrefixAsync(
         string datePrefix, CancellationToken ct = default);
+
+    // ----- Phase 15A — list-page reads -----
+
+    // Paged list with JOINs to outbound.SalesOrders + master.Customers
+    // for SoNumber + customer label, plus per-task line aggregates.
+    // SortBy whitelisted via PickTaskSortMapper.
+    Task<PagedResult<PickTaskListRow>> GetPagedAsync(
+        PickTaskFilter filter, CancellationToken ct = default);
+
+    // Chip-count aggregates. Counts respect Search filter; ignore
+    // Status so inactive chips still display their totals.
+    Task<PickTaskStatusCounts> GetStatusCountsAsync(
+        PickTaskFilter filter, CancellationToken ct = default);
 }
 
 public interface IPickTaskRepositoryFactory

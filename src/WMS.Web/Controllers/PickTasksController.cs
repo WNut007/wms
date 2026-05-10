@@ -13,13 +13,11 @@ using WMS.Web.ViewModels.Detail;
 namespace WMS.Web.Controllers;
 
 // Phase 14C — Pick task execution surface.
-//   GET  /PickTasks/Detail/{id}   — _DetailLayout w/ inline submit form (Pending|InProgress) or read-only table (terminal)
-//   POST /PickTasks/Submit/{id}   — TX-wrapped commit via PickTaskService.SubmitAsync
-//   POST /PickTasks/Cancel/{id}   — pre-Submit reversal via PickTaskService.CancelAsync
-//
-// Index / GetData (list page + chip counts) deferred to a follow-up
-// chunk — no operator workflow needs the list yet (navigation comes
-// via the Generate redirect from /SalesOrders/Detail).
+//   GET  /PickTasks                — Phase 15A list page (chip counts + table + pagination)
+//   GET  /PickTasks/Data           — Phase 15A JSON envelope for Alpine
+//   GET  /PickTasks/Detail/{id}    — _DetailLayout w/ inline submit form (Pending|InProgress) or read-only table (terminal)
+//   POST /PickTasks/Submit/{id}    — TX-wrapped commit via PickTaskService.SubmitAsync
+//   POST /PickTasks/Cancel/{id}    — pre-Submit reversal via PickTaskService.CancelAsync
 [Authorize]
 [Route("PickTasks")]
 public sealed class PickTasksController : Controller
@@ -45,6 +43,64 @@ public sealed class PickTasksController : Controller
         _tenant = tenant;
         _currentUser = currentUser;
         _cancelValidator = cancelValidator;
+    }
+
+    [HttpGet("")]
+    public IActionResult Index() => View();
+
+    [HttpGet("Data")]
+    public async Task<IActionResult> GetData(
+        int page = 1,
+        int pageSize = 20,
+        string? search = null,
+        string? status = null,
+        string sortBy = "generatedAt",
+        bool sortDesc = true,
+        CancellationToken ct = default)
+    {
+        var filter = new PickTaskFilter(
+            Page: page,
+            PageSize: pageSize,
+            Search: search,
+            Status: PickTaskStatusMapper.FromWire(status),
+            SortBy: sortBy,
+            SortDesc: sortDesc);
+
+        var repo = _pickRepos.For(_tenant.RequireTenantId());
+        var result = await repo.GetPagedAsync(filter, ct);
+        var counts = await repo.GetStatusCountsAsync(filter, ct);
+
+        return Json(new
+        {
+            items = result.Items.Select(r => new
+            {
+                id              = r.Id,
+                pickNumber      = r.PickNumber,
+                salesOrderId    = r.SalesOrderId,
+                soNumber        = r.SoNumber,
+                customerCode    = r.CustomerCode,
+                customerName    = r.CustomerName,
+                status          = PickTaskStatusMapper.ToWire(r.Status),
+                statusLabel     = r.Status,
+                lineCount       = r.LineCount,
+                generatedAt     = r.GeneratedAt,
+                generatedRelative = RelativeTime.Format(r.GeneratedAt),
+                generatedByName = r.GeneratedByName,
+            }),
+            total      = result.Total,
+            page       = result.Page,
+            pageSize   = result.PageSize,
+            totalPages = result.TotalPages,
+            counts     = new
+            {
+                all             = counts.All,
+                pending         = counts.Pending,
+                inprogress      = counts.InProgress,
+                picked          = counts.Picked,
+                partiallypicked = counts.PartiallyPicked,
+                cancelled       = counts.Cancelled,
+            },
+        });
     }
 
     [HttpGet("Detail/{id:guid}")]
