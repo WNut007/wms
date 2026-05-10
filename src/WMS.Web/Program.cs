@@ -152,6 +152,10 @@ builder.Services.AddScoped<IPackTaskService, PackTaskService>();
 builder.Services.AddScoped<IShipmentRepositoryFactory, ShipmentRepositoryFactory>();
 builder.Services.AddScoped<IShipmentService, ShipmentService>();
 
+// Phase 17 (ADR-009) — Pack video. Service registration arrives
+// in T4; T3 wires the repo factory only.
+builder.Services.AddScoped<IPackVideoRepositoryFactory, PackVideoRepositoryFactory>();
+
 // PermissionService — Scoped to match the (Scoped) factory dep. The
 // cache itself lives on IMemoryCache (Singleton), so per-request
 // instances cost nothing and survive the captive-dependency check.
