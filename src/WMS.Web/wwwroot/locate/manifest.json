@@ -1,0 +1,12 @@
+{
+  "name": "WMS Locate",
+  "short_name": "Locate",
+  "description": "Warehouse stock lookup utility",
+  "start_url": "/locate/",
+  "scope": "/locate/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f9fafb",
+  "theme_color": "#534AB7",
+  "icons": []
+}
