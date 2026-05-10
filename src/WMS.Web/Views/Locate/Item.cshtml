@@ -1,0 +1,261 @@
+@model IReadOnlyList<WMS.DAL.Repositories.Inventory.LocateItemRow>
+@{
+    var productCode = ViewBag.ProductCode as string ?? "—";
+    var productName = ViewBag.ProductName as string ?? "—";
+    var baseUomCode = ViewBag.BaseUomCode as string ?? "ea";
+    var okMsg = ViewBag.LocateMessage as string;
+    var errMsg = ViewBag.LocateError as string;
+    ViewData["Title"] = $"Locate {productCode}";
+
+    var totalOnHand = Model.Sum(r => r.QuantityOnHand);
+    var totalAllocated = Model.Sum(r => r.QuantityAllocated);
+    var totalAvailable = totalOnHand - totalAllocated;
+}
+
+<style>
+    .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+
+    .lci-page-pad { padding: 12px 14px 24px; }
+
+    .lci-banner {
+        padding: 8px 12px; border-radius: 8px;
+        font-size: 12px; margin-bottom: 10px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .lci-banner-ok  { background: #E1F5EE; color: #0F6E56; }
+    .lci-banner-err { background: #FCEBEB; color: #A32D2D; }
+
+    .lci-crumb {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 9px; color: #6b7280; margin-bottom: 8px;
+    }
+    .lci-back-btn {
+        width: 22px; height: 22px; border: 0.5px solid #e5e7eb;
+        background: #f3f4f6; border-radius: 6px;
+        display: inline-flex; align-items: center; justify-content: center;
+        text-decoration: none; color: #6b7280;
+    }
+    .lci-current {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-weight: 500; color: #534AB7;
+    }
+
+    /* Product card */
+    .lci-product-card {
+        background: #ffffff; border: 0.5px solid #e5e7eb;
+        border-left: 3px solid #534AB7;
+        border-radius: 11px; padding: 12px 14px; margin-bottom: 12px;
+    }
+    .lci-product-row {
+        display: flex; align-items: center; gap: 10px;
+        margin-bottom: 10px;
+    }
+    .lci-product-icon {
+        width: 44px; height: 44px; border-radius: 8px;
+        background: #EEEDFE; color: #534AB7;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 22px;
+    }
+    .lci-product-code {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 14px; font-weight: 500; color: #1f2937;
+    }
+    .lci-product-name { font-size: 11px; color: #6b7280; margin-top: 2px; }
+
+    /* 3-col stat tiles */
+    .lci-stat-grid {
+        display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;
+    }
+    .lci-stat {
+        background: #f9fafb; padding: 6px 8px;
+        border-radius: 6px; text-align: center;
+    }
+    .lci-stat-label { font-size: 8px; color: #6b7280; text-transform: uppercase; }
+    .lci-stat-value { font-size: 14px; font-weight: 500; margin-top: 2px;
+                      font-variant-numeric: tabular-nums; color: #1f2937; }
+    .lci-stat-value.is-avail { color: #0F6E56; }
+    .lci-stat-value.is-alloc { color: #854F0B; }
+
+    /* Section title */
+    .lci-section-title {
+        font-size: 9px; font-weight: 600; color: #6b7280;
+        text-transform: uppercase; letter-spacing: 0.5px;
+        margin: 6px 0 6px;
+    }
+
+    /* Location row card */
+    .lci-loc-card {
+        display: block; text-decoration: none; color: inherit;
+        background: #ffffff; border: 0.5px solid #e5e7eb;
+        border-radius: 11px; padding: 11px 13px; margin-bottom: 8px;
+    }
+    .lci-loc-card.is-storage    { border-left: 3px solid #534AB7; }
+    .lci-loc-card.is-staging    { border-left: 3px solid #185FA5; }
+    .lci-loc-card.is-receiving  { border-left: 3px solid #185FA5; }
+    .lci-loc-card.is-pickface   { border-left: 3px solid #1D9E75; }
+    .lci-loc-card.is-other      { border-left: 3px solid #9ca3af; }
+    .lci-loc-card:active        { background: #f9fafb; }
+
+    .lci-loc-row {
+        display: flex; align-items: center; gap: 10px;
+    }
+    .lci-loc-icon {
+        width: 36px; height: 36px; border-radius: 8px;
+        background: #EEEDFE; color: #534AB7;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 18px; flex-shrink: 0;
+    }
+    .lci-loc-content { flex: 1; min-width: 0; }
+    .lci-loc-code-row {
+        display: flex; align-items: baseline; gap: 6px;
+        flex-wrap: wrap;
+    }
+    .lci-loc-code {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 12px; font-weight: 500; color: #1f2937;
+    }
+    .lci-loc-zone-badge {
+        display: inline-flex; align-items: center;
+        font-size: 9px; font-weight: 500;
+        padding: 1px 6px; border-radius: 100px;
+        background: #EEEDFE; color: #534AB7;
+    }
+    .lci-loc-zone-badge.is-staging   { background: #DBEAFE; color: #185FA5; }
+    .lci-loc-zone-badge.is-receiving { background: #DBEAFE; color: #185FA5; }
+    .lci-loc-zone-badge.is-pickface  { background: #E1F5EE; color: #0F6E56; }
+    .lci-loc-zone-badge.is-other     { background: #f3f4f6; color: #6b7280; }
+    .lci-loc-meta { font-size: 9px; color: #6b7280; margin-top: 2px; }
+    .lci-loc-age {
+        font-size: 9px; margin-top: 1px;
+    }
+    .lci-loc-age.is-fresh { color: #0F6E56; }
+    .lci-loc-age.is-aged  { color: #854F0B; }
+    .lci-loc-age.is-stale { color: #A32D2D; }
+
+    .lci-loc-trailing {
+        text-align: right; flex-shrink: 0;
+    }
+    .lci-loc-qty {
+        font-size: 14px; font-weight: 500; color: #1f2937;
+        font-variant-numeric: tabular-nums;
+    }
+    .lci-loc-qty-unit { font-size: 10px; color: #6b7280; }
+    .lci-loc-alloc-meta {
+        font-size: 9px; color: #854F0B; margin-top: 1px;
+    }
+
+    .lci-empty {
+        text-align: center; padding: 32px 16px;
+        color: #9ca3af; font-size: 12px;
+    }
+    .lci-empty-icon { font-size: 32px; opacity: 0.4; }
+</style>
+
+<div class="lci-page-pad">
+    @if (!string.IsNullOrEmpty(okMsg))
+    {
+        <div class="lci-banner lci-banner-ok">
+            <i class="ti ti-check"></i> @okMsg
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(errMsg))
+    {
+        <div class="lci-banner lci-banner-err">
+            <i class="ti ti-alert-circle"></i> @errMsg
+        </div>
+    }
+
+    <div class="lci-crumb">
+        <a href="/locate" class="lci-back-btn"><i class="ti ti-arrow-left"></i></a>
+        <span>Locate</span>
+        <i class="ti ti-chevron-right"></i>
+        <span class="lci-current">@productCode</span>
+    </div>
+
+    <div class="lci-product-card">
+        <div class="lci-product-row">
+            <div class="lci-product-icon"><i class="ti ti-package"></i></div>
+            <div>
+                <div class="lci-product-code">@productCode</div>
+                <div class="lci-product-name">@productName</div>
+            </div>
+        </div>
+        <div class="lci-stat-grid">
+            <div class="lci-stat">
+                <div class="lci-stat-label">Total</div>
+                <div class="lci-stat-value">@totalOnHand.ToString("N0")</div>
+            </div>
+            <div class="lci-stat">
+                <div class="lci-stat-label">Available</div>
+                <div class="lci-stat-value is-avail">@totalAvailable.ToString("N0")</div>
+            </div>
+            <div class="lci-stat">
+                <div class="lci-stat-label">Allocated</div>
+                <div class="lci-stat-value is-alloc">@totalAllocated.ToString("N0")</div>
+            </div>
+        </div>
+    </div>
+
+    @if (Model.Count == 0)
+    {
+        <div class="lci-empty">
+            <div class="lci-empty-icon"><i class="ti ti-package-off"></i></div>
+            <p class="m-0 mt-2">Out of stock everywhere.</p>
+            <p class="m-0 small">No active stock rows for this product.</p>
+        </div>
+    }
+    else
+    {
+        <div class="lci-section-title">Locations (@Model.Count)</div>
+        @foreach (var row in Model)
+        {
+            var (cardClass, badgeClass, badgeLabel) = row.ZoneType switch
+            {
+                "Storage"   => ("is-storage",   "",                        "Bin"),
+                "Picking"   => ("is-pickface",  "is-pickface",             "Pick face"),
+                "Staging"   => ("is-staging",   "is-staging",              "Staging"),
+                "Receiving" => ("is-receiving", "is-receiving",            "Receiving"),
+                "Quarantine"=> ("is-other",     "is-other",                "Quarantine"),
+                _           => ("is-other",     "is-other",                row.ZoneType),
+            };
+            var ageClass = row.LotAgeDays is null ? ""
+                : row.LotAgeDays.Value < 30 ? "is-fresh"
+                : row.LotAgeDays.Value < 90 ? "is-aged" : "is-stale";
+            <a href="/locate/loc/@row.LocationId" class="lci-loc-card @cardClass">
+                <div class="lci-loc-row">
+                    <div class="lci-loc-icon"><i class="ti ti-map-pin"></i></div>
+                    <div class="lci-loc-content">
+                        <div class="lci-loc-code-row">
+                            <span class="lci-loc-code">@row.LocationCode</span>
+                            <span class="lci-loc-zone-badge @badgeClass">@badgeLabel</span>
+                        </div>
+                        <div class="lci-loc-meta">
+                            @row.ZoneCode
+                            @if (!string.IsNullOrEmpty(row.LotNumber))
+                            {
+                                <span> · Lot @row.LotNumber</span>
+                            }
+                            @if (!string.IsNullOrEmpty(row.PalletNumber))
+                            {
+                                <span> · Pallet @row.PalletNumber</span>
+                            }
+                        </div>
+                        @if (row.LotAgeDays is { } days)
+                        {
+                            <div class="lci-loc-age @ageClass">@days days old@(row.ExpiryDate is { } exp ? $" · expires {exp:MMM dd}" : "")</div>
+                        }
+                    </div>
+                    <div class="lci-loc-trailing">
+                        <div class="lci-loc-qty">@row.QuantityOnHand.ToString("N0")</div>
+                        <div class="lci-loc-qty-unit">@row.UomCode</div>
+                        @if (row.QuantityAllocated > 0)
+                        {
+                            <div class="lci-loc-alloc-meta">@row.QuantityAllocated.ToString("N0") allocated</div>
+                        }
+                    </div>
+                </div>
+            </a>
+        }
+    }
+</div>

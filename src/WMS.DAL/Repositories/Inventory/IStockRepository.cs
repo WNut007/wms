@@ -106,6 +106,24 @@ public interface IStockRepository
         Guid warehouseId,
         CancellationToken ct = default);
 
+    // Phase 22 — Mobile Locate item view. Per-product multi-location
+    // projection (one row per Stock entry for the given productId).
+    // JOINs Locations + Zones + Lots + Pallets + Owners + UoMs.
+    // LotAgeDays computed via DATEDIFF for stable server-side render.
+    // Sorted by Lot.ExpiryDate ASC (FEFO awareness — earliest expiry
+    // first), then LocationCode for stable secondary order.
+    Task<IReadOnlyList<LocateItemRow>> GetItemViewAsync(
+        Guid productId,
+        CancellationToken ct = default);
+
+    // Phase 22 — Mobile Locate location view. Per-location multi-item
+    // projection (one row per Stock entry at the given locationId).
+    // Same JOIN backbone as GetItemViewAsync. Sorted by ProductCode
+    // for stable order.
+    Task<IReadOnlyList<LocateLocationRow>> GetLocationViewAsync(
+        Guid locationId,
+        CancellationToken ct = default);
+
     // Phase 20 — suggested putaway destination for a product in the
     // given warehouse. Filters to Storage-zone locations only
     // (IsActive=1, Status='Active'). Scoring (descending priority):

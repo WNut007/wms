@@ -418,6 +418,93 @@ ORDER BY s.CreatedAt;";
             new { StockId = stockId, Delta = delta, UserId = userId },
             cancellationToken: ct));
 
+    public async Task<IReadOnlyList<LocateItemRow>> GetItemViewAsync(
+        Guid productId, CancellationToken ct = default)
+    {
+        // Per-product multi-location projection. LEFT JOIN Lots +
+        // Pallets so non-lot/pallet products still render. LotAgeDays
+        // via DATEDIFF — server-computed for stable rendering across
+        // operator devices (no client clock skew). Sort by Lot.ExpiryDate
+        // ASC (FEFO awareness), then LocationCode for stable order.
+        const string sql = @"
+SELECT
+    s.Id              AS StockId,
+    s.QuantityOnHand,
+    s.QuantityAllocated,
+    s.LocationId,
+    loc.Code          AS LocationCode,
+    z.Code            AS ZoneCode,
+    z.Type            AS ZoneType,
+    o.Code            AS OwnerCode,
+    s.LotId,
+    lot.LotNumber     AS LotNumber,
+    CASE WHEN lot.ReceivedDate IS NULL THEN NULL
+         ELSE DATEDIFF(day, lot.ReceivedDate, GETUTCDATE())
+    END               AS LotAgeDays,
+    CAST(lot.ExpiryDate AS DATETIME2) AS ExpiryDate,
+    s.PalletId,
+    pal.PalletNumber  AS PalletNumber,
+    u.Code            AS UomCode,
+    s.CreatedAt
+FROM inventory.Stock s
+JOIN master.Locations loc ON loc.Id = s.LocationId
+JOIN master.Zones     z   ON z.Id   = loc.ZoneId
+JOIN master.Owners    o   ON o.Id   = s.OwnerId
+JOIN master.UnitsOfMeasure u ON u.Id = s.UomId
+LEFT JOIN inventory.Lots    lot ON lot.Id = s.LotId
+LEFT JOIN inventory.Pallets pal ON pal.Id = s.PalletId
+WHERE s.ProductId = @productId
+  AND s.QuantityOnHand > 0
+ORDER BY
+    CASE WHEN lot.ExpiryDate IS NULL THEN 1 ELSE 0 END,
+    lot.ExpiryDate ASC,
+    loc.Code ASC;";
+
+        var rows = await _connection.QueryAsync<LocateItemRow>(new CommandDefinition(
+            sql, new { productId }, cancellationToken: ct));
+        return rows.AsList();
+    }
+
+    public async Task<IReadOnlyList<LocateLocationRow>> GetLocationViewAsync(
+        Guid locationId, CancellationToken ct = default)
+    {
+        // Per-location multi-item projection. Same JOIN backbone but
+        // emphasises product metadata (Code + Name) instead of
+        // location. Sort by ProductCode for stable order.
+        const string sql = @"
+SELECT
+    s.Id              AS StockId,
+    s.QuantityOnHand,
+    s.QuantityAllocated,
+    s.ProductId,
+    p.Code            AS ProductCode,
+    p.Name            AS ProductName,
+    o.Code            AS OwnerCode,
+    s.LotId,
+    lot.LotNumber     AS LotNumber,
+    CASE WHEN lot.ReceivedDate IS NULL THEN NULL
+         ELSE DATEDIFF(day, lot.ReceivedDate, GETUTCDATE())
+    END               AS LotAgeDays,
+    CAST(lot.ExpiryDate AS DATETIME2) AS ExpiryDate,
+    s.PalletId,
+    pal.PalletNumber  AS PalletNumber,
+    u.Code            AS UomCode,
+    s.CreatedAt
+FROM inventory.Stock s
+JOIN master.Products p ON p.Id = s.ProductId
+JOIN master.Owners   o ON o.Id = s.OwnerId
+JOIN master.UnitsOfMeasure u ON u.Id = s.UomId
+LEFT JOIN inventory.Lots    lot ON lot.Id = s.LotId
+LEFT JOIN inventory.Pallets pal ON pal.Id = s.PalletId
+WHERE s.LocationId   = @locationId
+  AND s.QuantityOnHand > 0
+ORDER BY p.Code ASC;";
+
+        var rows = await _connection.QueryAsync<LocateLocationRow>(new CommandDefinition(
+            sql, new { locationId }, cancellationToken: ct));
+        return rows.AsList();
+    }
+
     public async Task<IReadOnlyList<PutawayQueueRow>> GetPutawayQueueAsync(
         Guid warehouseId, CancellationToken ct = default)
     {

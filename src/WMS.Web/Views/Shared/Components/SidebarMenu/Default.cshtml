@@ -99,7 +99,7 @@
     {
         // Phase 11A + 13 — Inventory submenu: Adjustments + Transfers.
         // Future: Stock browser, Lots, Pallets.
-        var inventoryActive = IsActive("INVENTORY") || IsActive("Adjustments") || IsActive("Transfers");
+        var inventoryActive = IsActive("INVENTORY") || IsActive("Adjustments") || IsActive("Transfers") || IsActive("Locate");
         <a href="@Url.Action("Index", "Adjustments")"
            class="wms-sidebar-item @(inventoryActive ? "active" : "")"
            title="@module.DisplayName">
@@ -115,6 +115,10 @@
             <a href="@Url.Action("Index", "Transfers")"
                class="wms-sidebar-item @(IsActive("Transfers") ? "active" : "")">
                 <span class="wms-sidebar-item-text">Transfers</span>
+            </a>
+            <a href="@Url.Action("Index", "Locate")"
+               class="wms-sidebar-item @(IsActive("Locate") ? "active" : "")">
+                <span class="wms-sidebar-item-text">Locate (mobile)</span>
             </a>
         </div>
     }

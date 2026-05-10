@@ -346,11 +346,149 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10-11 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 + 17 + 18 + 19 + 20 + 21 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` + `v2.2.0-mobile-pick` + `v2.3.0-pack-video` + `v2.4.0-mobile-receive` + `v2.5.0-mobile-pack` + `v2.6.0-mobile-putaway` + `v2.7.0-mobile-count` · **Mobile suite expansion** (picker + receive + pack + putaway + cycle count — 5 of 5 mobile specs implemented; only Locate remains as Phase 22 — penultimate complete)
-**Current Focus**: Phase 22 Mobile Locate (last mobile-suite spec, read-only stock browser); Phase 19.5 serial-aware mobile (TD-040 + TD-042 + TD-043 — bundle when serial schema lands); ADR-004 putaway header (TD-004); per-location wizard for cycle count (TD-044); carrier FK integration; manifest workflow; post-Submit reversal flows.
+**Active Sprint**: Day 10-11 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 + 17 + 18 + 19 + 20 + 21 + 22 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` + `v2.2.0-mobile-pick` + `v2.3.0-pack-video` + `v2.4.0-mobile-receive` + `v2.5.0-mobile-pack` + `v2.6.0-mobile-putaway` + `v2.7.0-mobile-count` + `v2.8.0-mobile-locate` · 🎉 **MOBILE SUITE COMPLETE — 6 of 6 mobile ops shipped** (Pick + Receive + Pack + Putaway + Cycle Count + Locate)
+**Current Focus**: Phase 19.5 serial-aware mobile bundle (TD-040 + TD-042 + TD-043 — needs serial schema first); ADR-004 putaway header (TD-004); per-location wizard for cycle count (TD-044); carrier FK integration; manifest workflow; post-Submit reversal flows; v3.0.0 SaaS launch features.
 **Blockers**: none
 
 Update this section weekly during standups.
+
+### Day 11 — Phase 22 (Mobile Locate PWA — Scenario A, closes mobile suite)
+
+**Branch**: `feat/mobile-locate-pwa` → merged to `main` · **Tag**: `v2.8.0-mobile-locate` · **Spec**: `docs/mockups/mobile-specs/phase-22-mobile-locate-spec.md` (Implementation Notes appended T3)
+
+🎉 **Final mobile-suite phase. 6 of 6 mobile ops now shipped** (Pick / Receive / Pack / Putaway / Cycle Count / Locate). See **Mobile Suite Retrospective** at end of this entry.
+
+Read-only utility — find any item or location. Simplest of the 5 mobile phases (no state machine, no service mutations). Pure presentation-layer addition with two new JOIN-rich read methods on existing `IStockRepository`.
+
+Built in ~1h vs 3-4h spec estimate.
+
+**Audit findings (Scenario A confirmed)**:
+1. ✅ `IStockRepository.GetByProductAsync` + `GetByLocationAsync` exist (entity-only). New JOIN-rich row DTOs added for the rich projection mobile views need.
+2. ✅ `inventory.Lots.ReceivedDate` (DATE) + `ExpiryDate` (DATE nullable) drives lot-age display via `DATEDIFF`.
+3. ✅ `master.Zones.Type` drives status badge color (Storage = purple, Receiving/Staging = blue, Picking = green) — same enum used by Phase 20 putaway queue.
+4. ✅ Product/Location lookup by code — same inline-Dapper pattern from PutawayController + ReceiveController.
+5. ❌ No serial schema (per Phase 19+20 audits) → smart search drops serial detection. **TD-043 family deferral** — product OR location only.
+6. ❌ No `/locate/` route, no Phase 1 surface — clean room (no retirement).
+7. **No spec rename triggered** — 5th-instance audit clean (memory `feedback_spec_rename_audit.md` informed but didn't fire).
+
+**Surfaces (4 actions on the new mobile LocateController)**:
+- `GET /locate` — search entry. No data load (recent searches live in client-side localStorage). Renders search input + scan area HERO + recent list.
+- `GET /locate/search?q=...` — smart search:
+  1. Try `Product.Code` (Active only) → redirect to `/locate/item/{id}`
+  2. Try `Location.Code` (warehouse-scoped, Active only) → redirect to `/locate/loc/{id}`
+  3. Skip serial detection (TD-043 — no schema)
+  4. Not found → bounce back to `/locate` with banner ("...Serial scanning is Phase 19.5 / TD-043.")
+- `GET /locate/item/{productId}` — multi-location view per product. 404 on missing product. Renders product card + 3-col stat tiles (Total / Available / Allocated, computed sums) + per-location cards sorted by Lot.ExpiryDate ASC (FEFO awareness) then LocationCode.
+- `GET /locate/loc/{locationId}` — items at location. 404 on missing OR cross-warehouse (operator can only browse current-warehouse bins). Renders location HERO card + 4-tile stat grid (Distinct items / Total qty / Capacity policy / Stock rows) + per-item cards sorted by ProductCode.
+
+**DAL extensions** (2 new methods on `IStockRepository` + 2 record DTOs):
+- `LocateItemRow` — per-product multi-location row (StockId, Qty, Loc, ZoneType for status, Owner, Lot info with `LotAgeDays` via DATEDIFF, ExpiryDate, Pallet, UoM, CreatedAt). Sorted by `Lot.ExpiryDate ASC` (FEFO awareness).
+- `LocateLocationRow` — per-location multi-item row (StockId, Qty, Product Code+Name, Owner, Lot info, Pallet, UoM, CreatedAt). Sorted by ProductCode.
+- `GetItemViewAsync(productId)` — JOIN Locations + Zones + Owners + UoMs + LEFT JOIN Lots + Pallets. WHERE `QuantityOnHand > 0`.
+- `GetLocationViewAsync(locationId)` — same JOIN backbone, swap emphasis from location to product metadata.
+
+**UI** (3 views):
+- `Locate/Index.cshtml` — pure CSS `.lc-*` token namespace, `.no-scrollbar`. Search input (mono, autofocused) → submits as GET to `/locate/search`. Big scan area HERO (dashed primary border, barcode icon + "native scanner is future TD" note). Recent searches via Alpine localStorage state (dedup by q-string, cap 10 entries, "X min ago" relative time, Clear button).
+- `Locate/Item.cshtml` — purple-accent product card + 3-col stat tile grid (Total gray / Available green / Allocated amber). Per-location cards with border-left color by `Zone.Type` (Storage purple / Pick face green / Staging+Receiving blue / Other gray). Lot age display ("12 days old · expires Mar 15") with traffic-light coloring (fresh <30d green / aged <90d amber / stale red). Tap-through to `/locate/loc/{LocationId}`.
+- `Locate/Loc.cshtml` — purple-bordered location HERO card with map-pin icon + LocationCode (mono 18px purple) + Zone meta + status badge (Active green / Blocked red / Maint amber). 4-tile stat grid. Per-item cards with package icon + ProductCode + Lot info + qty. Tap-through to `/locate/item/{ProductId}` for round-trip navigation.
+
+**Sidebar**: "Locate (mobile)" entry under Inventory module after "Transfers". `inventoryActive` Or-chain widened to include "Locate".
+
+**Manifest**: `/locate/manifest.json` with `#534AB7` theme color.
+
+**Tests** (+6 net):
+- Index: NoWarehouse redirect + Happy returns view
+- Search: NoWarehouse redirect + BlankQuery early bail-out (verifies `ITenantConnectionFactory.CreateConnection` is NOT called)
+- Item: NoWarehouse redirect
+- Loc: NoWarehouse redirect
+
+The smart-search routing happy path + Item/Loc inline header lookups use `ITenantConnectionFactory` + raw Dapper which can't be cleanly mocked (TD-041 family — same as Phase 18 ReceiveController, Phase 20 PutawayController). **Out of test scope** as a deliberate trade-off (lightweight controller, would need a service-provider fixture to cover end-to-end). Inline lookups are 5 lines each; risk is low.
+
+Test posture: **901 passing** (was 895 / +6). 288 unit + 608 integration + 5 skipped.
+
+**Out of scope** (logged):
+- **TD-043 family** — Smart search with serial detection (needs `inventory.LotSerials` schema, bundle with TD-040 + TD-042 in Phase 19.5)
+- Movement history view (audit trail per item/location)
+- "Start cycle count from location" action (Phase 21 link from Loc page — would pre-populate location filter)
+- Favorites/saved searches per user
+- Recently viewed (per-user history; client-side localStorage suffices for MVP)
+- Photo of location (visual confirmation)
+- Native barcode scanner integration
+- Service worker offline caching
+- PWA icons
+- Loc view inline-header-lookup test coverage (TD-041 family)
+- Search routing happy path test coverage (TD-041 family)
+
+**Spec compliance check**:
+- ✅ /locate accessible from sidebar
+- ✅ Search bar works (type then submit)
+- ✅ Big scan area renders (manual entry for MVP — native scanner is future TD per spec)
+- ✅ Recent searches display (client-side localStorage; favorites = TD per brief)
+- ✅ Smart search detects type (product OR location — serial deferred per spec audit)
+- ✅ Item view shows multi-location list with status colors per Zone.Type
+- ✅ Location view shows items at bin
+- ✅ Stat tiles accurate (Total / Available / Allocated)
+- ✅ Lot age displayed for FEFO awareness (with traffic-light coloring)
+- ✅ Hidden scrollbars throughout
+- ✅ Touch targets ≥ 38px
+- ✅ PWA installable (manifest with #534AB7 theme)
+- ⚠️ Serial scan detection → deferred (TD-043 bundle)
+- ⚠️ Favorites toggle → deferred (TD)
+- ⚠️ "View movement history" / "Start cycle count" action buttons → deferred (TDs; round-trip nav via tap-through covers basic exploration)
+
+**Notes**: Audit completed in ~5 min — all required schema bits exist (Stock+Locations+Zones+Lots already JOINed elsewhere), only missing piece was the JOIN-rich projections themselves. Two-method DAL addition + 4-action controller + 3 views = ~1h ship. Pattern reuse from Phase 20 putaway hit ~80% (location card design + Zone.Type-based status coloring + inline Dapper for header lookups).
+
+---
+
+## 🎉 Mobile Suite Retrospective (post-Phase-22)
+
+**Mobile suite v2.2.0 → v2.8.0 — six PWA workflows shipped over Day 10-11.**
+
+### What's in the suite
+| Phase | Tag | Workflow | Surface | LoC (controller + views) |
+|---|---|---|---|---|
+| 16 | v2.2.0-mobile-pick | Pick tasks | `/pick` | ~250 |
+| 18 | v2.4.0-mobile-receive | Goods receipt | `/receive` | ~640 (replaces Phase 1) |
+| 19 | v2.5.0-mobile-pack | Pack tasks | `/pack` | ~690 |
+| 20 | v2.6.0-mobile-putaway | Putaway from staging | `/putaway` | ~530 (replaces Phase 1) |
+| 21 | v2.7.0-mobile-count | Cycle count | `/count` | ~750 |
+| 22 | v2.8.0-mobile-locate | Stock browser | `/locate` | ~610 |
+
+### Time totals
+- **Spec estimate (sum)**: 16-22h
+- **Actual (sum)**: ~10h
+- **Velocity multiplier**: ~1.8x faster than estimate
+- All 5 phases (18, 19, 20, 21, 22) used the audit-first protocol; 3 of 5 had to defer features (TD-040/TD-042/TD-043/TD-044) but no phase paused for user decision after Path D was approved on Phase 19.
+
+### Patterns established (worth remembering)
+1. **Audit-first protocol** — pre-T1 grep + read of relevant entities/services/migrations. Catches spec-vs-reality gaps cheaply. `feedback_audit_first_for_lookup_integration.md` + `feedback_spec_rename_audit.md` capture the playbook.
+2. **Spec rename pattern** — 3 instances of "spec names a column that doesn't exist; capability lives under different schema name" (Phase 18: IsSerialTracked → TrackingMethod; Phase 19: 'LotOnly' → 'Lot'; Phase 20: IsStaging → Zone.Type IN). 4th and 5th-instance checks (Phase 21 + 22) passed clean.
+3. **Per-line card layout** — Phase 18 receive established the shape (purple-accent border-left + product/location header + side-by-side qty grid + variance indicator + quick-adjust + collapsible fields). Reused near-line-for-line in Phases 19, 20, 21.
+4. **All-lines-on-one-page > per-location wizard** — operator pre-walks the aisle physically + types at the end, not card-by-card with the device. TD-044 (per-location wizard) logged for Phase 21 if pickers ask for it.
+5. **Constructor injection from start** — every mobile controller has every dep via constructor. Submit happy paths covered end-to-end (no TD-041 equivalent for Phases 19/21). The PutawayController + LocateController use one inline `ITenantConnectionFactory` for tiny header lookups (5 lines each); test gap accepted as TD-041 family.
+6. **Client-side recent + localStorage** — Phase 22 Locate's recent searches use Alpine + localStorage with no backend table. Should be the default for any "recent N items" UX where the data is per-device.
+7. **Two-forms-share-hidden-inputs trick** — Phase 21 Cycle Count's Save vs Submit buttons each post their own `<form>`, with line-level hidden inputs wired to BOTH via the `form="form-id"` HTML attribute. Avoids JS form-mutation hacks.
+8. **PURPLE > GREEN for primary submit** — across all 5 phases the user direction was consistent: stick with `#534AB7` for the mobile primary submit button. Green is reserved for semantic success (suggestion cards, variance match indicator, Active status badges). Documented in spec appendices.
+
+### TD bundle for Phase 19.5 (serial-aware mobile)
+The serial schema gap blocks 3 mobile features:
+- **TD-040** — Mobile receive serial entry (per-line `LotSerials` capture)
+- **TD-042** — Mobile pack scan-incremental UX (operator scans into carton)
+- **TD-043** — Mobile pack smart-scan with serial detection + Mobile locate smart-scan with serial detection (auto-detect by serial inventory lookup)
+
+Bundle when `inventory.LotSerials` (or equivalent) lands. Estimated ~3-4h for the schema + ~2h per mobile surface to wire in.
+
+### Other deferred (not Phase 19.5)
+- **TD-004** — ADR-004 putaway header (PutawayTask + PutawayTaskLine schema; would let mobile putaway track per-task SLA + multi-line splits)
+- **TD-041 family** — Inline `ITenantConnectionFactory` test coverage (needs service-provider fixture; Phase 18, 20, 22 all share)
+- **TD-044** — Per-location wizard for mobile cycle count
+- Native barcode scanner integration (5 phases mention this)
+- Service worker offline caching (5 phases mention this)
+- PWA icons (5 phases mention this — would polish "Add to home screen" UX)
+- "Start cycle count here" / "View activity" actions on Locate Loc page (Phase 21 cross-link)
+
+### Foundation for v3.0.0+ (SaaS launch)
+The 6 mobile PWAs are the warehouse-staff surface. Desktop-side workflows (PO admin, SO admin, Pick/Pack/Ship execution, Cycle Count approval, Adjustment workflow, Transfer workflow) covered by Phases 7, 9-15. **Outbound MVP shipped as v2.0.0**; **Inbound MVP shipped as v1.0.0**. v3.0.0 candidates: tenant onboarding flow, billing module (per ADR-006 activity-based), reports/dashboards, manifest workflow, carrier API integration, Pack video for B2C policy, post-Submit reversal flows for pick/pack/ship, full ASN handling, formal vendor master.
 
 ### Day 11 — Phase 21 (Mobile Cycle Count PWA — Scenario A, all-lines-on-one-page UX)
 
@@ -2160,5 +2298,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-11 (Day 11 — Phase 21 Mobile Cycle Count PWA; v2.7.0-mobile-count · Scenario A · 5 of 5 mobile specs implemented · only Phase 22 Locate remains)
-**Version**: 1.35
+**Last updated**: 2026-05-11 (Day 11 — Phase 22 Mobile Locate PWA; v2.8.0-mobile-locate · 🎉 MOBILE SUITE COMPLETE — 6 of 6 mobile ops shipped · retrospective in CLAUDE.md log)
+**Version**: 1.36

@@ -1,0 +1,198 @@
+@{
+    ViewData["Title"] = "Locate";
+    var okMsg = ViewBag.LocateMessage as string;
+    var errMsg = ViewBag.LocateError as string;
+}
+
+@* Phase 22 — Mobile Locate search entry. Recent searches are
+   client-side localStorage only (no backend table). Favorites
+   deferred (TD). Smart-search server-side detects product OR
+   location; serial detection is TD-043 (Phase 19.5 bundle). *@
+<style>
+    .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+
+    .lc-page-pad { padding: 12px 14px 24px; }
+
+    .lc-banner {
+        padding: 8px 12px; border-radius: 8px;
+        font-size: 12px; margin-bottom: 10px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .lc-banner-ok  { background: #E1F5EE; color: #0F6E56; }
+    .lc-banner-err { background: #FCEBEB; color: #A32D2D; }
+
+    .lc-header { margin-bottom: 12px; }
+    .lc-title    { font-size: 18px; font-weight: 500; color: #1f2937; }
+    .lc-subtitle { font-size: 11px; color: #6b7280; margin-top: 2px; }
+
+    /* Search bar */
+    .lc-search-wrap {
+        position: relative; margin-bottom: 14px;
+    }
+    .lc-search-icon {
+        position: absolute; left: 12px; top: 50%;
+        transform: translateY(-50%); color: #9ca3af; font-size: 18px;
+        pointer-events: none;
+    }
+    .lc-search-input {
+        width: 100%; height: 44px;
+        padding: 0 14px 0 38px;
+        background: #f9fafb; border: 0.5px solid #e5e7eb;
+        border-radius: 11px; font-size: 13px; color: #1f2937;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+    }
+    .lc-search-input:focus { outline: none; border-color: #534AB7; background: #ffffff; }
+
+    /* Big scan area (hero) */
+    .lc-scan-hero {
+        background: #f9fafb; border: 2px dashed #534AB7;
+        border-radius: 12px; padding: 26px 14px;
+        text-align: center; margin-bottom: 14px;
+    }
+    .lc-scan-icon-circle {
+        width: 56px; height: 56px; border-radius: 100px;
+        background: #EEEDFE; color: #534AB7;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 30px; margin-bottom: 10px;
+    }
+    .lc-scan-title { font-size: 13px; font-weight: 500; color: #1f2937; }
+    .lc-scan-subtitle { font-size: 10px; color: #6b7280; margin-top: 4px; }
+
+    /* Recent searches */
+    .lc-section-title {
+        font-size: 9px; font-weight: 600; color: #6b7280;
+        text-transform: uppercase; letter-spacing: 0.5px;
+        margin: 14px 0 6px;
+    }
+
+    .lc-recent-card {
+        display: flex; align-items: center; gap: 10px;
+        background: #ffffff; border: 0.5px solid #e5e7eb;
+        border-radius: 9px; padding: 10px 12px; margin-bottom: 5px;
+        text-decoration: none; color: inherit;
+    }
+    .lc-recent-card:active { background: #f9fafb; }
+    .lc-recent-icon {
+        width: 24px; height: 24px; border-radius: 6px;
+        background: #f3f4f6; color: #6b7280;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 13px; flex-shrink: 0;
+    }
+    .lc-recent-content { flex: 1; min-width: 0; }
+    .lc-recent-code {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 11px; font-weight: 500; color: #1f2937;
+    }
+    .lc-recent-meta { font-size: 9px; color: #6b7280; margin-top: 1px; }
+
+    .lc-clear-btn {
+        background: transparent; border: none; color: #534AB7;
+        font-size: 10px; cursor: pointer; padding: 4px 0;
+    }
+
+    .lc-empty {
+        text-align: center; padding: 24px 16px;
+        color: #9ca3af; font-size: 11px;
+    }
+</style>
+
+<div class="lc-page-pad" x-data="locateSearch()">
+    @if (!string.IsNullOrEmpty(okMsg))
+    {
+        <div class="lc-banner lc-banner-ok">
+            <i class="ti ti-check"></i> @okMsg
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(errMsg))
+    {
+        <div class="lc-banner lc-banner-err">
+            <i class="ti ti-alert-circle"></i> @errMsg
+        </div>
+    }
+
+    <div class="lc-header">
+        <div class="lc-title">Locate</div>
+        <div class="lc-subtitle">Find any item or location</div>
+    </div>
+
+    <form asp-controller="Locate" asp-action="Search" method="get"
+          @@submit="rememberSearch($event)">
+        <div class="lc-search-wrap">
+            <i class="ti ti-search lc-search-icon"></i>
+            <input type="text" name="q"
+                   class="lc-search-input"
+                   x-model="query"
+                   placeholder="Product code or location code..."
+                   autocomplete="off"
+                   autofocus />
+        </div>
+    </form>
+
+    <div class="lc-scan-hero">
+        <div class="lc-scan-icon-circle"><i class="ti ti-barcode"></i></div>
+        <div class="lc-scan-title">Scan barcode</div>
+        <div class="lc-scan-subtitle">Product code or location code</div>
+        <div class="lc-scan-subtitle" style="margin-top:8px; color:#9ca3af;">
+            (Native scanner integration is a future TD; type the code above for now.)
+        </div>
+    </div>
+
+    <div style="display:flex; align-items:center; justify-content:space-between;">
+        <div class="lc-section-title" style="margin:0;">Recent searches</div>
+        <button type="button" class="lc-clear-btn"
+                @@click="clearRecent()"
+                x-show="recents.length > 0">
+            Clear
+        </button>
+    </div>
+
+    <template x-if="recents.length === 0">
+        <div class="lc-empty">No recent searches yet.</div>
+    </template>
+
+    <template x-for="(r, i) in recents" :key="i">
+        <a :href="'/locate/search?q=' + encodeURIComponent(r.q)" class="lc-recent-card">
+            <div class="lc-recent-icon"><i class="ti ti-clock"></i></div>
+            <div class="lc-recent-content">
+                <div class="lc-recent-code" x-text="r.q"></div>
+                <div class="lc-recent-meta" x-text="relativeTime(r.t)"></div>
+            </div>
+            <i class="ti ti-arrow-up-left" style="color:#9ca3af; font-size:14px;"></i>
+        </a>
+    </template>
+</div>
+
+@section Scripts {
+    <script>
+        function locateSearch() {
+            const KEY = 'wms.locate.recents';
+            return {
+                query: '',
+                recents: JSON.parse(localStorage.getItem(KEY) || '[]'),
+                rememberSearch(e) {
+                    const q = (this.query || '').trim();
+                    if (!q) { e.preventDefault(); return; }
+                    const dedup = this.recents.filter(r => r.q !== q);
+                    dedup.unshift({ q, t: Date.now() });
+                    this.recents = dedup.slice(0, 10);
+                    localStorage.setItem(KEY, JSON.stringify(this.recents));
+                },
+                clearRecent() {
+                    this.recents = [];
+                    localStorage.setItem(KEY, '[]');
+                },
+                relativeTime(t) {
+                    const ms = Date.now() - t;
+                    const min = Math.floor(ms / 60000);
+                    if (min < 1) return 'just now';
+                    if (min < 60) return min + ' min ago';
+                    const hr = Math.floor(min / 60);
+                    if (hr < 24) return hr + 'h ago';
+                    const d = Math.floor(hr / 24);
+                    return d + 'd ago';
+                },
+            };
+        }
+    </script>
+}
