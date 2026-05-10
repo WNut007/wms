@@ -10,6 +10,8 @@ using WMS.DAL.Repositories.Outbound;
 using WMS.Web.Models.Outbound;
 using WMS.Web.Services;
 using WMS.Web.Services.Mappers;
+using WMS.Web.Services.Outbound;
+using WMS.Web.Services.Storage;
 using WMS.Web.ViewModels.Detail;
 
 namespace WMS.Web.Controllers;
@@ -28,6 +30,7 @@ public sealed class PackTasksController : Controller
     private readonly ISalesOrderRepositoryFactory _soRepos;
     private readonly IBoxTypeRepositoryFactory _boxTypeRepos;
     private readonly IPackTaskService _service;
+    private readonly IPackVideoService _videoService;
     private readonly ITenantContext _tenant;
     private readonly ICurrentUser _currentUser;
     private readonly IValidator<CancelPackTaskViewModel> _cancelValidator;
@@ -37,6 +40,7 @@ public sealed class PackTasksController : Controller
         ISalesOrderRepositoryFactory soRepos,
         IBoxTypeRepositoryFactory boxTypeRepos,
         IPackTaskService service,
+        IPackVideoService videoService,
         ITenantContext tenant,
         ICurrentUser currentUser,
         IValidator<CancelPackTaskViewModel> cancelValidator)
@@ -45,6 +49,7 @@ public sealed class PackTasksController : Controller
         _soRepos = soRepos;
         _boxTypeRepos = boxTypeRepos;
         _service = service;
+        _videoService = videoService;
         _tenant = tenant;
         _currentUser = currentUser;
         _cancelValidator = cancelValidator;
@@ -283,6 +288,87 @@ public sealed class PackTasksController : Controller
         }
 
         return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // ================================================================
+    // Phase 17 (ADR-009) — Pack video endpoints
+    // ================================================================
+
+    // POST /PackTasks/UploadVideo/{id} — multipart blob upload.
+    // Pack task must be Packed (operator records video AFTER sealing
+    // the carton — see ADR-009 alternatives section). Returns JSON
+    // {videoId} on success so the client can update the player UI
+    // without a full page reload.
+    [HttpPost("UploadVideo/{id:guid}")]
+    [ValidateAntiForgeryToken]
+    [RequestSizeLimit(60 * 1024 * 1024)]    // 60 MB hard cap (storage validates 50 MB but allow some HTTP framing)
+    public async Task<IActionResult> UploadVideo(
+        Guid id,
+        IFormFile file,
+        [FromForm] int durationSec,
+        CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+            return BadRequest(new { error = "No video file in request." });
+
+        var requesterId = _currentUser.UserId
+            ?? throw new InvalidOperationException("Authenticated user required.");
+
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            var videoId = await _videoService.UploadAsync(
+                _tenant.RequireTenantId(),
+                packTaskId: id,
+                content: stream,
+                fileName: file.FileName,
+                contentType: file.ContentType,
+                durationSec: durationSec,
+                currentUserId: requesterId,
+                ct);
+            return Json(new { videoId });
+        }
+        catch (StorageValidationException ex)
+        {
+            // Size / extension rejection — surfaced as 400 so the
+            // client shows a friendly message instead of a 500.
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    // GET /PackTasks/Video/{videoId} — playback. Returns the raw
+    // bytes with the right Content-Type. Range-request streaming is
+    // a TD (current implementation reads the whole file into the
+    // response stream — fine for 30-MB videos, less great for hours-
+    // of-video futures).
+    [HttpGet("Video/{videoId:guid}")]
+    public async Task<IActionResult> Video(Guid videoId, CancellationToken ct)
+    {
+        var streamResult = await _videoService.GetStreamAsync(
+            _tenant.RequireTenantId(), videoId, ct);
+        if (streamResult is null) return NotFound();
+
+        var (stream, contentType, fileName) = streamResult.Value;
+        // enableRangeProcessing: true lets the framework handle
+        // simple Range requests over the FileStream — better than
+        // nothing while the proper streaming TD lands.
+        return File(stream, contentType, fileName, enableRangeProcessing: true);
+    }
+
+    // DELETE /PackTasks/Video/{videoId} — admin/debug. Removes the
+    // PackVideo row + the underlying documents.Files row + on-disk
+    // bytes (mirrors the retention job's per-row delete logic).
+    [HttpDelete("Video/{videoId:guid}")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteVideo(Guid videoId, CancellationToken ct)
+    {
+        var changed = await _videoService.DeleteAsync(
+            _tenant.RequireTenantId(), videoId, ct);
+        return changed ? NoContent() : NotFound();
     }
 
     private static List<KeyValuePair<string, string>> BuildOverviewFields(

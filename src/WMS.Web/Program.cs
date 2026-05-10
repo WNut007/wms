@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Caching.Memory;
 using Serilog;
 using WMS.Web.Infrastructure;
+using WMS.Web.Services.Outbound;
 using WMS.BLL.Services.Auth;
 using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
@@ -152,9 +153,9 @@ builder.Services.AddScoped<IPackTaskService, PackTaskService>();
 builder.Services.AddScoped<IShipmentRepositoryFactory, ShipmentRepositoryFactory>();
 builder.Services.AddScoped<IShipmentService, ShipmentService>();
 
-// Phase 17 (ADR-009) — Pack video. Service registration arrives
-// in T4; T3 wires the repo factory only.
+// Phase 17 (ADR-009) — Pack video.
 builder.Services.AddScoped<IPackVideoRepositoryFactory, PackVideoRepositoryFactory>();
+builder.Services.AddScoped<IPackVideoService, PackVideoService>();
 
 // PermissionService — Scoped to match the (Scoped) factory dep. The
 // cache itself lives on IMemoryCache (Singleton), so per-request
