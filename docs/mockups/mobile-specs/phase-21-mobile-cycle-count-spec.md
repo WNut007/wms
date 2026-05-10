@@ -437,3 +437,69 @@ Check existing:
 - **Pattern source**: Phase 16 picker + Phase 18 receive
 - **Desktop equivalent**: Phase 12 `/CycleCounts/{id}`
 - **Service**: Phase 12 cycle count service (auto-flip logic reused)
+
+---
+
+## 📋 Implementation Notes (Scenario A — shipped 2026-05-11, tag v2.7.0-mobile-count)
+
+> Added post-implementation. Documents what was built vs spec.
+
+Pre-implementation audit confirmed clean **Scenario A** — Phase 12 service surface is well-aligned with the spec. **No spec rename triggered** this phase (4th-instance memory check via `feedback_spec_rename_audit.md` passed clean). Built in ~1.5h vs 4h spec estimate.
+
+### Audit findings & locked decisions
+
+1. ✅ `ICycleCountService` exists with full surface (`CreateAsync`, `SaveCountedQuantitiesAsync`, `SubmitForReviewAsync`, `ApproveAndApplyAsync`, `CancelAsync`, `GetByIdAsync`).
+2. ✅ State machine `Counting → Review → Applied | Cancelled` matches spec.
+3. ✅ `CountLineUpdate(LineId, CountedQuantity, LineStatus, Notes)` matches per-line save shape exactly.
+4. ✅ `CYC-YYYYMMDD-NNNN` number format + LineStatus enum match spec.
+5. ✅ `ICycleCountRepository.GetLineRowsByIdAsync` provides JOIN-resolved per-line projection (ProductCode, ProductName, LocationCode, UomCode, OwnerCode, LotNumber, PalletNumber).
+6. ❌ No Phase 1 mobile cycle count surface — purely additive (no retirement).
+7. ❌ No `/count/` route exists today — clean room.
+
+### One UX deviation from spec
+
+Spec describes a **per-location wizard** ("Location 16 of 24" with `[Save & next location →]`). Built **all-lines-on-one-page** for mental-model consistency with Phase 18-20. Per-location wizard = **TD-044** candidate.
+
+Reasoning: operator typically pre-walks the aisle physically + types quantities at the end, not card-by-card with the device. The all-lines view also makes variance review easier (all visible at once for cross-comparison).
+
+### Deviations from spec
+
+| Spec said | Built | Why |
+|---|---|---|
+| Per-location wizard with "Location 16 of 24" + Save & next | All-lines-on-one-page | Phase 18-20 mental-model consistency; operator pre-walks aisle + types at end |
+| Filter chips (All/Counting/Review/Done) on queue | 2-section layout (Active sessions + Pending approval) | Sufficient for MVP; adding Done/Cancelled would require extra paged calls + chip state |
+| Session-level Notes on review page | Per-line Notes only | Operator can use per-line Notes; session-level Notes is a small future addition |
+| Apply variance via mobile | Desktop-only (Review → Applied) | Spec MVP itself defers this; separation of duties enforced (counter ≠ approver) |
+| GREEN submit button | PURPLE (#534AB7) | Per Phase 19 user direction — matches mobile shell consistently |
+
+### Built per spec
+
+- /count/ PWA route + manifest with #534AB7 theme
+- Queue page with Counting + Review sections
+- Per-task page with location card + side-by-side qty grid (Expected | Counted)
+- Variance auto-flag with color coding (✓ Match / ↓ Short / ↑ Over / ⊘ Skipped)
+- Quick-adjust buttons (-1 / +1 / -10 / +10)
+- Auto-flip status on qty entry (Phase 12 desktop pattern)
+- Skip toggle (with un-skip)
+- Stat tiles for Review state (3-col Match/Short/Over)
+- Sticky-bottom Submit + Save progress + Cancel
+- "Cycle Count (mobile)" sidebar entry under Counts module
+
+### Form architecture
+
+TWO forms in DOM (`count-form` for Save, `submit-form` for Submit), each line's hidden inputs wired to BOTH via the `form="form-id"` attribute. Operator clicks the right button → that form posts. Avoids JS form-mutation hacks.
+
+### Tests
+
+16 CountControllerTests cover queue partition / task 404 paths / Counting + Review render / Save happy + service-throws / Submit happy (saves THEN submits) + idempotent + skip-Save-when-no-lines / Cancel reason-gate + happy + idempotent. Submit happy path IS exercised end-to-end (constructor injection from start).
+
+### TD candidates
+- **TD-044** — Per-location wizard with progress bar (alternative UX to all-lines view)
+- Filter chips (All/Counting/Review/Done) on queue — extra paged calls + chip state
+- Session-level Notes on review page
+- Re-count flow with reason capture
+- Photo capture per variance (bundle with ADR-009 pack-video infrastructure)
+- Multi-counter sessions
+- Always-focused barcode input
+- Service worker offline caching
+- PWA icons
