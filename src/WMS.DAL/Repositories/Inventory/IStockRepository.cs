@@ -69,4 +69,31 @@ public interface IStockRepository
         Guid warehouseId,
         Guid? locationFilter,
         CancellationToken ct = default);
+
+    // Phase 14B — candidate Stock rows for outbound allocation.
+    // Filters by warehouse + 3-tuple (Product, Owner, UoM) — Lot is
+    // not a filter today (SO lines don't specify lot in MVP; future
+    // FEFO strategy can sort candidates by lot expiry). Returns rows
+    // where (QuantityOnHand - QuantityAllocated) > 0. Sorted by
+    // CreatedAt ASC (FIFO-friendly default; strategy may re-order in
+    // memory). Atomic concurrent allocation safety relies on the
+    // CK_Stock_Allocated_NotOverOnHand constraint at update time.
+    Task<IReadOnlyList<Stock>> GetAllocationCandidatesAsync(
+        Guid warehouseId,
+        Guid productId,
+        Guid ownerId,
+        Guid uomId,
+        CancellationToken ct = default);
+
+    // Phase 14B — atomic delta on QuantityAllocated. Positive on
+    // allocate, negative on release. Caller composes inside ambient
+    // TransactionScope alongside the matching OrderAllocations row +
+    // line.AllocatedQuantity bump. CK_Stock_Allocated_NotOverOnHand +
+    // CK_Stock_Allocated_NonNegative throw on out-of-range deltas —
+    // service catches InvalidOperationException, TX rolls back.
+    Task AdjustQuantityAllocatedAsync(
+        Guid stockId,
+        decimal delta,
+        Guid? userId,
+        CancellationToken ct = default);
 }

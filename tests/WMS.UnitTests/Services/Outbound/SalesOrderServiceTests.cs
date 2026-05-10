@@ -24,8 +24,18 @@ public class SalesOrderServiceTests
         var factory = new Mock<ISalesOrderRepositoryFactory>();
         factory.Setup(f => f.For(It.IsAny<Guid>())).Returns(repo.Object);
 
+        // Phase 14B added IAllocationService constructor dep — default-mock
+        // internally per feedback_test_build_helper_pattern.md so the
+        // public NewService signature stays stable for existing tests.
+        var allocationService = new Mock<IAllocationService>();
+        allocationService.Setup(s => s.ReleaseAllForSalesOrderAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(),
+                It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0);
+
         return new SalesOrderService(
             factory.Object,
+            allocationService.Object,
             NullLogger<SalesOrderService>.Instance);
     }
 
