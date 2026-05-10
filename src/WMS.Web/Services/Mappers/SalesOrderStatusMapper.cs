@@ -4,7 +4,8 @@ namespace WMS.Web.Services.Mappers;
 // Phase 14B widened the DB CHECK to:
 //   'Draft' | 'Open' | 'Allocating' | 'Allocated' | 'Cancelled'
 // Phase 14C added: Picking | Picked | PartiallyPicked.
-// 14D will widen further with Packed | Shipped | Closed.
+// Phase 14D added: Packed.
+// 14F will widen further with Shipping | Shipped | Closed.
 public static class SalesOrderStatusMapper
 {
     public static string ToWire(string db) => db switch
@@ -16,6 +17,7 @@ public static class SalesOrderStatusMapper
         "Picking"         => "picking",
         "Picked"          => "picked",
         "PartiallyPicked" => "partiallypicked",
+        "Packed"          => "packed",
         "Cancelled"       => "cancelled",
         _                 => "draft",
     };
@@ -30,6 +32,7 @@ public static class SalesOrderStatusMapper
         "picking"           => "Picking",
         "picked"            => "Picked",
         "partiallypicked"   => "PartiallyPicked",
+        "packed"            => "Packed",
         "cancelled"         => "Cancelled",
         _                   => null,
     };
@@ -43,6 +46,7 @@ public static class SalesOrderStatusMapper
         "Picking"         => "warning",   // pick task generated, in flight
         "Picked"          => "success",   // pick task submitted, full pick
         "PartiallyPicked" => "warning",   // pick task submitted, short
+        "Packed"          => "info",      // pack submitted, ready for ship
         "Cancelled"       => "neutral",
         _                 => "neutral",
     };

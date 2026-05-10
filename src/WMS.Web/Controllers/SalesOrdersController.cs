@@ -33,6 +33,7 @@ public sealed class SalesOrdersController : Controller
     private readonly ISalesOrderService _service;
     private readonly IAllocationService _allocationService;
     private readonly IPickTaskService _pickTaskService;
+    private readonly IPackTaskService _packTaskService;
     private readonly IOrderAllocationRepositoryFactory _allocRepos;
     private readonly ICustomerRepositoryFactory _customerRepos;
     private readonly IWarehouseRepositoryFactory _warehouseRepos;
@@ -49,6 +50,7 @@ public sealed class SalesOrdersController : Controller
         ISalesOrderService service,
         IAllocationService allocationService,
         IPickTaskService pickTaskService,
+        IPackTaskService packTaskService,
         IOrderAllocationRepositoryFactory allocRepos,
         ICustomerRepositoryFactory customerRepos,
         IWarehouseRepositoryFactory warehouseRepos,
@@ -64,6 +66,7 @@ public sealed class SalesOrdersController : Controller
         _service = service;
         _allocationService = allocationService;
         _pickTaskService = pickTaskService;
+        _packTaskService = packTaskService;
         _allocRepos = allocRepos;
         _customerRepos = customerRepos;
         _warehouseRepos = warehouseRepos;
@@ -138,6 +141,7 @@ public sealed class SalesOrdersController : Controller
                 picking         = counts.Picking,
                 picked          = counts.Picked,
                 partiallypicked = counts.PartiallyPicked,
+                packed          = counts.Packed,
                 cancelled       = counts.Cancelled,
             },
         });
@@ -346,20 +350,25 @@ public sealed class SalesOrdersController : Controller
         var isPicking         = h.Status == "Picking";
         var isPicked          = h.Status == "Picked";
         var isPartiallyPicked = h.Status == "PartiallyPicked";
+        var isPacked          = h.Status == "Packed";
         var isCancelled       = h.Status == "Cancelled";
 
         var canEdit     = !isCancelled;
         var canSubmit   = isDraft;
         var canAllocate = isOpen || isAllocating;   // Allocated is no-op (idempotent); show greyed
-        // Phase 14C — Generate active only when fully Allocated. Picking
-        // returns the existing task idempotently — also clickable so a
-        // re-trigger lands on the same Detail page.
+        // Phase 14C — Generate pick active only when fully Allocated.
+        // Picking returns the existing task idempotently — also clickable
+        // so a re-trigger lands on the same Detail page.
         var canGenerate = isAllocated || isPicking;
+        // Phase 14D — Generate pack active when SO has been picked
+        // (Picked or PartiallyPicked). Idempotent on existing Pending
+        // pack task — controller redirects to the same Detail.
+        var canGeneratePack = isPicked || isPartiallyPicked;
         // Cancel narrows to pre-pick states. Once a pick task exists,
         // operator must cancel the pick task first (revert SO Picking →
-        // Allocated) before cancelling the SO. Picked/PartiallyPicked
-        // are post-Submit terminals — need a future return-to-stock
-        // workflow to reverse.
+        // Allocated) before cancelling the SO. Picked/PartiallyPicked/
+        // Packed are post-Submit terminals — need a future return-to-
+        // stock workflow to reverse.
         var canCancel   = isDraft || isOpen || isAllocating || isAllocated;
 
         var statusVariant = SalesOrderStatusMapper.ToBadgeVariant(h.Status);
@@ -413,15 +422,17 @@ public sealed class SalesOrdersController : Controller
             QuickActions = new()
             {
                 new("Edit",          "ti-edit",
-                    canEdit     ? $"/SalesOrders/Edit/{id}" : "#", Enabled: canEdit),
+                    canEdit         ? $"/SalesOrders/Edit/{id}" : "#", Enabled: canEdit),
                 new("Submit",        "ti-send",
-                    canSubmit   ? "#submit-modal"           : "#", Enabled: canSubmit),
+                    canSubmit       ? "#submit-modal"           : "#", Enabled: canSubmit),
                 new("Allocate",      "ti-tags",
-                    canAllocate ? "#allocate-modal"         : "#", Enabled: canAllocate),
+                    canAllocate     ? "#allocate-modal"         : "#", Enabled: canAllocate),
                 new("Generate pick", "ti-list-check",
-                    canGenerate ? "#generate-modal"         : "#", Enabled: canGenerate),
+                    canGenerate     ? "#generate-modal"         : "#", Enabled: canGenerate),
+                new("Generate pack", "ti-package",
+                    canGeneratePack ? "#generate-pack-modal"    : "#", Enabled: canGeneratePack),
                 new("Cancel",        "ti-x",
-                    canCancel   ? "#cancel-modal"           : "#", Enabled: canCancel),
+                    canCancel       ? "#cancel-modal"           : "#", Enabled: canCancel),
             },
             OverviewFields = BuildOverviewFields(h, customer, warehouse),
             Properties = BuildProperties(h),
@@ -436,9 +447,11 @@ public sealed class SalesOrdersController : Controller
         ViewBag.IsPicking          = isPicking;
         ViewBag.IsPicked           = isPicked;
         ViewBag.IsPartiallyPicked  = isPartiallyPicked;
+        ViewBag.IsPacked           = isPacked;
         ViewBag.CanSubmit          = canSubmit;
         ViewBag.CanAllocate        = canAllocate;
         ViewBag.CanGenerate        = canGenerate;
+        ViewBag.CanGeneratePack    = canGeneratePack;
         ViewBag.CanCancel          = canCancel;
         ViewBag.LineRows           = lineRows;
         ViewBag.AllocationRows     = allocations;
@@ -517,6 +530,35 @@ public sealed class SalesOrdersController : Controller
             TempData["PickTaskMessage"] =
                 $"Pick task {result.PickNumber} generated — {result.LineCount} line(s), total expected {result.TotalExpectedQuantity:N2}.";
             return RedirectToAction("Detail", "PickTasks", new { id = result.PickTaskId });
+        }
+        catch (InvalidOperationException ex)
+        {
+            TempData["SalesOrderError"] = ex.Message;
+            return RedirectToAction(nameof(Detail), new { id });
+        }
+    }
+
+    // Phase 14D — generates a pack task from the SO's positively-picked
+    // lines. SO header NOT flipped on Generate (no Packing intermediate
+    // state for MVP); pack-in-flight detected via existing-task guard.
+    // Idempotent on existing Pending pack task — controller redirects
+    // to its Detail.
+    [HttpPost("GeneratePack/{id:guid}")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> GeneratePack(Guid id, CancellationToken ct)
+    {
+        var tenantId = _tenant.RequireTenantId();
+        var requesterId = _currentUser.UserId
+            ?? throw new InvalidOperationException("Authenticated user required.");
+
+        try
+        {
+            var result = await _packTaskService.GenerateAsync(
+                tenantId, id, requesterId, ct);
+
+            TempData["PackTaskMessage"] =
+                $"Pack task {result.PackNumber} generated — {result.LineCount} line(s), total picked {result.TotalPickedQuantity:N2}.";
+            return RedirectToAction("Detail", "PackTasks", new { id = result.PackTaskId });
         }
         catch (InvalidOperationException ex)
         {

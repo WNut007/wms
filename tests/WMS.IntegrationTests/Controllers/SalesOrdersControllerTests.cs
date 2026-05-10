@@ -30,6 +30,7 @@ public class SalesOrdersControllerTests
         Mock<ISalesOrderService> Service,
         Mock<IAllocationService> AllocationService,
         Mock<IPickTaskService> PickTaskService,
+        Mock<IPackTaskService> PackTaskService,
         Mock<ICustomerRepository> CustomerRepo,
         Mock<IValidator<SalesOrderCreateViewModel>> CreateValidator,
         Mock<IValidator<SalesOrderEditViewModel>> EditValidator,
@@ -121,9 +122,13 @@ public class SalesOrdersControllerTests
         // Default-mocked internally — same convention as 14B above.
         var pickTaskService = new Mock<IPickTaskService>();
 
+        // Phase 14D added IPackTaskService dep (GeneratePack POST endpoint).
+        var packTaskService = new Mock<IPackTaskService>();
+
         var ctrl = new SalesOrdersController(
             factory.Object, service.Object,
-            allocationService.Object, pickTaskService.Object, allocFactory.Object,
+            allocationService.Object, pickTaskService.Object, packTaskService.Object,
+            allocFactory.Object,
             customerFactory.Object, warehouseFactory.Object,
             productFactory.Object, ownerFactory.Object, uomFactory.Object,
             tenant.Object, currentUser.Object,
@@ -133,7 +138,7 @@ public class SalesOrdersControllerTests
         ctrl.TempData = new TempDataDictionary(new DefaultHttpContext(), tempDataProvider.Object);
 
         return new Build(ctrl, repo, service, allocationService, pickTaskService,
-            customerRepo, createValidator, editValidator, currentUserId);
+            packTaskService, customerRepo, createValidator, editValidator, currentUserId);
     }
 
     private static SalesOrder SampleHeader(string status = "Draft") => new()
