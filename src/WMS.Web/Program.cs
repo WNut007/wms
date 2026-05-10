@@ -1,7 +1,10 @@
 using FluentValidation;
+using Hangfire;
+using Hangfire.SqlServer;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Caching.Memory;
 using Serilog;
+using WMS.Web.Infrastructure;
 using WMS.BLL.Services.Auth;
 using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
@@ -204,6 +207,33 @@ builder.Services.AddScoped<IAuthService>(sp => new AuthService(
     sp.GetRequiredService<ILogger<AuthService>>(),
     bcryptCostFactor: builder.Environment.IsDevelopment() ? 4 : 12));
 
+// Phase 17 — Hangfire on the MasterDb (system DB; single dashboard,
+// single job queue across the deployment — NOT per-tenant). Schema
+// auto-prepared on first run via PrepareSchemaIfNecessary=true.
+// Fire-and-forget jobs work immediately; recurring jobs registered
+// after build (see PackVideoRetentionCleanupJob).
+var hangfireConn = builder.Configuration.GetConnectionString("MasterDb")
+    ?? throw new InvalidOperationException("MasterDb connection string is required for Hangfire.");
+builder.Services.AddHangfire(cfg => cfg
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+    .UseSimpleAssemblyNameTypeSerializer()
+    .UseRecommendedSerializerSettings()
+    .UseSqlServerStorage(hangfireConn, new SqlServerStorageOptions
+    {
+        CommandBatchMaxTimeout = TimeSpan.FromMinutes(5),
+        SlidingInvisibilityTimeout = TimeSpan.FromMinutes(5),
+        QueuePollInterval = TimeSpan.Zero,
+        UseRecommendedIsolationLevel = true,
+        DisableGlobalLocks = true,
+        PrepareSchemaIfNecessary = true,
+        SchemaName = "HangFire",
+    }));
+builder.Services.AddHangfireServer(opts =>
+{
+    opts.WorkerCount = Math.Min(4, Environment.ProcessorCount);
+    opts.ServerName = $"{Environment.MachineName}:wms-web";
+});
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
@@ -222,6 +252,15 @@ app.UseTenantValidation();
 app.UseAuthorization();
 
 app.MapGet("/health", () => "Healthy");
+
+// Phase 17 — Hangfire dashboard. Auth filter requires
+// IsAuthenticated (MVP — tightening to ADMIN role check is a TD).
+app.MapHangfireDashboard("/hangfire", new Hangfire.DashboardOptions
+{
+    Authorization = new[] { new HangfireDashboardAuthFilter() },
+    DashboardTitle = "WMS Jobs",
+    StatsPollingInterval = 5000,
+});
 
 app.MapControllerRoute(
     name: "default",
