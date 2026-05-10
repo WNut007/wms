@@ -317,11 +317,43 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts`
-**Current Focus**: Phase 13 direction TBD — Outbound MVP (sales orders → pick → pack) most likely candidate now that inventory-management surfaces (Adjustment + Cycle Count) are complete
-**Blockers**: none — migrations 20260510_008 / _009 / _010 / _011 / _012 already applied to dev tenant
+**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers`
+**Current Focus**: Phase 14 direction TBD — Outbound MVP (sales orders → pick → pack) most likely candidate now that all inventory-management surfaces are complete (Adjustment, Cycle Count, inter-warehouse Transfer)
+**Blockers**: none — migrations 20260510_008 through _014 already applied to dev tenant
 
 Update this section weekly during standups.
+
+### Day 10 — Phase 13 (Inter-warehouse Transfer Workflow — ADR-012)
+
+**Branch**: `feat/transfer-workflow` → merged to `main` · **Tag**: `v1.3.0-transfers` · **Implements**: ADR-012
+
+Final inventory-management surface. Multi-line workflow that shifts owner-keyed stock between warehouses with audited per-state transitions.
+
+**Schema** (2 migrations):
+- `20260510_013` — `inventory.TransferOrders` header. **7-state machine** (collapsed from ADR's 9): `Draft → Submitted → Approved → InTransit → Received` (terminal happy); `Cancelled` from any pre-InTransit; `Lost` from InTransit. Per-state audit trio (`RequestedBy/At` always set; `SubmittedBy/At`, `ApprovedBy/At`, `DispatchedBy/At`, `ReceivedBy/At` populated as workflow advances; `CancelledBy/At + CancelReason`, `LostBy/At + LossReason` for failure terminals). `CK_TransferOrders_AuditMatchesStatus` enforces the per-status invariant (mirrors Phase 11A `Adjustments` + Phase 12 `CycleCounts`). `CK_TransferOrders_FromTo` ensures FromWarehouse≠ToWarehouse. 2 indexes (per-status queue + per-warehouse pair).
+- `20260510_014` — `inventory.TransferOrderLines`. Owner+Lot preserved per ADR-007 (3PL/VMI invariant). Quantity progression: `QtyRequested` (operator intent) → `QtyDispatched` (actual pick) → `QtyReceived` (dest count). **`QtyLossInTransit` is a PERSISTED computed column** `(ISNULL(QtyDispatched,0) - ISNULL(QtyReceived,0))` — no service code writes it. Per-line Status: `Pending|Dispatched|Received|Variance`. 6 CHECK constraints incl. `CK_TransferOrderLines_DispatchedNotOverRequested`, `CK_TransferOrderLines_ReceivedNotOverDispatched`, `CK_TransferOrderLines_StatusMatchesQty` invariant. CASCADE delete on header→lines.
+
+**Service** (`ITransferOrderService`):
+- `CreateAsync` — validates From≠To warehouse + reason in closed set + non-empty lines + per-line From≠To location + qty>0 + LineNumber uniqueness. Assigns `TRN-YYYYMMDD-NNNN`. Lands as `Draft` with all lines `Pending`.
+- `SubmitAsync` — `Draft → Submitted`. Idempotent on already-Submitted.
+- `ApproveAsync` — `Submitted → Approved`. **Separation of duties** (approver≠requester).
+- `DispatchAsync` — `Approved → InTransit`. **TransactionScope-wrapped** (Phase 11A/12 pattern; MSDTC trade-off accepted per `feedback_transactionscope_dapper.md`). Per dispatched line: `IStockRepository.UpsertOnHandAsync(srcKey, -QtyDispatched, ctx)` with `MovementType=Transfer + ReferenceType='TransferOrderLine' + ReferenceId=line.Id`. `CK_Stock_OnHand_NonNegative` throws if source insufficient → TX rolls back. Lines not in payload stay `Pending` (partial dispatch allowed). Header flips on any line dispatched.
+- `ReceiveAsync` — `InTransit → Received`. TransactionScope-wrapped. Per line: `UpsertOnHandAsync(dstKey, +QtyReceived, ctx)` (skipped when QtyReceived=0 — full loss case). Line status: `Received` when QtyReceived==QtyDispatched; `Variance` when shorter. Header flips when ALL lines received.
+- `CancelAsync` — pre-InTransit only (`Draft|Submitted|Approved → Cancelled`). Required reason. Tries each from-state via `||` chain (atomic UPDATE WHERE Status=@from; whichever applies wins).
+- `MarkLostAsync` — `InTransit → Lost`. **No Stock writes** — loss captured naturally by `QtyLossInTransit` on lines whose `QtyReceived` stays NULL forever.
+
+**UI** (5 surfaces):
+- `/Transfers` — Alpine list with chip counts (`All / Draft / Submitted / Approved / In transit / Received / Cancelled / Lost`). 8-col table with side-by-side `Req · Dis · Rec` qty cell (color-coded — blue/green/red).
+- `/Transfers/Create` — single-page form. Two cascading Warehouse → Location dropdowns (one for From, one for To — both call `GET /Transfers/Locations/{whId}`). **Multi-line editable Alpine grid** (`x-for` with indexed `Lines[N].FieldName` for ASP.NET model binding). Closed-list reason dropdown.
+- `/Transfers/Detail/{id}` — `_DetailLayout` with custom Lines tab. **Inline Dispatch form when Status=Approved** (per-line picked qty, defaulted to QtyRequested). **Inline Receive form when Status=InTransit** (per-line received qty, defaulted to QtyDispatched). Read-only variance table otherwise (loss column color-coded red). Quick Actions state-gated for all 6 transitions.
+- Decision modals — `_TransferDecisionModals` partial reuses Phase 10B/11A/12 CSS-only `:target` pattern. 4 modals: Submit + Approve are no-payload; Cancel + MarkLost require reasons (3-500 chars).
+- Sidebar — Inventory module submenu now has Adjustments + **Transfers**. `INVENTORY.TRANSFERS` permission already seeded by migration 042.
+
+**TempData generalization**: `_DetailLayout` banner block now coalesces FOUR sets of TempData keys (`Cancel*`, `Adjustment*`, `CycleCount*`, `Transfer*`) into a single render — pattern continues to scale linearly.
+
+**Tests**: +53 net (27 service unit + 26 controller integration including 7 status-mapper Theory cases). Test posture: **513 passing** (was 460). 163 unit + 350 integration + 5 skipped. Unit tests cover state-transition gating (every from-state per action), separation-of-duties, dispatched/received qty caps + variance status flip, zero-receive (no Stock write), TX-wrapped happy paths writing the right deltas + StockMovementContext shape. Controller tests cover all 8 endpoints + state-driven Quick Action gating across all 7 statuses.
+
+**Out of scope** (logged as TD-033): per-line CarrierId / TrackingNumber / Priority / EstimatedTransitDays, mobile PWA receiving workflow, integration with Outbound PickTask (PickTaskId on lines), auto-Adjustment on variance closure, "any source location" auto-resolution (NULL FromLocationId per ADR), `inventory.TransferStatusHistory` per-transition log table, mid-transit re-dispatch flow, dual-writer in-transit accounting (ADR Option A).
 
 ### Day 10 — Phase 12 (Cycle Count Workflow — counts.* domain)
 
@@ -1317,5 +1349,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-10 (Day 10 — Phase 12 Cycle Count Workflow; v1.2.0-cycle-counts)
-**Version**: 1.21
+**Last updated**: 2026-05-10 (Day 10 — Phase 13 Inter-warehouse Transfer Workflow; v1.3.0-transfers)
+**Version**: 1.22

@@ -1,0 +1,169 @@
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Transfers";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Transfers</p>
+        <div class="wms-breadcrumb">
+            <span>Operations</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span>Inventory</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Transfers</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <a asp-action="Create" class="wms-btn wms-btn-purple">
+            <i class="ti ti-plus" style="font-size: 14px;" aria-hidden="true"></i>
+            New transfer
+        </a>
+    </div>
+</div>
+
+<div class="wms-card" style="padding: 0;" x-data="transferList()">
+    <div class="wms-filter-bar">
+        <div class="wms-filter-search">
+            <i class="ti ti-search wms-filter-search-icon" aria-hidden="true"></i>
+            <input type="text" class="wms-input"
+                   placeholder="Search by transfer number..."
+                   x-model.debounce.250ms="search"
+                   @@input="reload()" />
+        </div>
+
+        <div class="wmsp-chips" style="margin-left: 8px;">
+            <template x-for="s in statuses" :key="s.value">
+                <button type="button"
+                        class="wmsp-chip"
+                        :class="{ 'is-active': status === s.value }"
+                        @@click="status = s.value; reload()">
+                    <span x-text="s.label"></span>
+                    <span class="wmsp-chip-count" x-text="counts[s.value] ?? 0"></span>
+                </button>
+            </template>
+        </div>
+
+        <span style="margin-left: auto; font-size: 11px; color: var(--wms-text-secondary);" x-text="totalLabel()"></span>
+    </div>
+
+    <div style="overflow-x: auto;">
+        <table class="wms-table" style="width: 100%;">
+            <thead>
+                <tr>
+                    <th>Transfer #</th>
+                    <th>From</th>
+                    <th>To</th>
+                    <th>Reason</th>
+                    <th>Status</th>
+                    <th style="text-align: right;">Lines</th>
+                    <th style="text-align: right;">Req · Dis · Rec</th>
+                    <th>Requested</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="row in rows" :key="row.id">
+                    <tr style="cursor: pointer;" @@click="navigate(row.id)">
+                        <td><span class="mono" x-text="row.transferNumber"></span></td>
+                        <td><span class="mono" x-text="row.fromWarehouseCode"></span></td>
+                        <td><span class="mono" x-text="row.toWarehouseCode"></span></td>
+                        <td x-text="row.reason"></td>
+                        <td>
+                            <span class="wmsd-badge" :class="badgeClass(row.status)" x-text="row.statusLabel"></span>
+                        </td>
+                        <td style="text-align: right;" x-text="row.lineCount"></td>
+                        <td style="text-align: right; font-size: 12px;">
+                            <span x-text="fmt(row.totalRequested)"></span>
+                            <span style="color: var(--wms-text-tertiary);"> · </span>
+                            <span :style="row.totalDispatched > 0 ? 'color:#0C447C;font-weight:500' : ''"
+                                  x-text="fmt(row.totalDispatched)"></span>
+                            <span style="color: var(--wms-text-tertiary);"> · </span>
+                            <span :style="row.totalReceived > 0 ? 'color:#1D9E75;font-weight:500' : ''"
+                                  x-text="fmt(row.totalReceived)"></span>
+                        </td>
+                        <td>
+                            <span x-text="row.requestedRelative"></span>
+                            <span style="font-size: 11px; color: var(--wms-text-secondary); display: block;" x-text="row.requestedByName"></span>
+                        </td>
+                    </tr>
+                </template>
+                <tr x-show="!rows.length && !loading">
+                    <td colspan="8" style="padding: 36px; text-align: center; color: var(--wms-text-tertiary);">
+                        No transfers match the current filters.
+                    </td>
+                </tr>
+                <tr x-show="loading">
+                    <td colspan="8" style="padding: 24px; text-align: center; color: var(--wms-text-secondary);">
+                        Loading...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-top: 0.5px solid var(--wms-border); font-size: 12px;">
+        <span x-text="`Page ${page} of ${totalPages || 1}`"></span>
+        <div style="display: flex; gap: 6px;">
+            <button type="button" class="wms-btn" :disabled="page <= 1" @@click="page--; reload()">← Prev</button>
+            <button type="button" class="wms-btn" :disabled="page >= totalPages" @@click="page++; reload()">Next →</button>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function transferList() {
+            return {
+                rows: [], total: 0, totalPages: 1, page: 1, pageSize: 20,
+                search: '', status: 'all', loading: false,
+                counts: { all: 0, draft: 0, submitted: 0, approved: 0, intransit: 0, received: 0, cancelled: 0, lost: 0 },
+                statuses: [
+                    { value: 'all',       label: 'All' },
+                    { value: 'draft',     label: 'Draft' },
+                    { value: 'submitted', label: 'Submitted' },
+                    { value: 'approved',  label: 'Approved' },
+                    { value: 'intransit', label: 'In transit' },
+                    { value: 'received',  label: 'Received' },
+                    { value: 'cancelled', label: 'Cancelled' },
+                    { value: 'lost',      label: 'Lost' },
+                ],
+                async init() { await this.reload(); },
+                async reload() {
+                    this.loading = true;
+                    const url = new URL('/Transfers/Data', window.location.origin);
+                    url.searchParams.set('page', this.page);
+                    url.searchParams.set('pageSize', this.pageSize);
+                    if (this.search.trim()) url.searchParams.set('search', this.search.trim());
+                    if (this.status !== 'all') url.searchParams.set('status', this.status);
+                    try {
+                        const r = await fetch(url);
+                        const data = await r.json();
+                        this.rows = data.items;
+                        this.total = data.total;
+                        this.totalPages = data.totalPages;
+                        if (data.counts) this.counts = data.counts;
+                    } finally { this.loading = false; }
+                },
+                navigate(id) { window.location.href = `/Transfers/Detail/${id}`; },
+                fmt(n) {
+                    if (n === null || n === undefined) return '0';
+                    return Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
+                },
+                totalLabel() {
+                    return this.total === 1 ? '1 transfer' : `${this.total} transfers`;
+                },
+                badgeClass(status) {
+                    return {
+                        'draft':     's-neutral',
+                        'submitted': 's-info',
+                        'approved':  's-info',
+                        'intransit': 's-warning',
+                        'received':  's-success',
+                        'cancelled': 's-neutral',
+                        'lost':      's-danger',
+                    }[status] || 's-neutral';
+                },
+            };
+        }
+    </script>
+}
