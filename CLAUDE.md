@@ -317,11 +317,77 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task`
-**Current Focus**: Phase 14D — Pack workflow (Pack stations consume Picked / PartiallyPicked SO lines; carton + label + pack video per ADR-009). After 14D: Phase 14E mobile picker PWA, then 14F Ship.
-**Blockers**: none — migrations 20260510_021 through _024 already applied to dev tenant
+**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack`
+**Current Focus**: Phase 14E — Mobile picker PWA (replaces the desktop pick submit form on a per-station basis; same `IPickTaskService.SubmitAsync` entry point). After 14E: Phase 14F Ship (consumes Packed SOs, manifest workflow per ADR roadmap).
+**Blockers**: none — migrations 20260510_025 through _028 already applied to dev tenant
 
 Update this section weekly during standups.
+
+### Day 10 — Phase 14D (Pack Task Workflow — desktop "Complete pack" form, MVP single-carton)
+
+**Branch**: `feat/outbound-pack` → merged to `main` · **Tag**: `v1.7.0-pack` · **Foundation for**: Phase 14F (Ship consumes Packed SOs)
+
+The packaging half of the outbound pipeline. Pick (14C) consumed reservations and decremented stock; this phase records what physically went into the carton. Atomic on submit: per-line PackedQuantity + a single Carton row + PackTask flips Pending → Packed + SO flips Picked|PartiallyPicked → Packed. **No Stock writes** — pack is post-stock; the qty already left inventory at pick submit. PackedQty < PickedQty surfaces as a per-line discrepancy (audit-only) but the SO still flips to Packed since the carton is sealed.
+
+**Schema** (4 migrations):
+- `20260510_025` — DROP + ADD `CK_SalesOrders_Status` to widen the enum from 8 → 9: adds `Packed` between `PartiallyPicked` and `Cancelled`. Down() reverses to Phase 14C set. SQL Server CHECK widening pattern (Phase 14B's _018 + 14C's _021 precedent).
+- `20260510_026` — CREATE `outbound.PackTasks` header. **3-state machine** (`Pending → Packed | Cancelled` — simpler than Pick's 5-state because pack workflow is single-shot for MVP, no Save Progress / InProgress intermediate). Per-state audit trio (`GeneratedBy/At` always set; `PackedBy/At` + `CancelledBy/At + CancelReason`) + `CK_PackTasks_AuditMatchesStatus` invariant. `AssignedTo` nullable (pool mode for MVP). 3 indexes (per-status queue, per-SO, per-AssignedTo).
+- `20260510_027` — CREATE `outbound.PackTaskLines`. `SalesOrderLineId` FK (NO ACTION). Snapshot Product/Owner/UoM only — pack doesn't track Lot/Pallet/Location since stock has already left. Quantity progression: snapshot `PickedQuantity > 0` (only positively-picked SO lines spawn pack lines — Skipped pick lines + zero-pick lines do NOT enter the carton) → operator enters `PackedQuantity` in `[0, PickedQuantity]`. Per-line `LineStatus` (`Pending|Packed|Skipped`) + `ShortPackReason` + `CK_PackTaskLines_StatusMatchesQty` + `CK_PackTaskLines_PackedNotOverPicked` invariants. CASCADE on header→lines. No `Version` on lines (matches PickTaskLines / TransferOrderLines / CycleCountLines).
+- `20260510_028` — CREATE `outbound.Cartons`. Physical packaging per pack task. **MVP simplification: one carton per task** (`UX_Cartons_PackTask` UNIQUE enforces; multi-carton splitting drops the UNIQUE in a future migration + adds CartonContents many-to-many). `CartonNumber` `CTN-YYYYMMDD-NNNN` UNIQUE. `BoxTypeId` nullable FK to `master.BoxTypes`. `WeightKg` nullable (3-decimal precision matches BoxTypes.EmptyWeightKg — small parcels can shift carrier billing brackets). Created at SubmitAsync time inside the same TX as the task header flip; never edited (operator cancels + regenerates if metadata needs changing pre-Submit).
+
+**Service** (`IPackTaskService`, 3 lifecycle methods):
+- `GenerateAsync(tenantId, salesOrderId, currentUserId)` — **lightest of the three; no TX needed** (single repo write). Loads SO, validates state (`Picked` or `PartiallyPicked` only). **Idempotent on existing Pending pack task** — returns its summary so the controller can redirect to the same Detail on accidental re-trigger (Phase 14C precedent). Reject if no `PickedQuantity > 0` lines (nothing to pack). Per positively-picked SO line = one PackTaskLine snapshotting Product/Owner/UoM + the SO line's PickedQuantity (the read-only ceiling). Assigns `PACK-YYYYMMDD-NNNN`. **No SO state flip** — operator sees SO stays Picked|PartiallyPicked while pack is in flight; flips to Packed only on SubmitAsync. Pack-in-flight is detected via the existing-task guard, not SO state.
+- `SubmitAsync(tenantId, request, currentUserId)` — heavyweight TX (the headline). Belt-and-suspenders `ValidateRequestShape` (private static): every task line in submission, no extras / dups, `LineStatus ∈ {'Packed','Skipped'}`, qty in `[0, PickedQuantity]`, `ShortPackReason` required when `packed < picked` OR `Skipped` (Skipped IS a short — the full Picked qty), Carton.WeightKg non-negative if supplied. Inside TX: (1) per task line `pickRepo.UpdateLinePackedAsync(qty + status + reason + notes)`; (2) `cartonRepo.CreateAsync(carton)` with `CartonNumber` stamped server-side; (3) `packRepo.SetPackedAsync(taskId)` (Pending → Packed); (4) `soRepo.SetStatusAsync` flip Picked → Packed via `||` chain (try Picked first, fall through to PartiallyPicked — Phase 14B SO Cancel precedent; whichever applies wins, the other is no-op). **No Stock writes** — pack is post-stock.
+- `CancelAsync(tenantId, packTaskId, reason, currentUserId)` — **even lighter than Pick's Cancel; no TX needed** (single repo write). `Pending → Cancelled` with required reason. **No SO state flip** — Generate didn't flip the SO, so Cancel doesn't either. **No carton cleanup** — Pending tasks have no carton (Carton INSERT only fires on SubmitAsync's TX). **No line resets** — pre-Submit there's nothing to reset since per-line edits don't happen until SubmitAsync. Idempotent on already-Cancelled (returns false). Rejects `Packed` (post-Submit terminal — return-to-stock workflow is a future TD).
+
+**UI** (5 surfaces touched / created):
+- `/SalesOrders/Detail` — new `isPacked` flag + `canGeneratePack` (`Picked || PartiallyPicked`). Quick Action "Generate pack" added between "Generate pick" and "Cancel" (`ti-package` icon). `canCancel` unchanged — Picked / PartiallyPicked / Packed already excluded from the `{Draft, Open, Allocating, Allocated}` list.
+- `/SalesOrders` Index — Alpine `statuses` array now lists 10 chips; counts envelope expanded with `packed`; `badgeClass` map widened (Packed=info — positive terminal, distinct from Picked=success which is the "pre-pack" healthy state).
+- `POST /SalesOrders/GeneratePack/{id}` — calls `GenerateAsync`, redirects to `/PackTasks/Detail/{newPackId}` on success with `PackTaskMessage` carrying PackNumber + line count + total picked qty. Error path bounces back to SO Detail with `SalesOrderError`.
+- `_SalesOrderDecisionModals.cshtml` — new `#generate-pack-modal` block (info-blue, `ti-package` icon, lead text explaining the no-SO-state-change semantics + idempotency note).
+- `/PackTasks/Detail/{id}` — new surface using `_DetailLayout`. Stats: Lines / Picked / Packed (color-tinted per terminal outcome) / Status. SO link + carton metadata (Carton # / Box type / Weight / Carton notes) surfaced in Overview only when carton exists (post-Submit). Per-state audit trio in Properties. Custom Lines tab via `_PackTaskLinesPanel`:
+  - **Editable form when Pending**: Alpine reactive table of lines + a 3-column **Carton metadata section** (Box type select / Weight input / Carton notes) **below** the lines table, all in one form, single submit button. Per-row packed-qty defaults to PickedQuantity (the common "everything goes in the carton" shortcut — operator just clicks Submit if everything went fine); Status select toggles Packed/Skipped (Skipped disables qty + zeroes); ShortPackReason flagged when packed-qty drops below picked OR status flips to Skipped. Live tally footer.
+  - **Terminal (Packed / Cancelled)**: read-only table with packed vs picked color-coded per line (green=full, amber=short, red=skipped) and ShortPackReason surfaced.
+- `_PackTaskDecisionModals.cshtml` — new partial. Cancel modal with required 3-500 char reason textarea. Same shell as Phase 11A/12/13/14A/14C modals, `wms-pk-` token namespace.
+- Sidebar — Pack Tasks entry deferred to the list-page chunk (Phase 14C precedent; would 404 without an Index action).
+
+**Status mappers** (1 widened, 1 created):
+- `SalesOrderStatusMapper` widened to 9 states. `Packed=info` (positive terminal — ready for ship; distinct from Picked=success). 14F will widen further with Shipping / Shipped / Closed.
+- `PackTaskStatusMapper` (new). 3 states. `Pending=neutral`, `Packed=success`, `Cancelled=neutral`.
+
+**TempData generalization**: `_DetailLayout` banner block now coalesces SEVEN sets of TempData keys (added `PackTask*`). Pattern continues to scale linearly per phase.
+
+**ViewModels + validation** (3 new):
+- `SubmitPackTaskViewModel` + `PackedLineRow` — model-binding shape for `POST /PackTasks/Submit`. Carton fields (`BoxTypeId` nullable Guid, `WeightKg` nullable decimal with Range, `CartonNotes` string?) live on the same form because pack workflow is single-shot for MVP. Cross-field rules enforced server-side.
+- `CancelPackTaskViewModel` + `CancelPackTaskValidator` — same shape as Phase 14C / 12 / 10B cancel VMs.
+
+**DAL extensions**:
+- New `IPackTaskRepository` (8 methods: `CreateAsync` ambient-TX-aware header+lines insert, `GetByIdAsync` / `GetByNumberAsync` **3-recordset QueryMultiple** (header + lines + nullable Carton — Pending tasks have no carton yet), `GetActiveBySalesOrderAsync` pre-generation guard (Pending only — no InProgress for MVP), `SetPackedAsync` / `SetCancelledAsync` atomic per-state UPDATEs idempotent via `WHERE Status='Pending'`, `UpdateLinePackedAsync`, `CountForDatePrefixAsync`). New `PackTaskDetail` aggregate.
+- New `ICartonRepository` (small — `CreateAsync` + `CountForDatePrefixAsync` only; reads happen via PackTaskRepository's QueryMultiple).
+- New `IBoxTypeRepository` (lookup-only, mirrors Phase 7 IUomRepository pattern). `GetActiveAsync` filtered by `IsActive=1`, sorted by Code. Populates the BoxTypeId `<select>` on the Pack Detail submit form.
+- `SalesOrderStatusCounts` widened to 10 fields (+Packed, between PartiallyPicked and Cancelled — pipeline-chronological order). `GetStatusCountsAsync` SQL grew 1 new SUM(CASE).
+
+**Tests**: +68 net test cases (~38 distinct methods). Smaller delta than Phase 14C's +101 because Pack has fewer state-machine paths (3-state task vs 5-state Pick) and no Stock writes — the service-layer test surface is naturally narrower. 28 unit (PackTaskService — Generate/Submit/Cancel state-gating + happy paths + ValidateRequestShape edge cases including NegativeWeight); 40 integration (PackTaskStatusMapper Theory across 3 states; SalesOrderStatusMapper Theory backfill across the now-9-state set; PackTasksController Detail / Submit / Cancel happy + error + EmptyGuidBoxType normalisation + state-driven flag wiring; SalesOrders.GeneratePack happy + error). Test posture: **754 passing** (was 686). 266 unit + 483 integration + 5 skipped.
+
+**Out of scope** (logged as TD-037):
+- `/PackTasks` Index list page + GetData JSON envelope + chip counts + sidebar entry — list page deferred (operator reaches pack tasks via GeneratePack redirect; Pick Tasks list also still deferred per Phase 14C TD-036).
+- **Pack video** (per ADR-009 — needs a dedicated spec covering MediaRecorder integration, retention policy, PDPA audit log, per-station + per-channel policy).
+- **Scale integration / weight verification** — operator can type weight manually for MVP; serial/USB scale device integration is a separate concern.
+- **Box-suggestion algorithm** — the brief mentions "smallest fit + 20% buffer" but BoxType dimension data isn't seeded yet, and the algorithm itself is non-trivial.
+- **ScanEach vs ScanAndQty modes** (per-product config from `master.ProductPackingConfigs`) — the panel today is a single Scan+Qty UX; barcode-driven per-item validation comes later.
+- **Multi-carton splitting** — the `UX_Cartons_PackTask` UNIQUE enforces 1:1 for MVP. Future migration drops the UNIQUE + adds a `CartonContents` many-to-many for per-line per-carton breakdown.
+- **Carrier integration / label printing / tracking number assignment** — Phase 14F scope (Ship).
+- **Manifest workflow** (Build → Seal → Handover with driver signature) — Phase 14F scope.
+- **Post-Submit reversal** ("return to stock" — Packed tasks cannot be undone today; needs a separate Adjust+ workflow).
+- **Pack videos / PDPA audit log / 10-day retention default** — bundled with the pack-video TD.
+- Pack task printable packsheet / label PDF.
+
+**Permission**: `OUTBOUND.ORDERS` covers pack task operations for MVP. Future phases may introduce a finer `OUTBOUND.PACK` perm for separation-of-duties on pack vs SO admin.
+
+**Notes on chunk-by-chunk hiccups**:
+- T4 had a brief over-engineering moment — added an unnecessary `PickNumberOrPack()` extension method to disambiguate between PickTask.PickNumber and PackTask.PackNumber. Caught immediately on review and ripped out before commit. Lesson reinforced: **don't add abstractions for hypothetical future requirements** (per CLAUDE.md "Don't add features … beyond what the task requires").
+- T8 sidebar entry: same trap as Phase 14C T8 — initially considered adding the sidebar link but `Url.Action("Index", "PackTasks")` would 404 since no Index action exists. Deferred to the list-page chunk (cleaner than shipping a dead link).
+- Phantom-Edit risk dodged: T3 had to widen `SalesOrderStatusCounts` (record positional ctor) and update its 3 Mock test sites. Sequential edits used per the user's pre-flight "Phantom-Edit Mitigation" guidance — no parallel edits to the same file in one tool batch.
 
 ### Day 10 — Phase 14C (Pick Task Generation + Execution — desktop "Complete pick" form)
 
@@ -1503,5 +1569,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-10 (Day 10 — Phase 14C Pick Task Generation + Execution; v1.6.0-pick-task)
-**Version**: 1.25
+**Last updated**: 2026-05-10 (Day 10 — Phase 14D Pack Task Workflow; v1.7.0-pack)
+**Version**: 1.26
