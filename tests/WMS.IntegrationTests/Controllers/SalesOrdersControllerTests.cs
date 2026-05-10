@@ -103,8 +103,21 @@ public class SalesOrdersControllerTests
                 It.IsAny<SalesOrderEditViewModel>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ValidationResult());
 
+        // Phase 14B added IAllocationService + IOrderAllocationRepository-
+        // Factory deps. Default-mocked internally per
+        // feedback_test_build_helper_pattern.md so existing test sites
+        // (Build record tuple) stay stable.
+        var allocationService = new Mock<IAllocationService>();
+        var allocRepo = new Mock<IOrderAllocationRepository>();
+        allocRepo.Setup(r => r.GetActiveBySalesOrderIdAsync(
+                It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<OrderAllocationRow>());
+        var allocFactory = new Mock<IOrderAllocationRepositoryFactory>();
+        allocFactory.Setup(f => f.For(It.IsAny<Guid>())).Returns(allocRepo.Object);
+
         var ctrl = new SalesOrdersController(
             factory.Object, service.Object,
+            allocationService.Object, allocFactory.Object,
             customerFactory.Object, warehouseFactory.Object,
             productFactory.Object, ownerFactory.Object, uomFactory.Object,
             tenant.Object, currentUser.Object,

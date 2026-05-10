@@ -14,21 +14,25 @@ using WMS.Web.ViewModels.Detail;
 namespace WMS.Web.Controllers;
 
 // Phase 14A — Sales Order admin CRUD (MVP foundation).
+// Phase 14B — Allocation primitive (Allocate POST + alloc panel).
 //   GET  /SalesOrders                  — Alpine list with chip counts
-//   GET  /SalesOrders/Data             — JSON envelope
+//   GET  /SalesOrders/Data             — JSON envelope (5 status counts)
 //   GET  /SalesOrders/Create           — multi-line Create form
 //   POST /SalesOrders/Create           — validate → service → redirect
 //   GET  /SalesOrders/Edit/{id}        — edit form (header always; lines if Draft)
 //   POST /SalesOrders/Edit/{id}        — validate → service → redirect
-//   GET  /SalesOrders/Detail/{id}      — _DetailLayout w/ Lines tab + state-gated quick actions
+//   GET  /SalesOrders/Detail/{id}      — _DetailLayout w/ Lines + Allocations panels
 //   POST /SalesOrders/Submit/{id}      — Draft → Open
-//   POST /SalesOrders/Cancel/{id}      — pre-Cancelled → Cancelled
+//   POST /SalesOrders/Allocate/{id}    — Open|Allocating → Allocating|Allocated
+//   POST /SalesOrders/Cancel/{id}      — pre-Cancelled → Cancelled (TX-wraps reversal)
 [Authorize]
 [Route("SalesOrders")]
 public sealed class SalesOrdersController : Controller
 {
     private readonly ISalesOrderRepositoryFactory _repos;
     private readonly ISalesOrderService _service;
+    private readonly IAllocationService _allocationService;
+    private readonly IOrderAllocationRepositoryFactory _allocRepos;
     private readonly ICustomerRepositoryFactory _customerRepos;
     private readonly IWarehouseRepositoryFactory _warehouseRepos;
     private readonly IProductRepositoryFactory _productRepos;
@@ -42,6 +46,8 @@ public sealed class SalesOrdersController : Controller
     public SalesOrdersController(
         ISalesOrderRepositoryFactory repos,
         ISalesOrderService service,
+        IAllocationService allocationService,
+        IOrderAllocationRepositoryFactory allocRepos,
         ICustomerRepositoryFactory customerRepos,
         IWarehouseRepositoryFactory warehouseRepos,
         IProductRepositoryFactory productRepos,
@@ -54,6 +60,8 @@ public sealed class SalesOrdersController : Controller
     {
         _repos = repos;
         _service = service;
+        _allocationService = allocationService;
+        _allocRepos = allocRepos;
         _customerRepos = customerRepos;
         _warehouseRepos = warehouseRepos;
         _productRepos = productRepos;
@@ -119,10 +127,12 @@ public sealed class SalesOrdersController : Controller
             totalPages = result.TotalPages,
             counts     = new
             {
-                all       = counts.All,
-                draft     = counts.Draft,
-                open      = counts.Open,
-                cancelled = counts.Cancelled,
+                all        = counts.All,
+                draft      = counts.Draft,
+                open       = counts.Open,
+                allocating = counts.Allocating,
+                allocated  = counts.Allocated,
+                cancelled  = counts.Cancelled,
             },
         });
     }
@@ -316,23 +326,35 @@ public sealed class SalesOrdersController : Controller
         if (detail is null) return NotFound();
 
         var lineRows = await _repos.For(tenantId).GetLineRowsByIdAsync(id, ct);
+        var allocations = await _allocRepos.For(tenantId).GetActiveBySalesOrderIdAsync(id, ct);
         var h = detail.Header;
 
         var customer = await _customerRepos.For(tenantId).GetByIdAsync(h.CustomerId, ct);
         var warehouses = await _warehouseRepos.For(tenantId).GetActiveAsync(ct);
         var warehouse = warehouses.FirstOrDefault(w => w.Id == h.WarehouseId);
 
-        var isDraft = h.Status == "Draft";
-        var isOpen  = h.Status == "Open";
-        var isCancelled = h.Status == "Cancelled";
+        var isDraft       = h.Status == "Draft";
+        var isOpen        = h.Status == "Open";
+        var isAllocating  = h.Status == "Allocating";
+        var isAllocated   = h.Status == "Allocated";
+        var isCancelled   = h.Status == "Cancelled";
 
-        var canEdit   = !isCancelled;
-        var canSubmit = isDraft;
-        var canCancel = !isCancelled;
+        var canEdit     = !isCancelled;
+        var canSubmit   = isDraft;
+        var canAllocate = isOpen || isAllocating;   // Allocated is no-op (idempotent); show greyed
+        var canCancel   = !isCancelled;
 
         var statusVariant = SalesOrderStatusMapper.ToBadgeVariant(h.Status);
-        var totalQuantity = lineRows.Sum(l => l.OrderedQuantity);
-        var totalAmount = lineRows.Sum(l => (l.UnitPrice ?? 0m) * l.OrderedQuantity);
+        var totalQuantity  = lineRows.Sum(l => l.OrderedQuantity);
+        var totalAllocated = lineRows.Sum(l => l.AllocatedQuantity);
+        var totalShortfall = totalQuantity - totalAllocated;
+
+        // "Allocated" stat tile: x.xx / y.yy with green tint when fully
+        // allocated, amber when partial. Tracks the visible chip variant
+        // logic so the page reads coherently.
+        var allocColor = totalShortfall <= 0m && totalQuantity > 0m
+            ? "#0F6E56"
+            : (totalAllocated > 0m ? "#854F0B" : null);
 
         var vm = new DetailPageViewModel
         {
@@ -350,39 +372,52 @@ public sealed class SalesOrdersController : Controller
             BreadcrumbParentUrl = "/SalesOrders",
             Stats = new()
             {
-                new("Lines",       lineRows.Count.ToString("N0")),
-                new("Quantity",    totalQuantity.ToString("N2")),
-                new("Amount",      totalAmount > 0m
-                                    ? totalAmount.ToString("N2")
-                                    : "—"),
-                new("Status",      h.Status),
+                new("Lines",     lineRows.Count.ToString("N0")),
+                new("Quantity",  totalQuantity.ToString("N2")),
+                new("Allocated",
+                    totalQuantity > 0m
+                        ? $"{totalAllocated:N2} / {totalQuantity:N2}"
+                        : "—",
+                    allocColor),
+                new("Status",    h.Status),
             },
             ShowImagesTab = false,
             CustomTabs = new()
             {
                 new("lines", "Lines", "ti-list-details",
                     "Detail/_SalesOrderLinesPanel", lineRows.Count),
+                // Allocations tab visible whenever the SO has any
+                // active allocation (or is in an allocation-aware
+                // state); count drives the badge.
+                new("allocations", "Allocations", "ti-tags",
+                    "Detail/_SalesOrderAllocationsPanel", allocations.Count),
             },
             QuickActions = new()
             {
                 new("Edit",     "ti-edit",
-                    canEdit   ? $"/SalesOrders/Edit/{id}" : "#", Enabled: canEdit),
+                    canEdit     ? $"/SalesOrders/Edit/{id}" : "#", Enabled: canEdit),
                 new("Submit",   "ti-send",
-                    canSubmit ? "#submit-modal"           : "#", Enabled: canSubmit),
+                    canSubmit   ? "#submit-modal"           : "#", Enabled: canSubmit),
+                new("Allocate", "ti-tags",
+                    canAllocate ? "#allocate-modal"         : "#", Enabled: canAllocate),
                 new("Cancel",   "ti-x",
-                    canCancel ? "#cancel-modal"           : "#", Enabled: canCancel),
+                    canCancel   ? "#cancel-modal"           : "#", Enabled: canCancel),
             },
             OverviewFields = BuildOverviewFields(h, customer, warehouse),
             Properties = BuildProperties(h),
         };
 
-        ViewBag.HeaderId        = h.Id;
-        ViewBag.HeaderStatus    = h.Status;
-        ViewBag.IsDraft         = isDraft;
-        ViewBag.IsOpen          = isOpen;
-        ViewBag.CanSubmit       = canSubmit;
-        ViewBag.CanCancel       = canCancel;
-        ViewBag.LineRows        = lineRows;
+        ViewBag.HeaderId          = h.Id;
+        ViewBag.HeaderStatus      = h.Status;
+        ViewBag.IsDraft           = isDraft;
+        ViewBag.IsOpen            = isOpen;
+        ViewBag.IsAllocating      = isAllocating;
+        ViewBag.IsAllocated       = isAllocated;
+        ViewBag.CanSubmit         = canSubmit;
+        ViewBag.CanAllocate       = canAllocate;
+        ViewBag.CanCancel         = canCancel;
+        ViewBag.LineRows          = lineRows;
+        ViewBag.AllocationRows    = allocations;
         ViewBag.SalesOrderMessage = TempData["SalesOrderMessage"] as string;
         ViewBag.SalesOrderError   = TempData["SalesOrderError"]   as string;
         return View("~/Views/Shared/_DetailLayout.cshtml", vm);
@@ -402,6 +437,33 @@ public sealed class SalesOrdersController : Controller
             TempData["SalesOrderMessage"] = changed
                 ? "Sales order submitted — Draft → Open."
                 : "Sales order was already submitted.";
+        }
+        catch (InvalidOperationException ex)
+        {
+            TempData["SalesOrderError"] = ex.Message;
+        }
+
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    [HttpPost("Allocate/{id:guid}")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Allocate(Guid id, CancellationToken ct)
+    {
+        var tenantId = _tenant.RequireTenantId();
+        var requesterId = _currentUser.UserId
+            ?? throw new InvalidOperationException("Authenticated user required.");
+
+        try
+        {
+            // Strategy name = null → resolver picks default (FIFO for
+            // MVP). Future UI can pass a per-tenant configured name.
+            var result = await _allocationService.AllocateAsync(
+                tenantId, id, strategyName: null, requesterId, ct);
+
+            TempData["SalesOrderMessage"] = result.IsFullyAllocated
+                ? $"Fully allocated — {result.LineCount} line(s) reserved against stock."
+                : $"Partially allocated — {result.FullyAllocatedLineCount} of {result.LineCount} line(s) fully filled. Re-run when more stock arrives.";
         }
         catch (InvalidOperationException ex)
         {
