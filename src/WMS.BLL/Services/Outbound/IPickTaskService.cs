@@ -73,6 +73,30 @@ public interface IPickTaskService
         SubmitPickTaskRequest request,
         Guid currentUserId,
         CancellationToken ct = default);
+
+    // Phase 14C — pre-Submit reversal. Pending or InProgress task →
+    // Cancelled with required reason. SO Picking → Allocated (the
+    // SO's allocations were never touched by Generate; they're still
+    // Active and the SO returns to its pre-pick state).
+    //
+    // No Stock writes, no allocation flips — Generate didn't mutate
+    // either, and Submit is the only operation that does. Per-line
+    // PickedQuantity / LineStatus values entered via future "Save
+    // Progress" stay frozen on the cancelled task as audit history;
+    // they're no longer relevant to execution.
+    //
+    // Idempotent on already-Cancelled (returns false). Rejects
+    // Picked / PartiallyPicked tasks — post-Submit reversal needs a
+    // separate "return to stock" workflow (future phase).
+    //
+    // Returns true when the cancel actually flipped the task; false
+    // for the no-op idempotent re-trigger.
+    Task<bool> CancelAsync(
+        Guid tenantId,
+        Guid pickTaskId,
+        string reason,
+        Guid currentUserId,
+        CancellationToken ct = default);
 }
 
 // Phase 14C — return shape for GenerateAsync. Carries enough for the

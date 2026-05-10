@@ -361,6 +361,72 @@ public sealed class PickTaskService : IPickTaskService
             TotalPickedQuantity: totalPicked);
     }
 
+    public async Task<bool> CancelAsync(
+        Guid tenantId,
+        Guid pickTaskId,
+        string reason,
+        Guid currentUserId,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ArgumentException("Cancel reason is required.", nameof(reason));
+
+        var pickRepo = _pickRepoFactory.For(tenantId);
+        var soRepo = _soRepoFactory.For(tenantId);
+
+        var detail = await pickRepo.GetByIdAsync(pickTaskId, ct)
+            ?? throw new InvalidOperationException(
+                $"PickTask {pickTaskId} not found.");
+
+        var fromStatus = detail.Header.Status;
+
+        // Idempotent on already-Cancelled — caller may double-click.
+        if (fromStatus == "Cancelled") return false;
+
+        // Submit-terminal states are point-of-no-return — Stock + SO
+        // line + allocation rows have all been mutated; reversing would
+        // need a "return to stock" workflow (out of scope).
+        if (fromStatus is "Picked" or "PartiallyPicked")
+            throw new InvalidOperationException(
+                $"Cannot cancel pick task in '{fromStatus}' state — task is already submitted. " +
+                "Use a return-to-stock flow to reverse a posted pick (not yet implemented).");
+
+        if (fromStatus is not "Pending" and not "InProgress")
+            throw new InvalidOperationException(
+                $"Cannot cancel pick task in '{fromStatus}' state.");
+
+        var trimmedReason = reason.Trim();
+
+        // TX wraps the two-repo flip. Generate didn't touch Stock or
+        // OrderAllocations, so neither does Cancel — allocations stay
+        // Active, the SO returns to Allocated, ready for a re-Generate
+        // by another picker if needed.
+        using var scope = new TransactionScope(
+            TransactionScopeOption.Required,
+            new TransactionOptions { IsolationLevel = System.Transactions.IsolationLevel.ReadCommitted },
+            TransactionScopeAsyncFlowOption.Enabled);
+
+        var taskFlipped = await pickRepo.SetCancelledAsync(
+            pickTaskId, fromStatus, trimmedReason, currentUserId, ct);
+        if (!taskFlipped)
+            throw new InvalidOperationException(
+                $"Failed to cancel pick task {pickTaskId} from '{fromStatus}' — concurrent state change?");
+
+        var soChanged = await soRepo.SetStatusAsync(
+            detail.Header.SalesOrderId, "Picking", "Allocated", currentUserId, ct);
+        if (!soChanged)
+            throw new InvalidOperationException(
+                $"Failed to flip SO {detail.Header.SalesOrderId} Picking→Allocated — concurrent state change?");
+
+        scope.Complete();
+
+        _logger.LogInformation(
+            "Cancelled pick task {PickNumber} ({PickId}) from '{FromStatus}' — reason: {Reason}",
+            detail.Header.PickNumber, pickTaskId, fromStatus, trimmedReason);
+
+        return true;
+    }
+
     // Verifies the request covers exactly the task's lines (no missing,
     // no extras, no duplicates) and each entry's per-line shape is
     // valid. Returns LineId → entry lookup for the orchestrating loop.
