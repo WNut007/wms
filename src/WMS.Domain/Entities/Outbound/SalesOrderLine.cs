@@ -10,8 +10,11 @@ namespace WMS.Domain.Entities.Outbound;
 // Phase 14B added: AllocatedQuantity. Denormalized aggregate of the
 // row's Active OrderAllocations rows. Stays in sync with the linking
 // table inside the same TX as AllocateAsync / CancelAsync. CHECK
-// 0 <= AllocatedQuantity <= OrderedQuantity. Pick/Ship qty fields
-// arrive in 14C/D.
+// 0 <= AllocatedQuantity <= OrderedQuantity.
+//
+// Phase 14C added: PickedQuantity. Denormalized aggregate of pick-
+// line qty actually picked. Bumped inside SubmitAsync's TX. CHECK
+// 0 <= PickedQuantity <= OrderedQuantity. Ship qty arrives 14D.
 public sealed class SalesOrderLine : BaseEntity
 {
     public Guid SalesOrderId { get; set; }
@@ -21,6 +24,7 @@ public sealed class SalesOrderLine : BaseEntity
     public Guid UomId { get; set; }
     public decimal OrderedQuantity { get; set; }
     public decimal AllocatedQuantity { get; set; }
+    public decimal PickedQuantity { get; set; }
     public decimal? UnitPrice { get; set; }
     public string? Notes { get; set; }
 }
