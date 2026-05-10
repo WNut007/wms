@@ -317,11 +317,69 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack`
-**Current Focus**: Phase 14E — Mobile picker PWA (replaces the desktop pick submit form on a per-station basis; same `IPickTaskService.SubmitAsync` entry point). After 14E: Phase 14F Ship (consumes Packed SOs, manifest workflow per ADR roadmap).
-**Blockers**: none — migrations 20260510_025 through _028 already applied to dev tenant
+**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` · **Outbound MVP chain closed end-to-end** (SO → Allocate → Pick → Pack → Ship)
+**Current Focus**: Phase 15 (post-MVP) candidates: list pages for /PickTasks + /PackTasks + /Shipments (TD-036/037/038); mobile picker PWA (was 14E in roadmap but desktop ship landed first); pack video (ADR-009 spec); carrier FK integration; manifest workflow.
+**Blockers**: none — migrations 20260510_029 through _031 already applied to dev tenant
 
 Update this section weekly during standups.
+
+### Day 10 — Phase 14E (Ship Workflow — desktop dispatch form, MVP single-shipment)
+
+**Branch**: `feat/outbound-ship` → merged to `main` · **Tag**: `v1.8.0-ship` · **Closes**: Outbound MVP chain end-to-end (SO → Allocate → Pick → Pack → Ship)
+
+The dispatch half of the outbound pipeline. Pick (14C) decremented stock; Pack (14D) recorded the carton; this phase records the dispatch (carrier + tracking + cartons stamped + SO Packed → Shipped). **No Stock writes** — ship is post-stock; the qty already left inventory at pick submit. Ship is structurally the simplest of the three execution phases — single-table service, no per-line breakdown, no `ValidateRequestShape` (carrier + tracking are just optional strings).
+
+**Schema** (3 migrations — smaller phase than 14C/14D since most conventions were already paved):
+- `20260510_029` — DROP + ADD `CK_SalesOrders_Status` to widen the enum from 9 → 10: adds `Shipped` between `Packed` and `Cancelled`. Down() reverses to Phase 14D set. Same widening pattern as 14B's _018 / 14C's _021 / 14D's _025.
+- `20260510_030` — CREATE `outbound.Shipments` header. **3-state machine** (`Pending → Shipped | Cancelled` — same minimalism as 14D Pack). Per-state audit trio (`GeneratedBy/At` always set; `ShippedBy/At` + `CancelledBy/At + CancelReason`) + `CK_Shipments_AuditMatchesStatus` invariant. **Free-text `CarrierName VARCHAR(50) NULL`** + **nullable `TrackingNumber VARCHAR(100)`** — the deferred-default carrier pattern (operator may not have either at ship time). The codebase has a full `master.Carriers` table + 4 seeded carriers (FLASH/KERRY/JT/THAIPOST) but ALL `Status='Inactive'`; the existing `GetActiveAsync` filters Production-only and would render an empty dropdown in dev. FK lookup integration is a TD for v2.x once admins promote carriers. `UX_Shipments_SalesOrder` UNIQUE enforces 1:1 SO → Shipment for MVP (multi-shipment splitting drops the UNIQUE in a future migration).
+- `20260510_031` — ALTER `outbound.Cartons` ADD `ShipmentId` nullable FK + filtered index (`WHERE ShipmentId IS NOT NULL` — most cartons are pre-ship NULL; index stays small). `ShipmentService.SubmitAsync` stamps every carton belonging to the SO with the new ShipmentId inside its TX (resolved via `PackTask.SalesOrderId` join — single SQL UPDATE).
+
+**Service** (`IShipmentService`, 3 lifecycle methods):
+- `GenerateAsync(tenantId, salesOrderId, currentUserId)` — **lightest of the three; no TX needed** (single repo INSERT). Loads SO, validates state (`Packed` only). **Idempotent on existing Pending shipment** — returns its summary so the controller can redirect to the same Detail on accidental re-trigger (Phase 14C/14D precedent). Assigns `SHP-YYYYMMDD-NNNN`. **No SO state flip** — operator sees SO stays Packed while ship is in flight; flips to Shipped only on SubmitAsync. Ship-in-flight detected via existing-task guard, not SO state.
+- `SubmitAsync(tenantId, request, currentUserId)` — TX-wrapped commit (3 writes inside one TransactionScope): (1) `shipmentRepo.SetShippedAsync(carrierName, trackingNumber, notes, ...)` flips Pending → Shipped + stamps dispatch metadata + audit (single UPDATE, COALESCE on Notes preserves any pre-Submit value if operator left blank); (2) `cartonRepo.StampShipmentForSalesOrderAsync(soId, shipmentId)` bulk UPDATE Cartons SET ShipmentId via JOIN through PackTask.SalesOrderId (single SQL); (3) `soRepo.SetStatusAsync(soId, "Packed", "Shipped")`. Service trims operator inputs to column widths (Carrier 50 chars, Tracking 100 chars). Empty strings normalised to null. **No Stock writes** — ship is post-stock.
+- `CancelAsync(tenantId, shipmentId, reason, currentUserId)` — **even lighter than Pack's Cancel; no TX needed** (single repo write). `Pending → Cancelled` with required reason. **No SO state flip** — Generate didn't flip the SO, so Cancel doesn't either; SO stays Packed, ready for re-Generate. **No carton un-stamping** — Pending shipments haven't claimed any cartons (`StampShipmentForSalesOrderAsync` only fires on SubmitAsync's TX). Idempotent on already-Cancelled (returns false). Rejects `Shipped` (post-Submit terminal — return-to-stock is a future TD).
+
+**UI** (4 surfaces touched / created):
+- `/SalesOrders/Detail` — new `isShipped` flag + `canGenerateShipment` (Packed only). Quick Action "Generate shipment" added between "Generate pack" and "Cancel" (`ti-truck-delivery` icon). `canCancel` unchanged — Shipped already excluded from `{Draft, Open, Allocating, Allocated}` list.
+- `/SalesOrders` Index — Alpine `statuses` array now lists 11 chips; counts envelope expanded with `shipped`; `badgeClass` map widened (Shipped=success — terminal happy state, distinct from Packed=info "ready for ship").
+- `POST /SalesOrders/GenerateShipment/{id}` — calls `GenerateAsync`, redirects to `/Shipments/Detail/{newShipmentId}` on success with `ShipmentMessage` carrying ShipmentNumber + reminder to fill carrier + tracking. Error path bounces back to SO Detail with `SalesOrderError`.
+- `_SalesOrderDecisionModals.cshtml` — new `#generate-ship-modal` block (info-blue, `ti-truck-delivery` icon, lead text explaining no-SO-state-change semantics + idempotency note).
+- `/Shipments/Detail/{id}` — new surface using `_DetailLayout`. Stats: Cartons / Weight / Carrier / Status. SO link in Overview block, plus Carrier + Tracking + Notes when populated. Per-state audit trio in Properties. Custom Dispatch tab via `_ShipmentDispatchPanel`:
+  - **Editable form when Pending**: 2-column form (Carrier free-text + Tracking number — both 100% optional with help text noting the deferred-default carrier pattern) + Notes textarea + submit button. Below: cartons section (placeholder pre-Submit, populated post-Submit with CartonNumber + Weight + Notes per row).
+  - **Terminal (Shipped / Cancelled)**: no form, only the cartons table (everything stamped at submit time).
+- `_ShipmentDecisionModals.cshtml` — new partial. Cancel modal with required 3-500 char reason textarea. Same shell as Phase 11A/12/13/14A/14C/14D modals, `wms-sh-` token namespace.
+- Sidebar — Shipments entry deferred to the list-page chunk (Phase 14C/14D precedent; would 404 without an Index action).
+
+**Status mappers** (1 widened, 1 created):
+- `SalesOrderStatusMapper` widened to 10 states. `Shipped=success` (terminal happy state — distinct from `Packed=info` "ready for ship"). Header comment rolled back from "14F will widen with Shipping/Shipped/Closed" since Shipped landed in 14E.
+- `ShipmentStatusMapper` (new). 3 states. `Pending=neutral`, `Shipped=success`, `Cancelled=neutral`.
+
+**TempData generalization**: `_DetailLayout` banner block now coalesces EIGHT sets of TempData keys (added `ShipmentMessage` / `ShipmentError`). Pattern continues to scale linearly per phase.
+
+**ViewModels + validation** (3 new):
+- `SubmitShipmentViewModel` — model-binding shape for `POST /Shipments/Submit`. All fields optional (`CarrierName` / `TrackingNumber` / `Notes`). StringLength caps mirror DB column widths.
+- `CancelShipmentViewModel` + `CancelShipmentValidator` — same shape as Phase 14D / 14C cancel VMs.
+
+**DAL extensions**:
+- New `IShipmentRepository` (6 methods: `CreateAsync` single INSERT no-TX, `GetByIdAsync` / `GetByNumberAsync` single-row reads, `GetActiveBySalesOrderAsync` pre-generation guard Pending only, `SetShippedAsync` (Pending → Shipped + stamps Carrier+Tracking+Notes — COALESCE on Notes preserves pre-Submit value), `SetCancelledAsync`, `CountForDatePrefixAsync`).
+- `ICartonRepository` extensions: `StampShipmentForSalesOrderAsync` (bulk UPDATE via JOIN through PackTask.SalesOrderId — single SQL composes inside ambient TX); `GetByShipmentIdAsync` (read-side for Detail page).
+- `PackTaskRepository.CartonColumns` SELECT now includes `ShipmentId` (forward-stable; PackTask Detail surfaces shipment linkage when populated).
+- `SalesOrderStatusCounts` widened to 11 fields (+Shipped, between Packed and Cancelled — pipeline-chronological order). `GetStatusCountsAsync` SQL grew 1 new SUM(CASE).
+
+**Tests**: +57 net test cases (~32 distinct methods). Smaller delta than Phase 14D's +68 (which was already smaller than 14C's +101) — Ship is the simplest of the three execution phases. 21 unit (ShipmentService — Generate/Submit/Cancel state-gating + happy paths + trim-and-truncate edge cases including `LongCarrierName_TruncatedTo50`); 36 integration (ShipmentStatusMapper Theory across 3 states; SalesOrderStatusMapper Theory backfill across the now-10-state set; ShipmentsController Detail / Submit / Cancel happy + error + AllOptionalFieldsBlank flow-through; SalesOrders.GenerateShipment happy + error). Test posture: **811 passing** (was 754). 288 unit + 518 integration + 5 skipped.
+
+**Out of scope** (logged as TD-038):
+- `/Shipments` Index list page + GetData JSON envelope + chip counts + sidebar entry (joins TD-036 /PickTasks + TD-037 /PackTasks list-page family).
+- **`master.Carriers` FK lookup integration** — codebase has full Carrier infrastructure (4 seeded FLASH/KERRY/JT/THAIPOST + lookup repo + Production-status filter) but seeded as Inactive; would render empty dropdown in dev. Free-text MVP avoids the friction. Future: drop the free-text column, add CarrierId nullable FK + dropdown.
+- **Multi-shipment per SO** — `UX_Shipments_SalesOrder` UNIQUE enforces 1:1 for MVP. Drop in a future migration to enable splitting (e.g. one SO ships in two batches).
+- **Post-Submit reversal** ("return to stock" — Shipped tasks cannot be undone today; needs a separate Adjust+ workflow).
+- **Carrier API integration / label printing / tracking number auto-assignment** — operator types both manually for MVP (deferred-default carrier pattern per ADR-009 sketch).
+- **Manifest workflow** (Build → Seal → Handover with driver signature capture).
+- **Tracking events ingestion** (`outbound.TrackingEvents` table from design doc — webhook receiver framework).
+
+**Permission**: `OUTBOUND.ORDERS` covers shipment operations for MVP. Future phases may introduce a finer `OUTBOUND.SHIP` perm for separation-of-duties on dispatch vs SO admin.
+
+**Notes on chunk-by-chunk hiccups**: None of significance. Pattern reuse from 14C/14D was ~80% as expected; the audit-first approach caught the carrier dropdown gotcha before T1.
 
 ### Day 10 — Phase 14D (Pack Task Workflow — desktop "Complete pack" form, MVP single-carton)
 
@@ -1569,5 +1627,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-10 (Day 10 — Phase 14D Pack Task Workflow; v1.7.0-pack)
-**Version**: 1.26
+**Last updated**: 2026-05-10 (Day 10 — Phase 14E Ship Workflow; v1.8.0-ship · Outbound MVP chain closed)
+**Version**: 1.27
