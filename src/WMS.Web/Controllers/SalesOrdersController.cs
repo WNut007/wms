@@ -32,6 +32,7 @@ public sealed class SalesOrdersController : Controller
     private readonly ISalesOrderRepositoryFactory _repos;
     private readonly ISalesOrderService _service;
     private readonly IAllocationService _allocationService;
+    private readonly IPickTaskService _pickTaskService;
     private readonly IOrderAllocationRepositoryFactory _allocRepos;
     private readonly ICustomerRepositoryFactory _customerRepos;
     private readonly IWarehouseRepositoryFactory _warehouseRepos;
@@ -47,6 +48,7 @@ public sealed class SalesOrdersController : Controller
         ISalesOrderRepositoryFactory repos,
         ISalesOrderService service,
         IAllocationService allocationService,
+        IPickTaskService pickTaskService,
         IOrderAllocationRepositoryFactory allocRepos,
         ICustomerRepositoryFactory customerRepos,
         IWarehouseRepositoryFactory warehouseRepos,
@@ -61,6 +63,7 @@ public sealed class SalesOrdersController : Controller
         _repos = repos;
         _service = service;
         _allocationService = allocationService;
+        _pickTaskService = pickTaskService;
         _allocRepos = allocRepos;
         _customerRepos = customerRepos;
         _warehouseRepos = warehouseRepos;
@@ -127,12 +130,15 @@ public sealed class SalesOrdersController : Controller
             totalPages = result.TotalPages,
             counts     = new
             {
-                all        = counts.All,
-                draft      = counts.Draft,
-                open       = counts.Open,
-                allocating = counts.Allocating,
-                allocated  = counts.Allocated,
-                cancelled  = counts.Cancelled,
+                all             = counts.All,
+                draft           = counts.Draft,
+                open            = counts.Open,
+                allocating      = counts.Allocating,
+                allocated       = counts.Allocated,
+                picking         = counts.Picking,
+                picked          = counts.Picked,
+                partiallypicked = counts.PartiallyPicked,
+                cancelled       = counts.Cancelled,
             },
         });
     }
@@ -333,16 +339,28 @@ public sealed class SalesOrdersController : Controller
         var warehouses = await _warehouseRepos.For(tenantId).GetActiveAsync(ct);
         var warehouse = warehouses.FirstOrDefault(w => w.Id == h.WarehouseId);
 
-        var isDraft       = h.Status == "Draft";
-        var isOpen        = h.Status == "Open";
-        var isAllocating  = h.Status == "Allocating";
-        var isAllocated   = h.Status == "Allocated";
-        var isCancelled   = h.Status == "Cancelled";
+        var isDraft           = h.Status == "Draft";
+        var isOpen            = h.Status == "Open";
+        var isAllocating      = h.Status == "Allocating";
+        var isAllocated       = h.Status == "Allocated";
+        var isPicking         = h.Status == "Picking";
+        var isPicked          = h.Status == "Picked";
+        var isPartiallyPicked = h.Status == "PartiallyPicked";
+        var isCancelled       = h.Status == "Cancelled";
 
         var canEdit     = !isCancelled;
         var canSubmit   = isDraft;
         var canAllocate = isOpen || isAllocating;   // Allocated is no-op (idempotent); show greyed
-        var canCancel   = !isCancelled;
+        // Phase 14C — Generate active only when fully Allocated. Picking
+        // returns the existing task idempotently — also clickable so a
+        // re-trigger lands on the same Detail page.
+        var canGenerate = isAllocated || isPicking;
+        // Cancel narrows to pre-pick states. Once a pick task exists,
+        // operator must cancel the pick task first (revert SO Picking →
+        // Allocated) before cancelling the SO. Picked/PartiallyPicked
+        // are post-Submit terminals — need a future return-to-stock
+        // workflow to reverse.
+        var canCancel   = isDraft || isOpen || isAllocating || isAllocated;
 
         var statusVariant = SalesOrderStatusMapper.ToBadgeVariant(h.Status);
         var totalQuantity  = lineRows.Sum(l => l.OrderedQuantity);
@@ -394,32 +412,38 @@ public sealed class SalesOrdersController : Controller
             },
             QuickActions = new()
             {
-                new("Edit",     "ti-edit",
+                new("Edit",          "ti-edit",
                     canEdit     ? $"/SalesOrders/Edit/{id}" : "#", Enabled: canEdit),
-                new("Submit",   "ti-send",
+                new("Submit",        "ti-send",
                     canSubmit   ? "#submit-modal"           : "#", Enabled: canSubmit),
-                new("Allocate", "ti-tags",
+                new("Allocate",      "ti-tags",
                     canAllocate ? "#allocate-modal"         : "#", Enabled: canAllocate),
-                new("Cancel",   "ti-x",
+                new("Generate pick", "ti-list-check",
+                    canGenerate ? "#generate-modal"         : "#", Enabled: canGenerate),
+                new("Cancel",        "ti-x",
                     canCancel   ? "#cancel-modal"           : "#", Enabled: canCancel),
             },
             OverviewFields = BuildOverviewFields(h, customer, warehouse),
             Properties = BuildProperties(h),
         };
 
-        ViewBag.HeaderId          = h.Id;
-        ViewBag.HeaderStatus      = h.Status;
-        ViewBag.IsDraft           = isDraft;
-        ViewBag.IsOpen            = isOpen;
-        ViewBag.IsAllocating      = isAllocating;
-        ViewBag.IsAllocated       = isAllocated;
-        ViewBag.CanSubmit         = canSubmit;
-        ViewBag.CanAllocate       = canAllocate;
-        ViewBag.CanCancel         = canCancel;
-        ViewBag.LineRows          = lineRows;
-        ViewBag.AllocationRows    = allocations;
-        ViewBag.SalesOrderMessage = TempData["SalesOrderMessage"] as string;
-        ViewBag.SalesOrderError   = TempData["SalesOrderError"]   as string;
+        ViewBag.HeaderId           = h.Id;
+        ViewBag.HeaderStatus       = h.Status;
+        ViewBag.IsDraft            = isDraft;
+        ViewBag.IsOpen             = isOpen;
+        ViewBag.IsAllocating       = isAllocating;
+        ViewBag.IsAllocated        = isAllocated;
+        ViewBag.IsPicking          = isPicking;
+        ViewBag.IsPicked           = isPicked;
+        ViewBag.IsPartiallyPicked  = isPartiallyPicked;
+        ViewBag.CanSubmit          = canSubmit;
+        ViewBag.CanAllocate        = canAllocate;
+        ViewBag.CanGenerate        = canGenerate;
+        ViewBag.CanCancel          = canCancel;
+        ViewBag.LineRows           = lineRows;
+        ViewBag.AllocationRows     = allocations;
+        ViewBag.SalesOrderMessage  = TempData["SalesOrderMessage"] as string;
+        ViewBag.SalesOrderError    = TempData["SalesOrderError"]   as string;
         return View("~/Views/Shared/_DetailLayout.cshtml", vm);
     }
 
@@ -471,6 +495,34 @@ public sealed class SalesOrdersController : Controller
         }
 
         return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // Phase 14C — generates a pick task from the SO's Active
+    // OrderAllocations and flips SO Allocated → Picking. Idempotent on
+    // already-Picking (returns the existing task; the redirect lands on
+    // its Detail page either way).
+    [HttpPost("Generate/{id:guid}")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Generate(Guid id, CancellationToken ct)
+    {
+        var tenantId = _tenant.RequireTenantId();
+        var requesterId = _currentUser.UserId
+            ?? throw new InvalidOperationException("Authenticated user required.");
+
+        try
+        {
+            var result = await _pickTaskService.GenerateAsync(
+                tenantId, id, requesterId, ct);
+
+            TempData["PickTaskMessage"] =
+                $"Pick task {result.PickNumber} generated — {result.LineCount} line(s), total expected {result.TotalExpectedQuantity:N2}.";
+            return RedirectToAction("Detail", "PickTasks", new { id = result.PickTaskId });
+        }
+        catch (InvalidOperationException ex)
+        {
+            TempData["SalesOrderError"] = ex.Message;
+            return RedirectToAction(nameof(Detail), new { id });
+        }
     }
 
     [HttpPost("Cancel/{id:guid}")]

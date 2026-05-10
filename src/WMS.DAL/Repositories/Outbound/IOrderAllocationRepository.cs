@@ -54,4 +54,12 @@ public interface IOrderAllocationRepository
     // matching Stock decrements per (StockId, qty) tuple.
     Task<IReadOnlyList<OrderAllocation>> GetActiveEntitiesBySalesOrderIdAsync(
         Guid salesOrderId, CancellationToken ct = default);
+
+    // Phase 14C — atomic Active → Picked flip with audit. Called by
+    // PickTaskService.SubmitAsync inside ambient TransactionScope when
+    // a pick task consumes the allocation. Returns true when changed.
+    Task<bool> MarkPickedAsync(
+        Guid allocationId,
+        Guid? userId,
+        CancellationToken ct = default);
 }

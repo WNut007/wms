@@ -13,6 +13,7 @@ internal sealed class OrderAllocationRepository : IOrderAllocationRepository
         Id, SalesOrderLineId, StockId, AllocatedQuantity, Status,
         AllocatedAt, AllocatedBy,
         ReleasedAt, ReleasedBy, ReleaseReason,
+        PickedAt, PickedBy,
         CreatedAt, UpdatedAt, CreatedBy, UpdatedBy, Version
         FROM outbound.OrderAllocations";
 
@@ -149,6 +150,28 @@ WHERE Id = @Id AND Status = 'Active';";
         var rows = await _connection.ExecuteAsync(new CommandDefinition(
             sql,
             new { Id = allocationId, Reason = reason, UserId = userId },
+            cancellationToken: ct));
+        return rows > 0;
+    }
+
+    public async Task<bool> MarkPickedAsync(
+        Guid allocationId, Guid? userId, CancellationToken ct = default)
+    {
+        // Atomic Active → Picked. Audit-status invariant
+        // CK_OrderAllocations_AuditMatchesStatus enforces PickedAt
+        // populated on this branch.
+        const string sql = @"
+UPDATE outbound.OrderAllocations
+SET Status    = 'Picked',
+    PickedAt  = SYSUTCDATETIME(),
+    PickedBy  = @UserId,
+    UpdatedAt = SYSUTCDATETIME(),
+    UpdatedBy = @UserId,
+    Version   = Version + 1
+WHERE Id = @Id AND Status = 'Active';";
+
+        var rows = await _connection.ExecuteAsync(new CommandDefinition(
+            sql, new { Id = allocationId, UserId = userId },
             cancellationToken: ct));
         return rows > 0;
     }

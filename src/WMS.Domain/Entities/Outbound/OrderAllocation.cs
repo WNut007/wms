@@ -4,15 +4,12 @@ namespace WMS.Domain.Entities.Outbound;
 // from a SalesOrderLine to a specific inventory.Stock row, with the
 // quantity reserved against that row.
 //
-// Status flow (MVP):
-//   Active   → Released         (terminal — cancel / short-pick reversal)
+// Status flow:
+//   Active → Released   (cancel / short-pick reversal)        — 14B
+//   Active → Picked     (consumed by a pick task submission)  — 14C
 //
-// Pick / Shipped states arrive in 14C/D — the audit-invariant CHECK
-// will widen at that point.
-//
-// Audit pattern: AllocatedBy/At populated on insert (Active state);
-// ReleasedBy/At populated when reversed. CK_OrderAllocations_Audit-
-// MatchesStatus enforces the invariant.
+// Released and Picked are distinct terminal states. CK_OrderAllocations
+// _AuditMatchesStatus enforces the per-state audit trio.
 //
 // Owner-aware (ADR-007 invariant): the (Product, Owner, UoM) on
 // SalesOrderLineId must match the same tuple on StockId. Service
@@ -30,4 +27,8 @@ public sealed class OrderAllocation : BaseEntity
     public DateTime? ReleasedAt { get; set; }
     public Guid? ReleasedBy { get; set; }
     public string? ReleaseReason { get; set; }
+
+    // Phase 14C — populated when allocation is consumed by a pick.
+    public DateTime? PickedAt { get; set; }
+    public Guid? PickedBy { get; set; }
 }

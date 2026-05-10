@@ -1,0 +1,243 @@
+@model WMS.Web.ViewModels.Detail.DetailPageViewModel
+@{
+    var lines = ViewBag.LineRows as IReadOnlyList<WMS.Domain.Entities.Outbound.PickTaskLine>
+                ?? new List<WMS.Domain.Entities.Outbound.PickTaskLine>();
+    var headerId = (Guid)ViewBag.HeaderId;
+    var canSubmit = ViewBag.CanSubmit is true;
+
+    // Initial state for the Alpine submit form. Each line carries the
+    // operator-editable {pickedQuantity, lineStatus, shortPickReason,
+    // notes}; ExpectedQuantity is read-only (snapshot at gen).
+    var initialJson = System.Text.Json.JsonSerializer.Serialize(
+        lines.Select(l => new {
+            id              = l.Id,
+            lineNumber      = l.LineNumber,
+            expectedQuantity = l.ExpectedQuantity,
+            pickedQuantity   = l.PickedQuantity ?? l.ExpectedQuantity, // default to full expected
+            lineStatus       = string.IsNullOrEmpty(l.LineStatus) || l.LineStatus == "Pending"
+                                ? "Picked"
+                                : l.LineStatus,
+            shortPickReason  = l.ShortPickReason ?? "",
+            notes            = l.Notes ?? "",
+        }));
+}
+
+<section class="wmsd-section"
+         x-data="pickTaskForm({ initialLines: @Html.Raw(initialJson), canSubmit: @(canSubmit ? "true" : "false") })">
+    <p class="wmsd-section-eyebrow">— Lines</p>
+    <h2>@(canSubmit ? "Pick entry" : "Pick lines")</h2>
+
+    @if (canSubmit)
+    {
+        <p style="font-size:12px;color:var(--wms-text-secondary);margin-bottom:12px;">
+            Enter actual picked quantities. Leave at the full expected to confirm; lower the number for short picks (reason required); switch to <strong>Skipped</strong> when the line couldn't be picked at all.
+        </p>
+    }
+
+    @if (lines.Count == 0)
+    {
+        <p style="text-align:center;padding:40px;color:var(--wms-text-tertiary);font-size:12px;">
+            No lines on this pick task.
+        </p>
+    }
+    else if (canSubmit)
+    {
+        <form asp-controller="PickTasks" asp-action="Submit"
+              asp-route-id="@headerId" method="post">
+            @Html.AntiForgeryToken()
+
+            <div style="overflow-x:auto;">
+                <table class="wms-table" style="width:100%;">
+                    <thead>
+                        <tr>
+                            <th style="width:50px;">#</th>
+                            <th>Source</th>
+                            <th style="width:100px;text-align:right;">Expected</th>
+                            <th style="width:130px;">Picked</th>
+                            <th style="width:120px;">Status</th>
+                            <th>Short reason</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (var i = 0; i < lines.Count; i++)
+                        {
+                            var l = lines[i];
+                            <tr :class="{ 'wmsd-row-warning': lines[@i].lineStatus === 'Picked' && lines[@i].pickedQuantity < lines[@i].expectedQuantity, 'wmsd-row-danger': lines[@i].lineStatus === 'Skipped' }">
+                                <td><span class="mono">@l.LineNumber</span></td>
+                                <td style="font-size:11px;">
+                                    <span class="mono" style="font-weight:500;">@l.LocationId.ToString().Substring(0, 8)</span>
+                                    @if (l.LotId.HasValue)
+                                    {
+                                        <span style="color:var(--wms-text-secondary);"> · Lot</span>
+                                    }
+                                    @if (l.PalletId.HasValue)
+                                    {
+                                        <span style="color:var(--wms-text-secondary);"> · Pallet</span>
+                                    }
+                                </td>
+                                <td style="text-align:right;">@l.ExpectedQuantity.ToString("N2")</td>
+                                <td>
+                                    <input type="hidden" name="Lines[@i].LineId" value="@l.Id" />
+                                    <input type="number" step="0.0001" min="0" max="@l.ExpectedQuantity"
+                                           class="wms-input" style="text-align:right;"
+                                           name="Lines[@i].PickedQuantity"
+                                           x-model.number="lines[@i].pickedQuantity"
+                                           :disabled="lines[@i].lineStatus === 'Skipped'" />
+                                </td>
+                                <td>
+                                    <select class="wms-input"
+                                            name="Lines[@i].LineStatus"
+                                            x-model="lines[@i].lineStatus"
+                                            @@change="onStatusChanged(@i)">
+                                        <option value="Picked">Picked</option>
+                                        <option value="Skipped">Skipped</option>
+                                    </select>
+                                </td>
+                                <td>
+                                    <input type="text" class="wms-input"
+                                           name="Lines[@i].ShortPickReason"
+                                           x-model="lines[@i].shortPickReason"
+                                           maxlength="500"
+                                           :placeholder="needsReason(@i) ? 'Required' : '(optional)'"
+                                           :class="{ 'wms-input-required': needsReason(@i) && !lines[@i].shortPickReason }" />
+                                </td>
+                                <td>
+                                    <input type="text" class="wms-input"
+                                           name="Lines[@i].Notes"
+                                           x-model="lines[@i].notes"
+                                           maxlength="500"
+                                           placeholder="(optional)" />
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0 4px;">
+                <span style="font-size:12px;color:var(--wms-text-secondary);">
+                    <strong x-text="fullCount()"></strong> full ·
+                    <strong x-text="shortCount()"></strong> short ·
+                    <strong x-text="skipCount()"></strong> skipped
+                </span>
+                <button type="submit" class="wms-btn wms-btn-purple"
+                        :disabled="!isValid()">
+                    <i class="ti ti-check" style="margin-right:6px;"></i>
+                    Submit pick
+                </button>
+            </div>
+        </form>
+    }
+    else
+    {
+        @* Terminal — Picked / PartiallyPicked / Cancelled. Read-only with picked vs expected highlight. *@
+        <div style="overflow-x:auto;">
+            <table class="wms-table" style="width:100%;">
+                <thead>
+                    <tr>
+                        <th style="width:50px;">#</th>
+                        <th>Source</th>
+                        <th style="width:100px;text-align:right;">Expected</th>
+                        <th style="width:100px;text-align:right;">Picked</th>
+                        <th style="width:120px;">Status</th>
+                        <th>Short reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var l in lines)
+                    {
+                        var pickedVal = l.PickedQuantity ?? 0m;
+                        var pickedColor = l.LineStatus switch
+                        {
+                            "Picked"  when pickedVal == l.ExpectedQuantity => "#0F6E56",
+                            "Picked"  when pickedVal < l.ExpectedQuantity  => "#854F0B",
+                            "Skipped" => "#A32D2D",
+                            _         => "var(--wms-text-tertiary)",
+                        };
+                        var statusVariant = l.LineStatus switch
+                        {
+                            "Picked"  when pickedVal == l.ExpectedQuantity => "s-success",
+                            "Picked"                                       => "s-warning",
+                            "Skipped"                                      => "s-danger",
+                            _                                              => "s-neutral",
+                        };
+                        <tr>
+                            <td><span class="mono">@l.LineNumber</span></td>
+                            <td style="font-size:11px;">
+                                <span class="mono" style="font-weight:500;">@l.LocationId.ToString().Substring(0, 8)</span>
+                                @if (l.LotId.HasValue)
+                                {
+                                    <span style="color:var(--wms-text-secondary);"> · Lot</span>
+                                }
+                                @if (l.PalletId.HasValue)
+                                {
+                                    <span style="color:var(--wms-text-secondary);"> · Pallet</span>
+                                }
+                            </td>
+                            <td style="text-align:right;">@l.ExpectedQuantity.ToString("N2")</td>
+                            <td style="text-align:right;font-weight:500;color:@pickedColor;">
+                                @(l.PickedQuantity?.ToString("N2") ?? "—")
+                            </td>
+                            <td><span class="wmsd-badge @statusVariant">@l.LineStatus</span></td>
+                            <td style="font-size:11px;color:var(--wms-text-secondary);">
+                                @(l.ShortPickReason ?? "—")
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@if (canSubmit)
+{
+    <script>
+        function pickTaskForm(opts) {
+            return {
+                lines: opts.initialLines || [],
+                canSubmit: opts.canSubmit,
+                onStatusChanged(idx) {
+                    const line = this.lines[idx];
+                    // Skipped: clear picked quantity (server-side enforces null);
+                    // Picked: restore to full expected if previously zeroed by Skipped flip.
+                    if (line.lineStatus === 'Skipped') {
+                        line.pickedQuantity = 0;
+                    } else if (line.lineStatus === 'Picked' && (line.pickedQuantity === 0 || line.pickedQuantity === null)) {
+                        line.pickedQuantity = line.expectedQuantity;
+                    }
+                },
+                needsReason(idx) {
+                    const line = this.lines[idx];
+                    if (line.lineStatus === 'Skipped') return true;
+                    return line.lineStatus === 'Picked'
+                        && line.pickedQuantity != null
+                        && line.pickedQuantity < line.expectedQuantity;
+                },
+                fullCount() {
+                    return this.lines.filter(l =>
+                        l.lineStatus === 'Picked' && l.pickedQuantity === l.expectedQuantity).length;
+                },
+                shortCount() {
+                    return this.lines.filter(l =>
+                        l.lineStatus === 'Picked' && l.pickedQuantity < l.expectedQuantity).length;
+                },
+                skipCount() {
+                    return this.lines.filter(l => l.lineStatus === 'Skipped').length;
+                },
+                isValid() {
+                    // Submit gated client-side: every line that needs a reason
+                    // must have one. Server-side validation is authoritative.
+                    return this.lines.every(l => !this.needsReasonRow(l) || (l.shortPickReason || '').trim().length >= 3);
+                },
+                needsReasonRow(line) {
+                    if (line.lineStatus === 'Skipped') return true;
+                    return line.lineStatus === 'Picked'
+                        && line.pickedQuantity != null
+                        && line.pickedQuantity < line.expectedQuantity;
+                },
+            };
+        }
+    </script>
+}

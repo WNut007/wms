@@ -88,4 +88,17 @@ public interface ISalesOrderRepository
         decimal delta,
         Guid? userId,
         CancellationToken ct = default);
+
+    // Phase 14C — atomic delta on the line's denormalized
+    // PickedQuantity. Positive on submit (qty actually picked).
+    // Negative would only apply to a future short-pick reversal.
+    // CK_SalesOrderLines_PickedQty_NonNegative + _NotOverOrdered
+    // guard the result range. Caller composes this inside the same
+    // TX as the matching OrderAllocation Active→Picked flip + Stock
+    // OnHand decrement + Allocated decrement.
+    Task AdjustLinePickedQuantityAsync(
+        Guid salesOrderLineId,
+        decimal delta,
+        Guid? userId,
+        CancellationToken ct = default);
 }

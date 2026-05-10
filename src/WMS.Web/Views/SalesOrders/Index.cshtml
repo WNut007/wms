@@ -108,14 +108,20 @@
             return {
                 rows: [], total: 0, totalPages: 1, page: 1, pageSize: 20,
                 search: '', status: 'all', loading: false,
-                counts: { all: 0, draft: 0, open: 0, allocating: 0, allocated: 0, cancelled: 0 },
+                counts: {
+                    all: 0, draft: 0, open: 0, allocating: 0, allocated: 0,
+                    picking: 0, picked: 0, partiallypicked: 0, cancelled: 0,
+                },
                 statuses: [
-                    { value: 'all',        label: 'All' },
-                    { value: 'draft',      label: 'Draft' },
-                    { value: 'open',       label: 'Open' },
-                    { value: 'allocating', label: 'Allocating' },
-                    { value: 'allocated',  label: 'Allocated' },
-                    { value: 'cancelled',  label: 'Cancelled' },
+                    { value: 'all',             label: 'All' },
+                    { value: 'draft',           label: 'Draft' },
+                    { value: 'open',            label: 'Open' },
+                    { value: 'allocating',      label: 'Allocating' },
+                    { value: 'allocated',       label: 'Allocated' },
+                    { value: 'picking',         label: 'Picking' },
+                    { value: 'picked',          label: 'Picked' },
+                    { value: 'partiallypicked', label: 'Partial' },
+                    { value: 'cancelled',       label: 'Cancelled' },
                 ],
                 async init() { await this.reload(); },
                 async reload() {
@@ -148,11 +154,14 @@
                 },
                 badgeClass(status) {
                     return {
-                        'draft':      's-neutral',
-                        'open':       's-success',
-                        'allocating': 's-warning',
-                        'allocated':  's-info',
-                        'cancelled':  's-neutral',
+                        'draft':           's-neutral',
+                        'open':            's-success',
+                        'allocating':      's-warning',
+                        'allocated':       's-info',
+                        'picking':         's-warning',
+                        'picked':          's-success',
+                        'partiallypicked': 's-warning',
+                        'cancelled':       's-neutral',
                     }[status] || 's-neutral';
                 },
             };

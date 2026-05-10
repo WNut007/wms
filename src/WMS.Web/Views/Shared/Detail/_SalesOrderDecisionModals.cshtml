@@ -115,6 +115,33 @@
     </div>
 }
 
+@if (ViewBag.CanGenerate is true)
+{
+    <div id="generate-modal" class="wms-so-overlay">
+        <div class="wms-so-modal" role="dialog">
+            <h2 class="is-info">
+                <i class="ti ti-list-check"></i> Generate pick task
+            </h2>
+            <p class="lead">
+                Snapshots the SO's Active allocations into a new pick
+                task and flips the SO to <strong>Picking</strong>.
+                Stock + allocation rows are <em>not</em> mutated yet —
+                they're consumed when the picker submits actual
+                quantities. Idempotent on already-Picking SOs (returns
+                the existing task).
+            </p>
+            <form asp-controller="SalesOrders" asp-action="Generate"
+                  asp-route-id="@ViewBag.HeaderId" method="post">
+                @Html.AntiForgeryToken()
+                <div class="wms-so-actions">
+                    <a href="#" class="wms-so-btn">Cancel</a>
+                    <button type="submit" class="wms-so-btn is-info">Confirm generate</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
 @if (ViewBag.CanCancel is true)
 {
     <div id="cancel-modal" class="wms-so-overlay">

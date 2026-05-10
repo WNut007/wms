@@ -111,9 +111,13 @@
     }
     else if (string.Equals(module.Code, "OUTBOUND", StringComparison.OrdinalIgnoreCase))
     {
-        // Phase 14A — Outbound currently expands to Sales Orders only.
-        // 14B/C/D will add Waves, Picks, Packs, Shipments submenu entries.
-        var outboundActive = IsActive("OUTBOUND") || IsActive("SalesOrders");
+        // Phase 14A — Sales Orders.
+        // Phase 14C added Pick Task execution surface (Detail-only —
+        // operator reaches it via the Generate redirect from SO Detail).
+        // Pick Tasks sidebar entry waits for the list-page chunk.
+        // 14D/E will add Packs, Shipments submenu entries.
+        var outboundActive = IsActive("OUTBOUND")
+            || IsActive("SalesOrders") || IsActive("PickTasks");
         <a href="@Url.Action("Index", "SalesOrders")"
            class="wms-sidebar-item @(outboundActive ? "active" : "")"
            title="@module.DisplayName">
