@@ -308,3 +308,62 @@ If putaway service **missing or partial**:
 - **Pattern source**: Phase 16 picker + Phase 18 receive
 - **ADR**: ADR-004 Putaway header (may need implementation)
 - **Desktop equivalent**: TBD (may not exist as desktop yet)
+
+---
+
+## 📋 Implementation Notes (Scenario A — shipped 2026-05-11, tag v2.6.0-mobile-putaway)
+
+> Added post-implementation. Documents what was built vs spec.
+
+Pre-implementation audit confirmed **Scenario A** with one apply-silently rename. Putaway service exists, well-defined; staging concept exists in the schema under a different name. Built in ~2h vs 3-4h spec estimate.
+
+### Audit findings & locked decisions
+
+1. **`master.Locations.IsStaging` does not exist.** Reality: `master.Zones.Type` enum has `'Receiving' | 'Storage' | 'Picking' | 'Packing' | 'Shipping' | 'Staging' | 'Quarantine' | 'Returns'`. Filter via `Zone.Type IN ('Receiving','Staging')` — **applied silently**. 3rd consecutive instance of the same audit→rename pattern (Phase 18: `IsSerialTracked` → `TrackingMethod`; Phase 19: `'LotOnly'` → `'Lot'`).
+2. **`IPutawayService.PutawayStockAsync` exists** — atomic source→dest move via `IStockRepository.TransferStockAsync` + paired `StockMovements` writes per ADR-014. Reused as-is.
+3. **No `PutawayTask` header/lines table.** Queue derived from Stock at staging zones. No migration this phase. ADR-004 putaway header (TD-004) remains future work.
+4. **No suggested-location service.** Built inline as `IStockRepository.GetSuggestedPutawayLocationAsync` using existing `BinRank`, `IsPickface`, `ZoneId`, `Status` columns.
+5. **Phase 1 PutawayController + form** retired per Phase 18 Decision 3A precedent.
+
+### Suggested-location algorithm (built)
+
+Storage-zone candidates (`Zone.Type='Storage'`, `IsActive=1`, `Status='Active'`) scored by:
+1. **SameProductRowCount DESC** — cluster picks (existing same-product Stock at the location → raises pick-face hit rate)
+2. **BinRank ASC** — BC pattern: lower fills first
+3. **IsPickface ASC** — preserve dedicated pick faces for pulls (avoid putting away to pick faces if alternatives exist)
+
+Returns null when no Storage-zone location qualifies.
+
+### Deviations from spec
+
+| Spec said | Built | Why |
+|---|---|---|
+| `master.Locations.IsStaging` flag | Filter via `Zone.Type IN ('Receiving','Staging')` | Capability exists under different name (3rd instance) |
+| "Pick zone match" reason bullet | "Pick face (last-resort target)" | Putaway should AVOID pick faces (operator pulls, not pushes). Inverted the meaning. |
+| "Capacity available" reason bullet | Deferred (TD) | Needs product-volume data not seeded today |
+| "Capacity: {N}% full" hint | Deferred (TD) | Same — no per-location current vs max calc |
+| Smart routing (closest available bin) | Not built | No location-distance algorithm; nearest-bin would need PositionX/Y/Z calc per candidate |
+| GREEN submit button | PURPLE (#534AB7) | Per Phase 19 user direction — green is for the suggestion card |
+
+### Built per spec
+- `/putaway/` PWA route + manifest with #534AB7 theme (was #1f2937)
+- Queue page (Stock at staging-zone locations, FIFO)
+- Filter chips (All / Today / Aged) with counts and `.no-scrollbar`
+- Aged badge (>24h waiting flagged amber border-left)
+- Per-task page with item card (purple-accent) + suggested-location hero (green-accent) + override scan area + sticky-bottom Submit
+- Reasons listed as ✓ green bullets in suggestion card
+- Override scan area with dashed-purple input
+- Bounce-to-queue UX
+- "Putaway (mobile)" sidebar entry under Inbound
+
+### Tests
+
+14 PutawayControllerTests cover queue / task page (4 paths: not-found / empty / not-in-queue / happy with-and-without suggestion) / submit (zero-qty / not-found / no-target-no-suggestion / happy with suggestion / service throws). Submit's suggestion-fallback path IS exercised end-to-end. Override-code path uses inline `ITenantConnectionFactory` (TD-041 family) and is not unit-tested.
+
+### Phase 19.5 / TD candidates (already-tracked + new)
+- **TD-004** — ADR-004 putaway header (PutawayTask + PutawayTaskLine schema)
+- **Capacity-aware ranking** (no TD logged separately yet; needs product-volume data first)
+- **Smart routing** (closest-bin via PositionX/Y/Z fields seeded for ADR-011 3D viz)
+- **Override-with-reason audit** (operator-supplied "why I overrode the suggestion"; needs ADR-004 header to land first)
+- **Multi-location split** (one Stock split across multiple bins)
+- **Reserve-on-tap** (mobile claims a queue row when operator opens it; today's race is "tap → other operator drains it → 404 on submit", which is friction-only since CK rejects insufficient stock cleanly)

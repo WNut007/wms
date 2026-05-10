@@ -346,11 +346,91 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 + 17 + 18 + 19 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` + `v2.2.0-mobile-pick` + `v2.3.0-pack-video` + `v2.4.0-mobile-receive` + `v2.5.0-mobile-pack` · **Mobile suite expansion** (picker + receive + pack — 3 of 5 specs implemented)
-**Current Focus**: Phase 20+ candidates: Mobile Putaway (`/putaway/`, spec ready), Mobile Cycle Count + Mobile Locate (specs ready); Phase 19.5 serial-aware mobile (TD-040 + TD-042 + TD-043 — bundle when serial schema lands); carrier FK integration; manifest workflow; post-Submit reversal flows.
+**Active Sprint**: Day 10-11 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 + 17 + 18 + 19 + 20 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` + `v2.2.0-mobile-pick` + `v2.3.0-pack-video` + `v2.4.0-mobile-receive` + `v2.5.0-mobile-pack` + `v2.6.0-mobile-putaway` · **Mobile suite expansion** (picker + receive + pack + putaway — 4 of 5 specs implemented)
+**Current Focus**: Phase 21+ candidates: Mobile Cycle Count + Mobile Locate (specs ready); Phase 19.5 serial-aware mobile (TD-040 + TD-042 + TD-043 — bundle when serial schema lands); ADR-004 putaway header (TD-004); carrier FK integration; manifest workflow; post-Submit reversal flows.
 **Blockers**: none
 
 Update this section weekly during standups.
+
+### Day 10-11 — Phase 20 (Mobile Putaway PWA — Scenario A per spec audit, replaces Phase 1 form)
+
+**Branch**: `feat/mobile-putaway-pwa` → merged to `main` · **Tag**: `v2.6.0-mobile-putaway` · **Replaces**: Phase 1 single-page PutawayController · **Spec**: `docs/mockups/mobile-specs/phase-20-mobile-putaway-spec.md` (corrections appended T3)
+
+Third mobile-suite expansion (4th mobile PWA after Phase 16 picker + Phase 18 receive + Phase 19 pack). Pre-implementation audit confirmed **Scenario A** with one apply-silently rename — 3rd consecutive instance of "spec names a column that doesn't exist; capability lives under a different schema name". New memory entry `feedback_spec_rename_audit.md` captures the pattern.
+
+**Audit findings (resolved before T1)**:
+1. **`master.Locations.IsStaging` does not exist.** Reality: `master.Zones.Type` enum has `'Receiving' | 'Storage' | 'Picking' | 'Packing' | 'Shipping' | 'Staging' | 'Quarantine' | 'Returns'`. Filter via `Zone.Type IN ('Receiving','Staging')` — applied silently. Same shape as Phase 18 (`IsSerialTracked` → `TrackingMethod`) and Phase 19 (`'LotOnly'` → `'Lot'`). 3rd instance → memory written.
+2. **`IPutawayService` exists** — atomic source→dest move via `IStockRepository.TransferStockAsync` + paired `StockMovements` writes per ADR-014. Reused as-is.
+3. **Movement Log integration** already in place via `StockMovementContext(MovementType=Putaway, ReferenceType='Putaway', ReferenceId=null)` (TD-004 placeholder for ADR-004 putaway header).
+4. **No PutawayTask header/lines table.** Queue derived from Stock at staging-zone locations — no migration this phase. TD-004 (ADR-004 putaway header) remains future work; today's mobile flow is "find Stock at staging zones" → "move to suggested storage bin" → atomic.
+5. **No suggested-location service.** Built inline as a new `IStockRepository.GetSuggestedPutawayLocationAsync` method using existing schema fields (`BinRank`, `IsPickface`, `ZoneId`, `Status`).
+6. **Phase 1 PutawayController + form** (typed-codes flat form) → replaced entirely per Phase 18 Decision 3A precedent.
+7. **No sidebar entry for Putaway today** → added new "Putaway (mobile)" under Inbound after "Receive (mobile)".
+8. Demo seed creates a `'RECV'` (Receiving) zone — queue has data on a fresh setup.
+
+**Surfaces (3 actions on the new PutawayController)**:
+- `GET /putaway` — queue. Stock at Receiving/Staging-zone locations in operator's current warehouse, FIFO oldest first. Empty state with `ti-package-off` + "All caught up!". Aged badge (>24h waiting) computed client-side from `CreatedAt`.
+- `GET /putaway/{stockId}` — task page. Loads Stock entity (for 6-tuple) + queue row (for display) + suggested target. 404 when row missing or drained. **Stock-not-in-queue → 404** (e.g., already at Storage zone — that's a Transfer workflow, not Putaway).
+- `POST /putaway/submit/{stockId}` — calls `IPutawayService.PutawayStockAsync`. Operator override (`ToLocationCode`) wins; suggestion is the implicit fallback — both go through the same warehouse-scoped location lookup. Bounce-to-queue on success. Service exceptions (insufficient stock, same source/dest) → bounce back to task with error.
+
+**DAL extensions** (2 new methods on `IStockRepository` + 2 record DTOs):
+- `PutawayQueueRow` — JOIN-rich projection (Locations + Zones + Products + Owners + Lots + Pallets + UoMs) for per-card render. LEFT JOINs on Lots + Pallets so non-lot/pallet products still render.
+- `SuggestedLocationResult` — top-1 storage-zone candidate + reason list.
+- `GetPutawayQueueAsync(warehouseId, ct)` — Stock at `Zone.Type IN ('Receiving','Staging')` with positive OnHand, FIFO oldest first.
+- `GetSuggestedPutawayLocationAsync(warehouseId, productId, ct)` — Storage-zone candidates (`IsActive=1`, `Status='Active'`) scored by:
+  1. **Same-product Stock count DESC** — cluster picks (existing same-product Stock at the location → raises pick-face hit rate)
+  2. **BinRank ASC** — BC pattern: lower fills first
+  3. **IsPickface ASC** — preserve dedicated pick faces for pulls
+  Returns null when no Storage-zone location qualifies. Reasons rendered as pre-formatted strings (e.g., `"Same product nearby (3 stock rows)"`, `"Low bin rank (15)"`, `"Pick face (last-resort target)"`). Capacity-aware tie-break is a TD — needs product-volume data not seeded today.
+
+**UI** (2 new views — replace Phase 1):
+- `Putaway/Index.cshtml` — queue. Pure CSS `.pw-*` token namespace, `.no-scrollbar`. Header: "Putaway / N items awaiting putaway". Chip row: All / Today / Aged (>24h flagged amber). Cards: ProductCode (mono) + ProductName · qty · UoM, source Location code (mono) + wait time + Lot (when applicable). Aged cards get amber border-left.
+- `Putaway/Task.cshtml` — 3-section per spec:
+  1. **Item card** (purple-accent border-left): package icon + product code/name + 2-col meta grid (From location | Qty available + UoM) + conditional Lot/Pallet rows
+  2. **Suggested location hero** (green-accent #1D9E75 — semantic success): "Suggested location" label + BIG location code (22px mono purple) + zone metadata + "Why this location" section with green ✓ bullets per reason. When no suggestion: amber callout "No suggestion. Scan a target bin below."
+  3. **Submit form**: override scan area (2px dashed primary border, mono input) + Quantity input (defaults to full Stock.OnHand) + sticky-bottom Submit (purple #534AB7, NOT spec's GREEN — green reserved for the suggestion card). Dynamic submit label: `"Confirm putaway → {target code}"`. "Back to queue" link below sticky submit.
+
+**Sidebar**: "Putaway (mobile)" entry under Inbound after "Receive (mobile)". `inboundActive` Or-chain already covers Putaway via `IsActive("Putaway")`.
+
+**Manifest**: theme color updated `#1f2937` → `#534AB7` (matches design system). Scope/start_url already correct.
+
+**Tests** (+14 net):
+- Index: NoWarehouse redirect + Happy returns view with queue rows
+- Task: NoWarehouse redirect · StockNotFound 404 · StockEmpty 404 (OnHand≤0) · StockNotInQueue 404 (positive OnHand but at non-staging zone) · Happy with suggestion · Happy with no-suggestion (still renders, amber callout)
+- Submit: NoWarehouse redirect · ZeroQuantity rejected (no service call) · StockNotFound 404 · NoOverrideNoSuggestion rejected · HappyWithSuggestion bounces to queue (verifies PutawayRequest construction + carton-style success message) · ServiceThrows redirects back
+
+Submit's override-code path uses `ITenantConnectionFactory` + inline Dapper which can't be cleanly mocked without a service-provider fixture (same TD-041 family as Phase 18 ReceiveController inline location resolver). Suggestion-fallback path IS exercised end-to-end.
+
+Test posture: **879 passing** (was 865 / +14). 288 unit + 586 integration + 5 skipped.
+
+**Out of scope** (logged for follow-up):
+- **Override-code resolution test** (same TD-041 family as Phase 18 — inline `HttpContext.RequestServices` use)
+- **Capacity-aware suggested-location ranking** — needs per-location current vs `CapacityVolumeCubicCm` calc + product volume data (not seeded today)
+- **Multi-location split** (one item moved to multiple bins — single-call PutawayService doesn't support it; would need iterative submit)
+- **Override-with-reason capture** (Why operator overrode the suggestion — no audit trail field today; ADR-004 putaway header would carry this)
+- **Putaway batches** (bulk move: select N items, all to same target)
+- **Smart routing** (closest-available-bin algorithm using Location PositionX/Y/Z fields seeded for ADR-011 3D viz)
+- **Service worker offline caching**
+- **PWA icons** (manifest `icons:[]` empty)
+- **Reserve-on-tap** (when operator opens task page, lock the Stock row from another operator picking it up — race today is "tap → other operator drains it → 404 on submit"; service-level CK rejects insufficient stock so no corruption, just operator friction)
+
+**Spec compliance check** (Scenario A with one rename):
+- ✅ /putaway accessible from sidebar
+- ✅ Queue shows staging items
+- ✅ Filter chips (All/Today/Aged) work, no horizontal scrollbar
+- ✅ Tap item → task page
+- ✅ Suggested location card displays prominently (green hero)
+- ✅ Reasons listed as ✓ bullets
+- ✅ Override scan area (dashed primary border)
+- ✅ Confirm putaway → success → bounce to queue
+- ✅ Hidden scrollbars throughout
+- ✅ Touch targets ≥ 38px
+- ✅ PWA installable (manifest with #534AB7 theme)
+- ⚠️ Spec said `IsStaging` flag → reality `Zone.Type IN ('Receiving','Staging')`, applied silently
+- ⚠️ "Capacity available" reason → deferred (TD; needs product-volume data)
+- ⚠️ "Pick zone match" reason → adapted to "Pick face (last-resort target)" since putaway should AVOID pick faces (operator pulls from there, not pushes to it)
+
+**Notes**: Audit caught the IsStaging gap in ~10 min (grep returned zero, then I read Migration_20260504_006 for Zones and found `Zone.Type` enum with the exact 'Staging' value). 3rd instance of the same audit→rename pattern — wrote `feedback_spec_rename_audit.md` per the user's brief on third-occurrence threshold. Build clean, tests green, no chunk hiccups.
 
 ### Day 10 — Phase 19 (Mobile Pack PWA — Path D per spec audit)
 
@@ -1988,5 +2068,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-10 (Day 10 — Phase 19 Mobile Pack PWA; v2.5.0-mobile-pack · Path D per spec audit)
-**Version**: 1.33
+**Last updated**: 2026-05-11 (Day 10-11 — Phase 20 Mobile Putaway PWA; v2.6.0-mobile-putaway · Scenario A per spec audit · 3rd spec-rename instance → memory)
+**Version**: 1.34
