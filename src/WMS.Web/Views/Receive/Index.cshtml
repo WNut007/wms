@@ -1,105 +1,162 @@
-@model WMS.Web.Models.Inbound.ReceiveFormModel
+@model IReadOnlyList<WMS.DAL.Repositories.Inbound.PurchaseOrderListRow>
 @{
     ViewData["Title"] = "Receive";
+
+    var openCount = Model.Count(r => r.Status == "Open");
+    var receivingCount = Model.Count(r => r.Status == "Receiving");
+
+    var okMsg = ViewBag.ReceiveMessage as string ?? TempData["ReceiveMessage"] as string;
+    var errMsg = ViewBag.ReceiveError as string ?? TempData["ReceiveError"] as string;
 }
 
-<form asp-controller="Receive" asp-action="Post" method="post" autocomplete="off">
-    @if (!ViewData.ModelState.IsValid && ViewData.ModelState[""]?.Errors.Count > 0)
+@* Phase 18 — Mobile Receive queue per design-system spec.
+   Pure CSS — minimal class footprint avoiding Tabler defaults that
+   add scrollbars + chrome on mobile. *@
+<style>
+    .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+
+    .recv-page-pad { padding: 12px 14px 24px; }
+
+    .recv-banner {
+        padding: 8px 12px; border-radius: 8px;
+        font-size: 12px; margin-bottom: 10px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .recv-banner-ok { background: #E1F5EE; color: #0F6E56; }
+    .recv-banner-err { background: #FCEBEB; color: #A32D2D; }
+
+    .recv-chip-row {
+        display: flex; gap: 6px; overflow-x: auto;
+        padding: 0 0 10px;
+    }
+    .recv-chip {
+        display: inline-flex; align-items: center; gap: 4px;
+        height: 26px; padding: 0 10px; border-radius: 100px;
+        font-size: 11px; font-weight: 500;
+        background: #ffffff; border: 0.5px solid #e5e7eb;
+        color: #6b7280; white-space: nowrap; cursor: pointer;
+        transition: background 120ms;
+    }
+    .recv-chip.is-active {
+        background: #534AB7; border-color: #534AB7; color: #ffffff;
+    }
+    .recv-chip-count {
+        display: inline-flex; align-items: center; justify-content: center;
+        min-width: 16px; height: 14px; padding: 0 4px;
+        border-radius: 100px; font-size: 9px;
+        background: rgba(0, 0, 0, 0.06); color: inherit;
+    }
+    .recv-chip.is-active .recv-chip-count { background: rgba(255, 255, 255, 0.2); }
+
+    .recv-card {
+        display: block; text-decoration: none; color: inherit;
+        background: #ffffff; border: 0.5px solid #e5e7eb;
+        border-radius: 11px; padding: 11px 13px; margin-bottom: 8px;
+    }
+    .recv-card:active { background: #f9fafb; }
+
+    .recv-row {
+        display: flex; justify-content: space-between; align-items: flex-start;
+    }
+    .recv-po-number {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 13px; font-weight: 500; color: #1f2937;
+    }
+    .recv-meta { font-size: 10px; color: #6b7280; margin-top: 2px; }
+    .recv-stats { font-size: 10px; color: #6b7280; margin-top: 8px; }
+
+    .recv-badge {
+        display: inline-flex; align-items: center;
+        font-size: 9px; font-weight: 500;
+        padding: 1px 6px; border-radius: 100px;
+    }
+    .recv-badge-open { background: #EEEDFE; color: #534AB7; }
+    .recv-badge-receiving { background: #FAEEDA; color: #854F0B; }
+
+    .recv-empty {
+        text-align: center; padding: 48px 16px;
+        color: #9ca3af; font-size: 12px;
+    }
+    .recv-empty-icon { font-size: 32px; opacity: 0.4; }
+</style>
+
+<div class="recv-page-pad" x-data="receiveQueue()">
+    @if (!string.IsNullOrEmpty(okMsg))
     {
-        <div class="alert alert-danger" role="alert">
-            @foreach (var err in ViewData.ModelState[""]!.Errors)
-            {
-                <div>@err.ErrorMessage</div>
-            }
+        <div class="recv-banner recv-banner-ok">
+            <i class="ti ti-check"></i> @okMsg
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(errMsg))
+    {
+        <div class="recv-banner recv-banner-err">
+            <i class="ti ti-alert-circle"></i> @errMsg
         </div>
     }
 
-    <div class="card mb-3">
-        <div class="card-body">
-            <h6 class="card-title">Receipt</h6>
-            <div class="mb-3">
-                <label asp-for="ReceivingNumber" class="form-label"></label>
-                <input asp-for="ReceivingNumber" class="form-control"
-                       autocomplete="off" autofocus />
-                <span asp-validation-for="ReceivingNumber" class="text-danger small"></span>
-            </div>
-            <div>
-                <label asp-for="Notes" class="form-label"></label>
-                <textarea asp-for="Notes" class="form-control" rows="2"></textarea>
-            </div>
-        </div>
+    <div class="recv-chip-row no-scrollbar">
+        <button type="button" class="recv-chip"
+                :class="{ 'is-active': filter === 'all' }"
+                @@click="filter = 'all'">
+            All <span class="recv-chip-count">@Model.Count</span>
+        </button>
+        <button type="button" class="recv-chip"
+                :class="{ 'is-active': filter === 'open' }"
+                @@click="filter = 'open'">
+            Open <span class="recv-chip-count">@openCount</span>
+        </button>
+        <button type="button" class="recv-chip"
+                :class="{ 'is-active': filter === 'receiving' }"
+                @@click="filter = 'receiving'">
+            Receiving <span class="recv-chip-count">@receivingCount</span>
+        </button>
     </div>
 
-    <div class="card mb-3">
-        <div class="card-body">
-            <h6 class="card-title">Item</h6>
-            <div class="mb-3">
-                <label asp-for="ProductCode" class="form-label"></label>
-                <input asp-for="ProductCode" class="form-control" />
-                <span asp-validation-for="ProductCode" class="text-danger small"></span>
-            </div>
-            <div class="row g-2 mb-3">
-                <div class="col-6">
-                    <label asp-for="Quantity" class="form-label"></label>
-                    <input asp-for="Quantity" class="form-control"
-                           inputmode="decimal" step="0.0001" />
-                    <span asp-validation-for="Quantity" class="text-danger small"></span>
-                </div>
-                <div class="col-6">
-                    <label asp-for="OwnerCode" class="form-label"></label>
-                    <input asp-for="OwnerCode" class="form-control" />
-                    <span asp-validation-for="OwnerCode" class="text-danger small"></span>
-                </div>
-            </div>
-            <div>
-                <label asp-for="LocationCode" class="form-label"></label>
-                <input asp-for="LocationCode" class="form-control" />
-                <span asp-validation-for="LocationCode" class="text-danger small"></span>
-            </div>
+    @if (Model.Count == 0)
+    {
+        <div class="recv-empty">
+            <div class="recv-empty-icon"><i class="ti ti-inbox"></i></div>
+            <p class="m-0 mt-2">No pending receipts.</p>
+            <p class="m-0 small">All caught up!</p>
         </div>
-    </div>
-
-    <div class="card mb-3">
-        <div class="card-body">
-            <h6 class="card-title text-muted">Lot / Pallet (optional)</h6>
-            <div class="row g-2 mb-3">
-                <div class="col-7">
-                    <label asp-for="LotNumber" class="form-label"></label>
-                    <input asp-for="LotNumber" class="form-control" />
+    }
+    else
+    {
+        @foreach (var po in Model)
+        {
+            var badgeClass = po.Status == "Receiving"
+                ? "recv-badge recv-badge-receiving"
+                : "recv-badge recv-badge-open";
+            var statusKey = po.Status.ToLowerInvariant();
+            <a href="/receive/@po.Id" class="recv-card"
+               x-show="filter === 'all' || filter === '@statusKey'">
+                <div class="recv-row">
+                    <div>
+                        <div class="recv-po-number">@po.PoNumber</div>
+                        <div class="recv-meta">
+                            @po.OwnerCode · @po.OwnerName
+                        </div>
+                    </div>
+                    <span class="@badgeClass">@po.Status</span>
                 </div>
-                <div class="col-5">
-                    <label asp-for="ExpiryDate" class="form-label"></label>
-                    <input asp-for="ExpiryDate" class="form-control" type="date" />
+                <div class="recv-stats">
+                    <i class="ti ti-package"></i> @po.TotalExpectedQty.ToString("N0") expected
+                    · <i class="ti ti-list"></i> @po.LineCount line@(po.LineCount == 1 ? "" : "s")
+                    @if (po.ExpectedDate is { } d)
+                    {
+                        <span> · <i class="ti ti-calendar"></i> @d.ToString("MMM dd")</span>
+                    }
                 </div>
-            </div>
-            <div>
-                <label asp-for="PalletNumber" class="form-label"></label>
-                <input asp-for="PalletNumber" class="form-control" />
-            </div>
-        </div>
-    </div>
-
-    <div class="card mb-3">
-        <div class="card-body">
-            <h6 class="card-title text-muted">Purchase Order (optional)</h6>
-            <div class="row g-2">
-                <div class="col-7">
-                    <label asp-for="PoNumber" class="form-label"></label>
-                    <input asp-for="PoNumber" class="form-control" />
-                    <span asp-validation-for="PoNumber" class="text-danger small"></span>
-                </div>
-                <div class="col-5">
-                    <label asp-for="PoLineNumber" class="form-label"></label>
-                    <input asp-for="PoLineNumber" class="form-control" inputmode="numeric" />
-                    <span asp-validation-for="PoLineNumber" class="text-danger small"></span>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <button type="submit" class="btn btn-primary btn-lg w-100 mb-3">Receive</button>
-</form>
+            </a>
+        }
+    }
+</div>
 
 @section Scripts {
-    <partial name="_ValidationScriptsPartial" />
+    <script>
+        function receiveQueue() {
+            return { filter: 'all' };
+        }
+    </script>
 }
