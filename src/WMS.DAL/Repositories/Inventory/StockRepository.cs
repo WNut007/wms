@@ -417,4 +417,115 @@ ORDER BY s.CreatedAt;";
               WHERE Id = @StockId;",
             new { StockId = stockId, Delta = delta, UserId = userId },
             cancellationToken: ct));
+
+    public async Task<IReadOnlyList<PutawayQueueRow>> GetPutawayQueueAsync(
+        Guid warehouseId, CancellationToken ct = default)
+    {
+        // Stock at locations whose Zone.Type IN ('Receiving','Staging')
+        // with positive OnHand. JOINs cover natural-key code rendering
+        // for the per-card view. LEFT JOINs on Lots + Pallets so non-
+        // lot/pallet products still render. CreatedAt ASC = FIFO oldest
+        // first (operator clears the backlog).
+        const string sql = @"
+SELECT
+    s.Id              AS StockId,
+    s.QuantityOnHand,
+    s.LocationId,
+    loc.Code          AS LocationCode,
+    z.Type            AS ZoneType,
+    s.ProductId,
+    p.Code            AS ProductCode,
+    p.Name            AS ProductName,
+    p.TrackingMethod,
+    s.OwnerId,
+    o.Code            AS OwnerCode,
+    s.LotId,
+    lot.LotNumber     AS LotNumber,
+    s.PalletId,
+    pal.PalletNumber  AS PalletNumber,
+    s.UomId,
+    u.Code            AS UomCode,
+    s.LastMovementAt,
+    s.CreatedAt
+FROM inventory.Stock s
+JOIN master.Locations loc ON loc.Id = s.LocationId
+JOIN master.Zones     z   ON z.Id   = loc.ZoneId
+JOIN master.Products  p   ON p.Id   = s.ProductId
+JOIN master.Owners    o   ON o.Id   = s.OwnerId
+JOIN master.UnitsOfMeasure u ON u.Id = s.UomId
+LEFT JOIN inventory.Lots    lot ON lot.Id = s.LotId
+LEFT JOIN inventory.Pallets pal ON pal.Id = s.PalletId
+WHERE loc.WarehouseId = @warehouseId
+  AND z.Type IN ('Receiving', 'Staging')
+  AND s.QuantityOnHand > 0
+ORDER BY s.CreatedAt;";
+
+        var rows = await _connection.QueryAsync<PutawayQueueRow>(new CommandDefinition(
+            sql, new { warehouseId }, cancellationToken: ct));
+        return rows.AsList();
+    }
+
+    public async Task<SuggestedLocationResult?> GetSuggestedPutawayLocationAsync(
+        Guid warehouseId, Guid productId, CancellationToken ct = default)
+    {
+        // Storage-zone candidates only (Active/IsActive). LEFT JOIN to
+        // an aggregate counting same-product Stock rows already at the
+        // location (the cluster-picks heuristic). Order: same-product
+        // count DESC > BinRank ASC > IsPickface ASC. TOP 1 = winner.
+        // Capacity-aware tie-break is a TD (no per-location current
+        // load vs max comparison without product-volume data).
+        const string sql = @"
+WITH same_product AS (
+    SELECT LocationId, COUNT(*) AS Cnt
+    FROM inventory.Stock
+    WHERE ProductId = @productId AND QuantityOnHand > 0
+    GROUP BY LocationId
+)
+SELECT TOP (1)
+    loc.Id        AS LocationId,
+    loc.Code      AS LocationCode,
+    z.Code        AS ZoneCode,
+    z.Name        AS ZoneName,
+    loc.BinRank,
+    loc.IsPickface,
+    ISNULL(sp.Cnt, 0) AS SameProductRowCount
+FROM master.Locations loc
+JOIN master.Zones z ON z.Id = loc.ZoneId
+LEFT JOIN same_product sp ON sp.LocationId = loc.Id
+WHERE loc.WarehouseId = @warehouseId
+  AND z.Type     = 'Storage'
+  AND loc.IsActive = 1
+  AND loc.Status   = 'Active'
+ORDER BY ISNULL(sp.Cnt, 0) DESC, loc.BinRank ASC,
+         CASE WHEN loc.IsPickface = 1 THEN 1 ELSE 0 END ASC,
+         loc.Code ASC;";
+
+        var hit = await _connection.QuerySingleOrDefaultAsync<dynamic>(new CommandDefinition(
+            sql, new { warehouseId, productId }, cancellationToken: ct));
+        if (hit is null) return null;
+
+        var reasons = new List<string>();
+        int sameCount = (int)hit.SameProductRowCount;
+        int? binRank = (int?)hit.BinRank;
+        bool isPickface = (bool)hit.IsPickface;
+
+        if (sameCount > 0)
+            reasons.Add($"Same product nearby ({sameCount} stock row{(sameCount == 1 ? "" : "s")})");
+        if (binRank is { } rank && rank < 50)
+            reasons.Add($"Low bin rank ({rank})");
+        if (isPickface)
+            reasons.Add("Pick face (last-resort target)");
+        if (reasons.Count == 0)
+            reasons.Add("Available storage location");
+
+        return new SuggestedLocationResult(
+            LocationId: (Guid)hit.LocationId,
+            LocationCode: (string)hit.LocationCode,
+            ZoneCode: (string)hit.ZoneCode,
+            ZoneName: (string)hit.ZoneName,
+            BinRank: binRank,
+            IsPickface: isPickface,
+            SameProductRowCount: sameCount,
+            Reasons: reasons);
+    }
 }

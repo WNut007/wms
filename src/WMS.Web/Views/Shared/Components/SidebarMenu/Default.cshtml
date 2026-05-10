@@ -66,6 +66,10 @@
                class="wms-sidebar-item @(IsActive("Receive") ? "active" : "")">
                 <span class="wms-sidebar-item-text">Receive (mobile)</span>
             </a>
+            <a href="@Url.Action("Index", "Putaway")"
+               class="wms-sidebar-item @(IsActive("Putaway") ? "active" : "")">
+                <span class="wms-sidebar-item-text">Putaway (mobile)</span>
+            </a>
         </div>
     }
     else if (string.Equals(module.Code, "COUNTS", StringComparison.OrdinalIgnoreCase))

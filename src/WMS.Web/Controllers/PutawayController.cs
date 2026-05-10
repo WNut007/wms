@@ -2,221 +2,214 @@ using Dapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WMS.BLL.Services.Inbound;
+using WMS.Common.Auth;
 using WMS.Common.Inventory;
 using WMS.Common.Multitenancy;
+using WMS.DAL.Repositories.Inventory;
 using WMS.Web.Models.Inbound;
 
 namespace WMS.Web.Controllers;
 
-// Single-screen putaway form — Receiving-ζ. Resolves natural-key
-// codes (Product / Owner / From-Loc / To-Loc + optional Lot / Pallet)
-// inline via Dapper against the tenant DB, then hands a fully-built
-// StockKey to IPutawayService.PutawayStockAsync.
+// Phase 20 — Mobile Putaway PWA. Replaces Phase 1's single-page
+// PutawayController (typed-codes form) with a queue → per-task page →
+// confirm / override → bounce-to-queue UX. Mirrors Phase 18 receive
+// and Phase 19 mobile pack patterns.
 //
-// [Authorize] only for now; permission gating defers, same as
-// ReceiveController.
+// Surfaces:
+//   GET  /putaway              — queue (Stock at Receiving/Staging zones,
+//                                FIFO oldest first)
+//   GET  /putaway/{stockId}    — task page (item card + suggested
+//                                location hero + override scan area)
+//   POST /putaway/submit/{id}  — calls IPutawayService.PutawayStockAsync
+//                                (atomic source→dest move + paired
+//                                StockMovements rows per ADR-014)
+//
+// Audit findings (per Phase 20 audit, applied silently):
+// - The spec assumed `master.Locations.IsStaging` flag — does not
+//   exist. Reality: `master.Zones.Type IN ('Receiving','Staging')`.
+//   Same shape of spec rename as Phase 18 (IsSerialTracked →
+//   TrackingMethod) and Phase 19 (LotOnly → Lot). 3rd instance.
+// - No PutawayTask header/lines table — queue is derived from Stock
+//   sitting at staging zones. No migration this phase.
+// - No suggested-location service existed — built inline as a
+//   StockRepository read method (same-product-nearby + BinRank).
+//
+// Manifest: /putaway/manifest.json (scope=/putaway/, theme #534AB7).
+// Layout: _MobileLayout via /putaway _ViewStart.
+//
+// Spec: docs/mockups/mobile-specs/phase-20-mobile-putaway-spec.md
+//       (Path A corrections appended in T3)
 [Authorize]
 [Route("putaway")]
-public sealed class PutawayController : BaseController
+public sealed class PutawayController : Controller
 {
     private readonly IPutawayService _putawayService;
+    private readonly IStockRepositoryFactory _stockRepos;
     private readonly ITenantConnectionFactory _tenantConn;
+    private readonly ITenantContext _tenant;
+    private readonly ICurrentUser _currentUser;
 
     public PutawayController(
         IPutawayService putawayService,
-        ITenantConnectionFactory tenantConn)
+        IStockRepositoryFactory stockRepos,
+        ITenantConnectionFactory tenantConn,
+        ITenantContext tenant,
+        ICurrentUser currentUser)
     {
         _putawayService = putawayService;
+        _stockRepos = stockRepos;
         _tenantConn = tenantConn;
+        _tenant = tenant;
+        _currentUser = currentUser;
     }
 
+    // GET /putaway — queue. Stock at Receiving/Staging-zone locations
+    // in operator's current warehouse, FIFO. Empty result → "all
+    // caught up" empty state. Aged badge (>24h waiting) computed
+    // client-side from CreatedAt.
     [HttpGet("")]
-    public IActionResult Index()
+    public async Task<IActionResult> Index(CancellationToken ct)
     {
-        if (CurrentUser.WarehouseId is null)
+        if (_currentUser.WarehouseId is not { } warehouseId)
             return RedirectToAction("SelectWarehouse", "Auth");
 
-        return View(new PutawayFormModel { OwnerCode = "SELF", Quantity = 1 });
+        var rows = await _stockRepos.For(_tenant.RequireTenantId())
+            .GetPutawayQueueAsync(warehouseId, ct);
+
+        ViewBag.PutawayMessage = TempData["PutawayMessage"] as string;
+        ViewBag.PutawayError   = TempData["PutawayError"]   as string;
+        return View(rows);
     }
 
-    [HttpPost("post")]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Post(PutawayFormModel model, CancellationToken ct)
+    // GET /putaway/{stockId} — task page. Loads the Stock entity (for
+    // 6-tuple) + queue row (for display) + suggested target location.
+    // 404 when the row is missing (operator hit a stale URL after
+    // someone else put it away) or when the Stock has been drained
+    // to zero.
+    [HttpGet("{stockId:guid}")]
+    public async Task<IActionResult> Task(Guid stockId, CancellationToken ct)
     {
-        if (CurrentUser.WarehouseId is not { } warehouseId)
+        if (_currentUser.WarehouseId is not { } warehouseId)
             return RedirectToAction("SelectWarehouse", "Auth");
 
-        if (!ModelState.IsValid)
-            return View(nameof(Index), model);
+        var tenantId = _tenant.RequireTenantId();
+        var repo = _stockRepos.For(tenantId);
 
-        var tenantId = TenantContext.RequireTenantId();
-        using var conn = _tenantConn.CreateConnection(tenantId);
+        var stock = await repo.GetByIdAsync(stockId, ct);
+        if (stock is null || stock.QuantityOnHand <= 0m)
+            return NotFound();
 
-        // Resolve master-data codes — Product / Owner / both Locations.
-        var (productId, _) =
-            await ResolveProductAsync(conn, model.ProductCode.Trim(), ct);
-        if (productId is null)
-            ModelState.AddModelError(nameof(model.ProductCode),
-                $"Product '{model.ProductCode}' not found or inactive.");
+        // Re-query the queue to find the matching display row. Cheap
+        // (small queue at any given moment) and avoids a parallel
+        // single-row JOIN-rich SELECT.
+        var queue = await repo.GetPutawayQueueAsync(warehouseId, ct);
+        var row = queue.FirstOrDefault(r => r.StockId == stockId);
+        if (row is null) return NotFound();
 
-        var ownerId = await ResolveOwnerAsync(conn, model.OwnerCode.Trim(), ct);
-        if (ownerId is null)
-            ModelState.AddModelError(nameof(model.OwnerCode),
-                $"Owner '{model.OwnerCode}' not found or inactive.");
+        var suggestion = await repo.GetSuggestedPutawayLocationAsync(
+            warehouseId, stock.ProductId, ct);
 
-        var fromLocationId = await ResolveLocationAsync(
-            conn, warehouseId, model.FromLocationCode.Trim(), ct);
-        if (fromLocationId is null)
-            ModelState.AddModelError(nameof(model.FromLocationCode),
-                $"Location '{model.FromLocationCode}' not found in this warehouse.");
+        ViewBag.Suggestion     = suggestion;
+        ViewBag.PutawayMessage = TempData["PutawayMessage"] as string;
+        ViewBag.PutawayError   = TempData["PutawayError"]   as string;
+        return View(row);
+    }
 
-        var toLocationId = await ResolveLocationAsync(
-            conn, warehouseId, model.ToLocationCode.Trim(), ct);
-        if (toLocationId is null)
-            ModelState.AddModelError(nameof(model.ToLocationCode),
-                $"Location '{model.ToLocationCode}' not found in this warehouse.");
+    // POST /putaway/submit/{stockId} — calls PutawayService.
+    // ToLocationCode override wins when supplied; otherwise the
+    // suggested-location call result is the target. Quantity is
+    // operator-confirmed (default = full OnHand on the form).
+    //
+    // Bounce-to-queue on success. Service exceptions (insufficient
+    // stock, same source/dest) → bounce back to task with error.
+    [HttpPost("submit/{stockId:guid}")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Submit(
+        Guid stockId, MobilePutawaySubmitViewModel vm, CancellationToken ct)
+    {
+        if (_currentUser.WarehouseId is not { } warehouseId)
+            return RedirectToAction("SelectWarehouse", "Auth");
 
-        // Lot / Pallet are optional — but if entered, they must already
-        // exist (putaway moves stock that's already on the books).
-        Guid? lotId = null;
-        if (productId is { } pid && !string.IsNullOrWhiteSpace(model.LotNumber))
+        if (vm.Quantity <= 0m)
         {
-            lotId = await ResolveLotAsync(conn, pid, model.LotNumber.Trim(), ct);
-            if (lotId is null)
-                ModelState.AddModelError(nameof(model.LotNumber),
-                    $"Lot '{model.LotNumber}' not found for product '{model.ProductCode}'.");
+            TempData["PutawayError"] = "Quantity must be positive.";
+            return RedirectToAction(nameof(Task), new { stockId });
         }
 
-        Guid? palletId = null;
-        if (!string.IsNullOrWhiteSpace(model.PalletNumber))
+        var tenantId = _tenant.RequireTenantId();
+        var stockRepo = _stockRepos.For(tenantId);
+
+        var stock = await stockRepo.GetByIdAsync(stockId, ct);
+        if (stock is null) return NotFound();
+
+        // Resolve target — operator override wins; suggestion is the
+        // implicit fallback. Both go through the same warehouse-scoped
+        // location lookup (IsActive=1, Status='Active').
+        Guid? toLocationId;
+        if (!string.IsNullOrWhiteSpace(vm.ToLocationCode))
         {
-            palletId = await ResolvePalletAsync(conn, model.PalletNumber.Trim(), ct);
-            if (palletId is null)
-                ModelState.AddModelError(nameof(model.PalletNumber),
-                    $"Pallet '{model.PalletNumber}' not found.");
+            toLocationId = await ResolveLocationIdAsync(
+                tenantId, warehouseId, vm.ToLocationCode.Trim(), ct);
+            if (toLocationId is null)
+            {
+                TempData["PutawayError"] =
+                    $"Location '{vm.ToLocationCode}' not found in this warehouse.";
+                return RedirectToAction(nameof(Task), new { stockId });
+            }
         }
-
-        // We need the BaseUomId for the StockKey. Re-read off the product
-        // row — same Dapper conn, same tenant.
-        Guid? uomId = null;
-        if (productId is { } pid2)
-            uomId = await ResolveProductBaseUomAsync(conn, pid2, ct);
-
-        if (!ModelState.IsValid)
-            return View(nameof(Index), model);
+        else
+        {
+            var suggestion = await stockRepo.GetSuggestedPutawayLocationAsync(
+                warehouseId, stock.ProductId, ct);
+            if (suggestion is null)
+            {
+                TempData["PutawayError"] =
+                    "No suggested storage location available — scan a target bin.";
+                return RedirectToAction(nameof(Task), new { stockId });
+            }
+            toLocationId = suggestion.LocationId;
+        }
 
         var fromKey = new StockKey(
-            LocationId: fromLocationId!.Value,
-            ProductId: productId!.Value,
-            LotId: lotId,
-            PalletId: palletId,
-            OwnerId: ownerId!.Value,
-            UomId: uomId!.Value);
+            LocationId: stock.LocationId,
+            ProductId: stock.ProductId,
+            LotId: stock.LotId,
+            PalletId: stock.PalletId,
+            OwnerId: stock.OwnerId,
+            UomId: stock.UomId);
 
         try
         {
             var result = await _putawayService.PutawayStockAsync(
                 tenantId,
-                new PutawayRequest(fromKey, toLocationId!.Value, model.Quantity),
-                CurrentUser.UserId,
+                new PutawayRequest(fromKey, toLocationId.Value, vm.Quantity),
+                _currentUser.UserId,
                 ct);
 
-            return RedirectToAction(
-                nameof(Posted),
-                new { sourceId = result.Source.Id, destId = result.Destination.Id });
+            TempData["PutawayMessage"] =
+                $"Moved {vm.Quantity:N2} units · destination OnHand now {result.Destination.QuantityOnHand:N2}.";
+            return RedirectToAction(nameof(Index));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
-            // Catches "no source row" + SqlException 50001 / 50002 / 50003
-            // raised by the repo's batch.
-            ModelState.AddModelError(string.Empty, ex.Message);
-            Logger.LogWarning(ex, "Putaway failed for product {ProductCode}", model.ProductCode);
-            return View(nameof(Index), model);
+            TempData["PutawayError"] = ex.Message;
+            return RedirectToAction(nameof(Task), new { stockId });
         }
     }
 
-    [HttpGet("posted/{sourceId:guid}/{destId:guid}")]
-    public async Task<IActionResult> Posted(Guid sourceId, Guid destId, CancellationToken ct)
+    // Tiny inline location resolver — same pattern as Phase 18
+    // ReceiveController's. Single-row lookup; no point spinning up an
+    // ILocationRepository surface for one consumer.
+    private async Task<Guid?> ResolveLocationIdAsync(
+        Guid tenantId, Guid warehouseId, string code, CancellationToken ct)
     {
-        var tenantId = TenantContext.RequireTenantId();
         using var conn = _tenantConn.CreateConnection(tenantId);
-
-        // Two tiny Dapper queries — the entities are already known and
-        // we just want fresh OnHand values to render. Avoids needing a
-        // dedicated DTO.
-        var rows = await conn.QueryAsync<PutawayPostedRow>(new CommandDefinition(
-            @"SELECT s.Id, s.QuantityOnHand, l.Code AS LocationCode, p.Code AS ProductCode
-              FROM inventory.Stock s
-              JOIN master.Locations l ON l.Id = s.LocationId
-              JOIN master.Products  p ON p.Id = s.ProductId
-              WHERE s.Id IN (@sourceId, @destId);",
-            new { sourceId, destId },
-            cancellationToken: ct));
-
-        var list = rows.ToList();
-        var source = list.FirstOrDefault(r => r.Id == sourceId);
-        var dest = list.FirstOrDefault(r => r.Id == destId);
-        if (source is null || dest is null) return NotFound();
-
-        return View(new PutawayPostedViewModel(source, dest));
-    }
-
-    // --- code resolvers ----------------------------------------------
-
-    private static async Task<(Guid? ProductId, Guid? BaseUomId)> ResolveProductAsync(
-        System.Data.IDbConnection conn, string code, CancellationToken ct)
-    {
-        var row = await conn.QuerySingleOrDefaultAsync<(Guid Id, Guid BaseUomId)?>(
+        return await conn.QuerySingleOrDefaultAsync<Guid?>(
             new CommandDefinition(
-                "SELECT Id, BaseUomId FROM master.Products " +
-                "WHERE Code = @code AND Status = 'Active'",
-                new { code },
+                "SELECT Id FROM master.Locations " +
+                "WHERE WarehouseId = @warehouseId AND Code = @code " +
+                "  AND IsActive = 1 AND Status = 'Active'",
+                new { warehouseId, code },
                 cancellationToken: ct));
-        return row is null ? (null, null) : (row.Value.Id, row.Value.BaseUomId);
     }
-
-    private static Task<Guid?> ResolveProductBaseUomAsync(
-        System.Data.IDbConnection conn, Guid productId, CancellationToken ct) =>
-        conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
-            "SELECT BaseUomId FROM master.Products WHERE Id = @id",
-            new { id = productId }, cancellationToken: ct));
-
-    private static Task<Guid?> ResolveOwnerAsync(
-        System.Data.IDbConnection conn, string code, CancellationToken ct) =>
-        conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
-            "SELECT Id FROM master.Owners WHERE Code = @code AND IsActive = 1",
-            new { code },
-            cancellationToken: ct));
-
-    private static Task<Guid?> ResolveLocationAsync(
-        System.Data.IDbConnection conn, Guid warehouseId, string code, CancellationToken ct) =>
-        conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
-            "SELECT Id FROM master.Locations " +
-            "WHERE WarehouseId = @warehouseId AND Code = @code " +
-            "  AND IsActive = 1 AND Status = 'Active'",
-            new { warehouseId, code },
-            cancellationToken: ct));
-
-    private static Task<Guid?> ResolveLotAsync(
-        System.Data.IDbConnection conn, Guid productId, string lotNumber, CancellationToken ct) =>
-        conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
-            "SELECT Id FROM inventory.Lots " +
-            "WHERE ProductId = @productId AND LotNumber = @lotNumber",
-            new { productId, lotNumber },
-            cancellationToken: ct));
-
-    private static Task<Guid?> ResolvePalletAsync(
-        System.Data.IDbConnection conn, string palletNumber, CancellationToken ct) =>
-        conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
-            "SELECT Id FROM inventory.Pallets WHERE PalletNumber = @palletNumber",
-            new { palletNumber },
-            cancellationToken: ct));
 }
-
-// Tiny view-shape for the Posted page — not a Domain entity since
-// the page only needs OnHand + the human-readable codes.
-public sealed record PutawayPostedRow(
-    Guid Id, decimal QuantityOnHand, string LocationCode, string ProductCode);
-
-public sealed record PutawayPostedViewModel(
-    PutawayPostedRow Source, PutawayPostedRow Destination);
