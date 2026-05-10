@@ -28,6 +28,7 @@ public class SalesOrdersControllerTests
         SalesOrdersController Controller,
         Mock<ISalesOrderRepository> Repo,
         Mock<ISalesOrderService> Service,
+        Mock<IAllocationService> AllocationService,
         Mock<ICustomerRepository> CustomerRepo,
         Mock<IValidator<SalesOrderCreateViewModel>> CreateValidator,
         Mock<IValidator<SalesOrderEditViewModel>> EditValidator,
@@ -126,7 +127,7 @@ public class SalesOrdersControllerTests
         var tempDataProvider = new Mock<ITempDataProvider>();
         ctrl.TempData = new TempDataDictionary(new DefaultHttpContext(), tempDataProvider.Object);
 
-        return new Build(ctrl, repo, service, customerRepo,
+        return new Build(ctrl, repo, service, allocationService, customerRepo,
             createValidator, editValidator, currentUserId);
     }
 
@@ -406,13 +407,140 @@ public class SalesOrdersControllerTests
     }
 
     [Theory]
-    [InlineData("Draft",     "draft",     "neutral")]
-    [InlineData("Open",      "open",      "success")]
-    [InlineData("Cancelled", "cancelled", "neutral")]
+    [InlineData("Draft",      "draft",      "neutral")]
+    [InlineData("Open",       "open",       "success")]
+    [InlineData("Allocating", "allocating", "warning")]
+    [InlineData("Allocated",  "allocated",  "info")]
+    [InlineData("Cancelled",  "cancelled",  "neutral")]
     public void StatusMapper_RoundTrips(string db, string wire, string variant)
     {
         Assert.Equal(wire, WMS.Web.Services.Mappers.SalesOrderStatusMapper.ToWire(db));
         Assert.Equal(db, WMS.Web.Services.Mappers.SalesOrderStatusMapper.FromWire(wire));
         Assert.Equal(variant, WMS.Web.Services.Mappers.SalesOrderStatusMapper.ToBadgeVariant(db));
+    }
+
+    // ================================================================
+    // Phase 14B — Allocate endpoint + state-gating across 5 statuses
+    // ================================================================
+
+    [Fact]
+    public async Task Detail_Open_AllocateEnabled()
+    {
+        var b = BuildController();
+        var detail = SampleDetail("Open");
+        b.Service.Setup(s => s.GetByIdAsync(
+                It.IsAny<Guid>(), detail.Header.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+
+        var view = (ViewResult)await b.Controller.Detail(detail.Header.Id, default);
+        var vm = Assert.IsType<DetailPageViewModel>(view.Model);
+
+        Assert.True(vm.QuickActions.First(a => a.Label == "Allocate").Enabled);
+    }
+
+    [Fact]
+    public async Task Detail_Allocating_AllocateAndCancelEnabled()
+    {
+        var b = BuildController();
+        var detail = SampleDetail("Allocating");
+        b.Service.Setup(s => s.GetByIdAsync(
+                It.IsAny<Guid>(), detail.Header.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+
+        var view = (ViewResult)await b.Controller.Detail(detail.Header.Id, default);
+        var vm = Assert.IsType<DetailPageViewModel>(view.Model);
+
+        Assert.True(vm.QuickActions.First(a => a.Label == "Allocate").Enabled);
+        Assert.True(vm.QuickActions.First(a => a.Label == "Cancel").Enabled);
+        Assert.False(vm.QuickActions.First(a => a.Label == "Submit").Enabled);
+    }
+
+    [Fact]
+    public async Task Detail_Allocated_AllocateDisabled_CancelEnabled()
+    {
+        var b = BuildController();
+        var detail = SampleDetail("Allocated");
+        b.Service.Setup(s => s.GetByIdAsync(
+                It.IsAny<Guid>(), detail.Header.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+
+        var view = (ViewResult)await b.Controller.Detail(detail.Header.Id, default);
+        var vm = Assert.IsType<DetailPageViewModel>(view.Model);
+
+        Assert.False(vm.QuickActions.First(a => a.Label == "Allocate").Enabled);
+        Assert.True(vm.QuickActions.First(a => a.Label == "Cancel").Enabled);
+    }
+
+    [Fact]
+    public async Task Detail_GetData_ReturnsExpandedCountsShape()
+    {
+        var b = BuildController();
+        b.Repo.Setup(r => r.GetPagedAsync(
+                It.IsAny<SalesOrderFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PagedResult<SalesOrderListRow>
+            {
+                Items = new(), Total = 0, Page = 1, PageSize = 20, TotalPages = 0,
+            });
+        b.Repo.Setup(r => r.GetStatusCountsAsync(
+                It.IsAny<SalesOrderFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SalesOrderStatusCounts(
+                All: 10, Draft: 1, Open: 2, Allocating: 3, Allocated: 3, Cancelled: 1));
+
+        var json = Assert.IsType<JsonResult>(await b.Controller.GetData());
+        var counts = json.Value!.GetType().GetProperty("counts")!.GetValue(json.Value)!;
+        Assert.Equal(3, counts.GetType().GetProperty("allocating")!.GetValue(counts));
+        Assert.Equal(3, counts.GetType().GetProperty("allocated")!.GetValue(counts));
+    }
+
+    [Fact]
+    public async Task Allocate_HappyFull_RedirectsWithFullMessage()
+    {
+        var b = BuildController();
+        var id = Guid.NewGuid();
+        b.AllocationService.Setup(s => s.AllocateAsync(
+                It.IsAny<Guid>(), id, null, b.CurrentUserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AllocationResult(
+                IsFullyAllocated: true,
+                LineCount: 3,
+                FullyAllocatedLineCount: 3,
+                ShortfallByLineId: new Dictionary<Guid, decimal>()));
+
+        var result = await b.Controller.Allocate(id, default);
+        Assert.IsType<RedirectToActionResult>(result);
+        Assert.Contains("Fully allocated", (string)b.Controller.TempData["SalesOrderMessage"]!);
+    }
+
+    [Fact]
+    public async Task Allocate_HappyPartial_RedirectsWithPartialMessage()
+    {
+        var b = BuildController();
+        var id = Guid.NewGuid();
+        b.AllocationService.Setup(s => s.AllocateAsync(
+                It.IsAny<Guid>(), id, null, b.CurrentUserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AllocationResult(
+                IsFullyAllocated: false,
+                LineCount: 5,
+                FullyAllocatedLineCount: 2,
+                ShortfallByLineId: new Dictionary<Guid, decimal>()));
+
+        var result = await b.Controller.Allocate(id, default);
+        Assert.IsType<RedirectToActionResult>(result);
+        var msg = (string)b.Controller.TempData["SalesOrderMessage"]!;
+        Assert.Contains("Partially", msg);
+        Assert.Contains("2 of 5", msg);
+    }
+
+    [Fact]
+    public async Task Allocate_ServiceThrows_SurfacesError()
+    {
+        var b = BuildController();
+        var id = Guid.NewGuid();
+        b.AllocationService.Setup(s => s.AllocateAsync(
+                It.IsAny<Guid>(), id, null, b.CurrentUserId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Wrong state"));
+
+        var result = await b.Controller.Allocate(id, default);
+        Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Wrong state", b.Controller.TempData["SalesOrderError"]);
     }
 }
