@@ -1,0 +1,357 @@
+@using WMS.DAL.Repositories.Master
+@model WMS.DAL.Repositories.Inbound.PurchaseOrderDetail
+@{
+    ViewData["Title"] = $"Receive {Model.Header.PoNumber}";
+    var productMeta = ViewBag.ProductMeta as IReadOnlyDictionary<Guid, ProductLineMeta>
+                      ?? new Dictionary<Guid, ProductLineMeta>();
+
+    var okMsg = ViewBag.ReceiveMessage as string;
+    var errMsg = ViewBag.ReceiveError as string;
+
+    // Build initial Alpine state — defaults Outstanding (Expected -
+    // ReceivedSoFar) per line so operator gets the "right amount" by
+    // default and adjusts only on variance.
+    var initialJson = System.Text.Json.JsonSerializer.Serialize(
+        Model.Lines.Select(l =>
+        {
+            var meta = productMeta.GetValueOrDefault(l.ProductId);
+            var outstanding = l.ExpectedQuantity - l.ReceivedQuantity;
+            return new
+            {
+                poLineId          = l.Id,
+                lineNumber        = l.LineNumber,
+                productCode       = meta?.Code ?? l.ProductId.ToString("N").Substring(0, 8),
+                productName       = meta?.Name ?? "(product not found)",
+                trackingMethod    = meta?.TrackingMethod ?? "None",
+                expectedQuantity  = l.ExpectedQuantity,
+                receivedSoFar     = l.ReceivedQuantity,
+                outstanding       = outstanding > 0m ? outstanding : 0m,
+                receivedQuantity  = outstanding > 0m ? outstanding : 0m,
+                locationCode      = "",
+                lotNumber         = "",
+                palletNumber      = "",
+            };
+        }));
+}
+
+<style>
+    .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+
+    .rcvt-page-pad { padding: 12px 14px 96px; }   /* 96px bottom for sticky bar */
+
+    .rcvt-banner {
+        padding: 8px 12px; border-radius: 8px;
+        font-size: 12px; margin-bottom: 10px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .rcvt-banner-ok  { background: #E1F5EE; color: #0F6E56; }
+    .rcvt-banner-err { background: #FCEBEB; color: #A32D2D; }
+
+    .rcvt-crumb {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 9px; color: #6b7280; margin-bottom: 8px;
+    }
+    .rcvt-back-btn {
+        width: 22px; height: 22px; border: 0.5px solid #e5e7eb;
+        background: #f3f4f6; border-radius: 6px;
+        display: inline-flex; align-items: center; justify-content: center;
+        text-decoration: none; color: #6b7280;
+    }
+    .rcvt-current {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-weight: 500; color: #534AB7;
+    }
+
+    .rcvt-vendor-bar {
+        background: #f9fafb; padding: 8px 12px;
+        border-radius: 8px; font-size: 11px; color: #6b7280;
+        margin-bottom: 12px;
+    }
+
+    .rcvt-card {
+        background: #ffffff; border: 0.5px solid #e5e7eb;
+        border-left: 3px solid #534AB7;
+        border-radius: 11px; padding: 12px 14px; margin-bottom: 10px;
+    }
+    .rcvt-line-no {
+        font-size: 9px; color: #9ca3af; text-transform: uppercase;
+    }
+    .rcvt-product-code {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 12px; font-weight: 500; color: #1f2937;
+        margin-top: 2px;
+    }
+    .rcvt-product-name {
+        font-size: 10px; color: #6b7280; margin-top: 1px;
+    }
+    .rcvt-stats-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+        margin-top: 10px;
+    }
+    .rcvt-stat-label {
+        font-size: 9px; color: #6b7280; text-transform: uppercase;
+    }
+    .rcvt-stat-value {
+        font-size: 22px; font-weight: 500; color: #6b7280;
+        font-variant-numeric: tabular-nums;
+    }
+    .rcvt-stat-value.is-input { color: #534AB7; }
+
+    .rcvt-input {
+        width: 100%; height: 40px;
+        padding: 4px 8px; font-size: 22px; font-weight: 500;
+        border: 0.5px solid #e5e7eb; border-radius: 7px;
+        color: #534AB7; background: #ffffff;
+        font-variant-numeric: tabular-nums;
+    }
+    .rcvt-input-text {
+        width: 100%; height: 36px;
+        padding: 4px 8px; font-size: 12px;
+        border: 0.5px solid #e5e7eb; border-radius: 7px;
+        background: #ffffff;
+    }
+
+    .rcvt-quick-row {
+        display: flex; gap: 6px; margin-top: 6px;
+    }
+    .rcvt-quick-btn {
+        flex: 1; height: 32px;
+        background: #ffffff; border: 0.5px solid #e5e7eb;
+        border-radius: 7px;
+        font-size: 11px; font-weight: 500; color: #1f2937;
+        cursor: pointer;
+    }
+    .rcvt-quick-btn:active { background: #f3f4f6; }
+
+    .rcvt-variance {
+        margin-top: 6px; font-size: 10px;
+        display: flex; align-items: center; gap: 4px;
+    }
+    .rcvt-variance.is-match { color: #0F6E56; }
+    .rcvt-variance.is-under { color: #854F0B; }
+    .rcvt-variance.is-over  { color: #A32D2D; }
+
+    .rcvt-collapsible {
+        margin-top: 10px; padding-top: 10px;
+        border-top: 0.5px dashed #e5e7eb;
+    }
+    .rcvt-field-label {
+        font-size: 10px; color: #6b7280; margin-bottom: 4px;
+    }
+    .rcvt-field { margin-bottom: 8px; }
+
+    .rcvt-serial-banner {
+        margin-top: 10px; padding: 8px 10px;
+        background: #FAEEDA; color: #854F0B;
+        border-radius: 6px; font-size: 10px;
+    }
+
+    .rcvt-sticky {
+        position: fixed; left: 0; right: 0; bottom: 0;
+        background: #ffffff; border-top: 0.5px solid #e5e7eb;
+        padding: 10px 14px;
+        box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
+    }
+    .rcvt-submit {
+        width: 100%; height: 46px;
+        background: #534AB7; color: #ffffff;
+        border: none; border-radius: 8px;
+        font-size: 14px; font-weight: 500; cursor: pointer;
+    }
+    .rcvt-submit:disabled {
+        background: #d1d5db; color: #9ca3af; cursor: not-allowed;
+    }
+    .rcvt-cancel {
+        width: 100%; height: 36px; margin-top: 6px;
+        background: #ffffff; color: #6b7280;
+        border: 0.5px solid #e5e7eb; border-radius: 7px;
+        font-size: 12px; cursor: pointer;
+    }
+</style>
+
+<div class="rcvt-page-pad" x-data="receiveTask({ initialLines: @Html.Raw(initialJson) })">
+    @if (!string.IsNullOrEmpty(okMsg))
+    {
+        <div class="rcvt-banner rcvt-banner-ok">
+            <i class="ti ti-check"></i> @okMsg
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(errMsg))
+    {
+        <div class="rcvt-banner rcvt-banner-err">
+            <i class="ti ti-alert-circle"></i> @errMsg
+        </div>
+    }
+
+    <div class="rcvt-crumb">
+        <a href="/receive" class="rcvt-back-btn"><i class="ti ti-arrow-left"></i></a>
+        <span>Receive</span>
+        <i class="ti ti-chevron-right"></i>
+        <span class="rcvt-current">@Model.Header.PoNumber</span>
+    </div>
+
+    <div class="rcvt-vendor-bar">
+        <strong>@Model.Header.Status</strong>
+        · @Model.Lines.Count line@(Model.Lines.Count == 1 ? "" : "s")
+        @if (Model.Header.ExpectedDate is { } d)
+        {
+            <span>· Expected @d.ToString("MMM dd")</span>
+        }
+    </div>
+
+    <form id="receive-form"
+          asp-controller="Receive" asp-action="Submit"
+          asp-route-poId="@Model.Header.Id" method="post">
+        @Html.AntiForgeryToken()
+
+        @for (var i = 0; i < Model.Lines.Count; i++)
+        {
+            var l = Model.Lines[i];
+            var meta = productMeta.GetValueOrDefault(l.ProductId);
+            var isSerial = meta?.TrackingMethod == "LotAndSerial";
+            <div class="rcvt-card">
+                <div class="rcvt-line-no">Line @l.LineNumber</div>
+                <div class="rcvt-product-code">@(meta?.Code ?? l.ProductId.ToString("N").Substring(0, 8))</div>
+                <div class="rcvt-product-name">@(meta?.Name ?? "(product not found)")</div>
+
+                @if (isSerial)
+                {
+                    <div class="rcvt-serial-banner">
+                        <i class="ti ti-list-numbers"></i>
+                        <strong>Serial-tracked product.</strong> Mobile entry coming in
+                        Phase 18.5 (TD-040). Use desktop Goods Receipt to record
+                        serials for this line.
+                    </div>
+                }
+
+                <input type="hidden" name="Lines[@i].PoLineId" value="@l.Id" />
+
+                <div class="rcvt-stats-grid">
+                    <div>
+                        <div class="rcvt-stat-label">Expected</div>
+                        <div class="rcvt-stat-value">@l.ExpectedQuantity.ToString("N2")</div>
+                        @if (l.ReceivedQuantity > 0m)
+                        {
+                            <div class="rcvt-stat-label" style="margin-top:2px;">
+                                Already received: @l.ReceivedQuantity.ToString("N2")
+                            </div>
+                        }
+                    </div>
+                    <div>
+                        <div class="rcvt-stat-label">Received</div>
+                        <input type="number" step="0.0001" min="0"
+                               class="rcvt-input"
+                               inputmode="decimal"
+                               name="Lines[@i].ReceivedQuantity"
+                               x-model.number="lines[@i].receivedQuantity"
+                               :disabled="lines[@i].trackingMethod === 'LotAndSerial'" />
+                    </div>
+                </div>
+
+                <div class="rcvt-quick-row" x-show="lines[@i].trackingMethod !== 'LotAndSerial'">
+                    <button type="button" class="rcvt-quick-btn" @@click="adjust(@i, -10)">−10</button>
+                    <button type="button" class="rcvt-quick-btn" @@click="adjust(@i, -1)">−1</button>
+                    <button type="button" class="rcvt-quick-btn" @@click="adjust(@i, 1)">+1</button>
+                    <button type="button" class="rcvt-quick-btn" @@click="adjust(@i, 10)">+10</button>
+                </div>
+
+                <div class="rcvt-variance"
+                     :class="varianceClass(@i)"
+                     x-show="varianceText(@i)"
+                     x-text="varianceText(@i)"></div>
+
+                <div class="rcvt-collapsible" x-show="lines[@i].trackingMethod !== 'LotAndSerial'">
+                    <div class="rcvt-field">
+                        <div class="rcvt-field-label">Location code <span style="color:#A32D2D;">*</span></div>
+                        <input type="text" class="rcvt-input-text"
+                               name="Lines[@i].LocationCode"
+                               x-model="lines[@i].locationCode"
+                               placeholder="e.g. WH-MAIN-A01" />
+                    </div>
+                    <div class="rcvt-field">
+                        <div class="rcvt-field-label">Lot number (optional)</div>
+                        <input type="text" class="rcvt-input-text"
+                               name="Lines[@i].LotNumber"
+                               x-model="lines[@i].lotNumber"
+                               placeholder="(if lot-tracked)" />
+                    </div>
+                    <div class="rcvt-field">
+                        <div class="rcvt-field-label">Pallet number (optional)</div>
+                        <input type="text" class="rcvt-input-text"
+                               name="Lines[@i].PalletNumber"
+                               x-model="lines[@i].palletNumber"
+                               placeholder="(if palletised)" />
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="rcvt-sticky">
+            <button type="submit" class="rcvt-submit"
+                    :disabled="!isValid()">
+                <i class="ti ti-check"></i> Submit receipt
+            </button>
+        </div>
+    </form>
+
+    @* Cancel — separate form so it doesn't collide with submit. *@
+    <form asp-controller="Receive" asp-action="Cancel"
+          asp-route-poId="@Model.Header.Id" method="post"
+          onsubmit="return confirmCancel(this);"
+          style="position:fixed;left:14px;right:14px;bottom:62px;">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="reason" value="" />
+        <button type="submit" class="rcvt-cancel">
+            <i class="ti ti-x"></i> Cancel
+        </button>
+    </form>
+</div>
+
+@section Scripts {
+    <script>
+        function receiveTask(opts) {
+            return {
+                lines: opts.initialLines || [],
+                adjust(idx, delta) {
+                    const line = this.lines[idx];
+                    const next = (line.receivedQuantity || 0) + delta;
+                    line.receivedQuantity = next < 0 ? 0 : next;
+                },
+                varianceText(idx) {
+                    const line = this.lines[idx];
+                    if (line.receivedQuantity == null) return '';
+                    if (line.outstanding === 0 && line.receivedQuantity === 0) return '';
+                    const diff = line.receivedQuantity - line.outstanding;
+                    if (diff === 0) return '✓ Matches outstanding';
+                    if (diff < 0) return `↓ ${Math.abs(diff)} under outstanding`;
+                    return `↑ ${diff} over outstanding`;
+                },
+                varianceClass(idx) {
+                    const line = this.lines[idx];
+                    if (line.receivedQuantity == null) return '';
+                    const diff = line.receivedQuantity - line.outstanding;
+                    if (diff === 0) return 'is-match';
+                    if (diff < 0) return 'is-under';
+                    return 'is-over';
+                },
+                isValid() {
+                    // At least one non-zero line with a non-blank
+                    // location. Serial-tracked lines blocked entirely
+                    // (operator must use desktop).
+                    return this.lines.some(l =>
+                        l.trackingMethod !== 'LotAndSerial'
+                        && l.receivedQuantity > 0
+                        && (l.locationCode || '').trim().length > 0);
+                },
+            };
+        }
+
+        function confirmCancel(form) {
+            const reason = window.prompt('Cancel reason (optional):', '');
+            if (reason === null) return false;     // operator cancelled the prompt
+            form.querySelector('input[name="reason"]').value = (reason || '').trim();
+            return true;
+        }
+    </script>
+}
