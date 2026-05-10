@@ -346,11 +346,103 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10-11 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 + 17 + 18 + 19 + 20 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` + `v2.2.0-mobile-pick` + `v2.3.0-pack-video` + `v2.4.0-mobile-receive` + `v2.5.0-mobile-pack` + `v2.6.0-mobile-putaway` · **Mobile suite expansion** (picker + receive + pack + putaway — 4 of 5 specs implemented)
-**Current Focus**: Phase 21+ candidates: Mobile Cycle Count + Mobile Locate (specs ready); Phase 19.5 serial-aware mobile (TD-040 + TD-042 + TD-043 — bundle when serial schema lands); ADR-004 putaway header (TD-004); carrier FK integration; manifest workflow; post-Submit reversal flows.
+**Active Sprint**: Day 10-11 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 + 17 + 18 + 19 + 20 + 21 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` + `v2.2.0-mobile-pick` + `v2.3.0-pack-video` + `v2.4.0-mobile-receive` + `v2.5.0-mobile-pack` + `v2.6.0-mobile-putaway` + `v2.7.0-mobile-count` · **Mobile suite expansion** (picker + receive + pack + putaway + cycle count — 5 of 5 mobile specs implemented; only Locate remains as Phase 22 — penultimate complete)
+**Current Focus**: Phase 22 Mobile Locate (last mobile-suite spec, read-only stock browser); Phase 19.5 serial-aware mobile (TD-040 + TD-042 + TD-043 — bundle when serial schema lands); ADR-004 putaway header (TD-004); per-location wizard for cycle count (TD-044); carrier FK integration; manifest workflow; post-Submit reversal flows.
 **Blockers**: none
 
 Update this section weekly during standups.
+
+### Day 11 — Phase 21 (Mobile Cycle Count PWA — Scenario A, all-lines-on-one-page UX)
+
+**Branch**: `feat/mobile-count-pwa` → merged to `main` · **Tag**: `v2.7.0-mobile-count` · **Spec**: `docs/mockups/mobile-specs/phase-21-mobile-cycle-count-spec.md` (Implementation Notes appended T3)
+
+Fifth mobile-suite expansion (5th mobile PWA after Phase 16 picker + Phase 18 receive + Phase 19 pack + Phase 20 putaway). Audit confirmed clean **Scenario A** — Phase 12 service surface is well-aligned with the spec (no field rename triggered this phase, 4th-instance memory check passed clean). Only Locate remains as Phase 22 to complete the mobile suite.
+
+Built in ~1.5h vs 4h spec estimate. Pure presentation-layer addition — zero new schema, zero new service code, zero new DAL.
+
+**Audit findings (resolved before T1)**:
+1. ✅ `ICycleCountService` exists with full surface — `CreateAsync`, `SaveCountedQuantitiesAsync`, `SubmitForReviewAsync`, `ApproveAndApplyAsync`, `CancelAsync`, `GetByIdAsync` (Phase 12 desktop equivalent).
+2. ✅ State machine: `Counting → Review → Applied | Cancelled` (4 states, matches spec).
+3. ✅ `CountLineUpdate(LineId, CountedQuantity, LineStatus, Notes)` record matches per-line save shape exactly.
+4. ✅ `CYC-YYYYMMDD-NNNN` number format matches spec; LineStatus enum `'Pending|Counted|Skipped'` matches spec.
+5. ✅ `ICycleCountRepository.GetPagedAsync(filter)` for queue + `GetLineRowsByIdAsync(id)` for the JOIN-resolved per-line projection (ProductCode + ProductName + LocationCode + UomCode + OwnerCode + LotNumber + PalletNumber all pre-resolved).
+6. ❌ No Phase 1 mobile cycle count surface — purely additive (no retirement).
+7. ❌ No `/count/` route exists today — clean room.
+8. **No spec rename triggered** — 4th-instance memory check passed clean. Phase 12 design closely matches the spec author's mental model.
+
+**One UX deviation from spec** (documented in appendix):
+Spec describes a per-location wizard ("Location 16 of 24" with `[Save & next location →]`). Built **all-lines-on-one-page** for mental-model consistency with Phase 18-20. Per-location wizard = TD-044 candidate. Reasoning: operator pre-walks the aisle physically + types quantities at the end, not card-by-card with the device.
+
+**Surfaces (4 actions on the new CountController)**:
+- `GET /count` — queue. Two paged calls (Counting + Review) merged into 2 sections. Page size 50 each. Counting on top (operator-actionable); Review below (read-only — desktop approves).
+- `GET /count/{sessionId}` — task page. Loads `CycleCountDetail` (header) + `GetLineRowsByIdAsync` (richer projection for per-card render). 404 on Applied/Cancelled (operator hits desktop /CycleCounts for terminals).
+- `POST /count/save/{id}` — bulk `SaveCountedQuantitiesAsync`; bounces back to task page (operator continues counting).
+- `POST /count/submit/{id}` — Save THEN `SubmitForReviewAsync` (Counting → Review). Bounces to queue. Skips the Save call when zero lines in payload (operator may submit an already-saved session).
+- `POST /count/cancel/{id}` — `window.prompt`-driven, controller-level 3-char min reason gate (mirror Phase 19+20).
+
+**UI**:
+- `Count/Index.cshtml` — pure CSS `.cn-*` token namespace, `.no-scrollbar`. Two sections:
+  - "Active sessions" (Counting border-left purple): progress bar `CountedLineCount/LineCount` + `%` + StartedByName
+  - "Pending approval (desktop)" (Review border-left amber): variance chip (red short / green match)
+  - Empty state: `ti-clipboard-check` + "No cycle count sessions. Start one from the desktop /CycleCounts page."
+- `Count/Task.cshtml` — single-page-all-lines. Single view handles BOTH Counting (editable form) and Review (read-only summary). Per-line cards (purple-accent border-left):
+  - **Location card** (top): map-pin icon + LocationCode (mono purple, 14px) + LineNumber + Lot/Pallet meta when applicable
+  - **Product row**: package icon + ProductCode (mono) + ProductName
+  - **Side-by-side qty grid**: Expected tile (gray, "From system") | Counted tile (white with thicker purple border for focus, inline number input + "Tap to edit")
+  - **Live variance indicator**: ✓ Match (green) / ↓ N short of expected (red) / ↑ N over expected (amber) / ⊘ Skipped (neutral)
+  - **Quick adjust row**: -1 / +1 / -10 / +10 (32px tap targets, disabled when Skipped)
+  - **Skip button** (toggle): "Skip this location" / "⊘ Skipped — tap to undo"
+  - Auto-flip status (Phase 12 desktop pattern reused): empty → Pending; type qty → Counted; clear → Pending; quick-adjust always sets Counted
+  - Review state: amber lock banner + 3-col stat tile grid (Match/Short/Over with pre-computed counts) + read-only Counted values
+- **Sticky-bottom (Counting only)**: Submit for review (purple primary, gated on `hasAnyCount()`) + Save progress (purple-outline secondary) + Cancel session button below sticky
+- **Form architecture**: TWO forms in DOM (count-form for Save, submit-form for Submit), each line's hidden inputs wired to BOTH via the `form="form-id"` attribute — operator clicks the right button, that form posts. Avoids JS form-mutation hacks.
+
+**Sidebar**: "Cycle Count (mobile)" entry under Counts module after "Cycle Counts" desktop. `countsActive` Or-chain widened to include "Count" route.
+
+**Manifest**: `/count/manifest.json` with `#534AB7` theme color (matches design system).
+
+**Tests** (+16 net):
+- Index: NoWarehouse redirect + Happy partitions Counting from Review (verifies the 2-paged-call shape + ViewBag.ReviewRows wiring)
+- Task: NotFound 404 + TerminalStatus Theory (Applied/Cancelled both → 404) + Counting returns view with line rows (verifies `GetLineRowsByIdAsync` integration) + Review also renders
+- Save: NoWarehouse redirect + Happy bounces back to task with "Saved N" message (verifies CountLineUpdate projection) + ServiceThrows redirects with error
+- Submit: Happy saves THEN submits + AlreadyReview idempotent + NoLines skips Save but still calls Submit
+- Cancel: BlankReason rejected (no service call) + Happy bounces to queue + AlreadyCancelled idempotent
+
+Submit happy path IS exercised end-to-end (CountController has zero inline service-locators — every dep is constructor-injected, lesson from Phase 18 TD-041 / Phase 20 applied).
+
+Test posture: **895 passing** (was 879 / +16). 288 unit + 602 integration + 5 skipped.
+
+**Out of scope** (logged):
+- **TD-044** — Per-location wizard with progress bar ("Location 16 of 24" + Save & next button per spec). All-lines-on-one-page is faster to operate when the operator has pre-walked the aisle.
+- **Apply variance via mobile** — mobile MVP is Counting + Submit only; desktop approves via `ApproveAndApplyAsync` (separation of duties: counter ≠ approver enforced at service layer).
+- **Re-count flow** — count line again with reason capture
+- **Photo capture per variance** — bundle with pack-video infrastructure (ADR-009)
+- **Multi-counter sessions** (collaborative counting on the same session)
+- **Always-focused barcode input**
+- **Service worker offline caching**
+- **PWA icons** (manifest `icons:[]` empty)
+- **Filter chips on queue** — spec mentions All/Counting/Review/Done chips; today the 2-section layout is sufficient (Counting + Review). Adding Done/Cancelled chips would require widening the Index ViewBag with extra paged calls — defer until operators ask.
+- **CountedAt-based "Started by + time ago"** — `StartedAt` rendered but no relative-time helper; minor
+
+**Spec compliance check**:
+- ✅ /count accessible from sidebar
+- ✅ Queue shows active + review sessions
+- ✅ Tap session → task page
+- ✅ Side-by-side qty visible (Expected | Counted)
+- ✅ Variance auto-flags with color (Match green / Short red / Over amber / Skip neutral)
+- ✅ Quick adjust works (-1 / +1 / -10 / +10)
+- ✅ Auto-flip status on qty entry (matches Phase 12 desktop)
+- ✅ Skip option works (toggle)
+- ✅ Review state shows stat tiles (3-col Match/Short/Over)
+- ✅ Notes captured per-line (textarea per-card; spec showed session-level notes too — operator can use the per-line Notes today)
+- ✅ Submit for review works (Counting → Review)
+- ✅ Hidden scrollbars throughout
+- ✅ PWA installable (manifest with #534AB7 theme)
+- ⚠️ Per-location wizard with progress bar → all-lines-on-one-page (TD-044)
+- ⚠️ Filter chips (All/Counting/Review/Done) → 2-section layout for now
+- ⚠️ Session-level notes on review page → per-line Notes only
+
+**Notes**: Audit completed in ~10 min — Phase 12's clean design + the 3 prior mobile phases' patterns meant zero unknowns. Memory `feedback_spec_rename_audit.md` informed the audit checklist; nothing triggered this phase. The TWO-forms-share-hidden-inputs trick (`form="form-id"` attribute) is a clean way to handle Save vs Submit without JS form mutation — worth remembering for Phase 22 if Locate's read-only nature still needs save-then-do paths.
 
 ### Day 10-11 — Phase 20 (Mobile Putaway PWA — Scenario A per spec audit, replaces Phase 1 form)
 
@@ -2068,5 +2160,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-11 (Day 10-11 — Phase 20 Mobile Putaway PWA; v2.6.0-mobile-putaway · Scenario A per spec audit · 3rd spec-rename instance → memory)
-**Version**: 1.34
+**Last updated**: 2026-05-11 (Day 11 — Phase 21 Mobile Cycle Count PWA; v2.7.0-mobile-count · Scenario A · 5 of 5 mobile specs implemented · only Phase 22 Locate remains)
+**Version**: 1.35
