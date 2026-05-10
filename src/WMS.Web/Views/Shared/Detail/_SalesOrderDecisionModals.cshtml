@@ -170,6 +170,34 @@
     </div>
 }
 
+@if (ViewBag.CanGenerateShipment is true)
+{
+    <div id="generate-ship-modal" class="wms-so-overlay">
+        <div class="wms-so-modal" role="dialog">
+            <h2 class="is-info">
+                <i class="ti ti-truck-delivery"></i> Generate shipment
+            </h2>
+            <p class="lead">
+                Creates a Pending shipment record. <strong>No SO state
+                change</strong> on generate — the SO stays
+                <strong>Packed</strong> while the shipment is in flight;
+                flips to <strong>Shipped</strong> only when the operator
+                fills in carrier + tracking and submits at
+                <em>/Shipments/Detail</em>. Idempotent on already-
+                Pending shipments (returns the existing one).
+            </p>
+            <form asp-controller="SalesOrders" asp-action="GenerateShipment"
+                  asp-route-id="@ViewBag.HeaderId" method="post">
+                @Html.AntiForgeryToken()
+                <div class="wms-so-actions">
+                    <a href="#" class="wms-so-btn">Cancel</a>
+                    <button type="submit" class="wms-so-btn is-info">Confirm generate</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
 @if (ViewBag.CanCancel is true)
 {
     <div id="cancel-modal" class="wms-so-overlay">
