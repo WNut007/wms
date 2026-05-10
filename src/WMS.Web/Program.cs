@@ -3,6 +3,7 @@ using Hangfire;
 using Hangfire.SqlServer;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
 using Serilog;
 using WMS.Web.Infrastructure;
 using WMS.Web.Services.Outbound;
@@ -157,6 +158,15 @@ builder.Services.AddScoped<IShipmentService, ShipmentService>();
 builder.Services.AddScoped<IPackVideoRepositoryFactory, PackVideoRepositoryFactory>();
 builder.Services.AddScoped<IPackVideoService, PackVideoService>();
 
+// Phase 17 — pack-video retention. Binds RetentionDays + CronSchedule
+// from "PackVideoRetention" section. Job registered as Scoped so
+// Hangfire's per-execution scope provides fresh repo factories.
+// Recurring schedule registered post-build (see RecurringJob.AddOr-
+// Update call below).
+builder.Services.Configure<PackVideoRetentionOptions>(
+    builder.Configuration.GetSection(PackVideoRetentionOptions.SectionName));
+builder.Services.AddScoped<PackVideoRetentionCleanupJob>();
+
 // PermissionService — Scoped to match the (Scoped) factory dep. The
 // cache itself lives on IMemoryCache (Singleton), so per-request
 // instances cost nothing and survive the captive-dependency check.
@@ -266,6 +276,19 @@ app.MapHangfireDashboard("/hangfire", new Hangfire.DashboardOptions
     DashboardTitle = "WMS Jobs",
     StatsPollingInterval = 5000,
 });
+
+// Phase 17 (ADR-009) — register the daily pack-video retention
+// cleanup. AddOrUpdate is idempotent across restarts (uses the
+// stable JobId from PackVideoRetentionOptions). Cron resolved from
+// config; default is "0 3 * * *" (03:00 UTC daily).
+{
+    var retentionOptions = app.Services.GetRequiredService<IOptions<PackVideoRetentionOptions>>().Value;
+    RecurringJob.AddOrUpdate<PackVideoRetentionCleanupJob>(
+        retentionOptions.JobId,
+        job => job.ExecuteAsync(CancellationToken.None),
+        retentionOptions.CronSchedule,
+        new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+}
 
 app.MapControllerRoute(
     name: "default",
