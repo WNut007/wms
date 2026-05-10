@@ -63,8 +63,14 @@ public class PackTasksControllerTests
                 It.IsAny<CancelPackTaskViewModel>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ValidationResult());
 
+        // Phase 17 added IPackVideoService dep (Upload/Get/Delete
+        // video endpoints). Default-mocked internally per the
+        // feedback_test_build_helper_pattern convention.
+        var videoService = new Mock<WMS.Web.Services.Outbound.IPackVideoService>();
+
         var ctrl = new PackTasksController(
             packFactory.Object, soFactory.Object, boxTypeFactory.Object, service.Object,
+            videoService.Object,
             tenant.Object, currentUser.Object, cancelValidator.Object);
 
         var tempDataProvider = new Mock<ITempDataProvider>();

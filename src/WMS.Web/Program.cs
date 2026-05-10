@@ -1,7 +1,12 @@
 using FluentValidation;
+using Hangfire;
+using Hangfire.SqlServer;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
 using Serilog;
+using WMS.Web.Infrastructure;
+using WMS.Web.Services.Outbound;
 using WMS.BLL.Services.Auth;
 using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
@@ -149,6 +154,19 @@ builder.Services.AddScoped<IPackTaskService, PackTaskService>();
 builder.Services.AddScoped<IShipmentRepositoryFactory, ShipmentRepositoryFactory>();
 builder.Services.AddScoped<IShipmentService, ShipmentService>();
 
+// Phase 17 (ADR-009) — Pack video.
+builder.Services.AddScoped<IPackVideoRepositoryFactory, PackVideoRepositoryFactory>();
+builder.Services.AddScoped<IPackVideoService, PackVideoService>();
+
+// Phase 17 — pack-video retention. Binds RetentionDays + CronSchedule
+// from "PackVideoRetention" section. Job registered as Scoped so
+// Hangfire's per-execution scope provides fresh repo factories.
+// Recurring schedule registered post-build (see RecurringJob.AddOr-
+// Update call below).
+builder.Services.Configure<PackVideoRetentionOptions>(
+    builder.Configuration.GetSection(PackVideoRetentionOptions.SectionName));
+builder.Services.AddScoped<PackVideoRetentionCleanupJob>();
+
 // PermissionService — Scoped to match the (Scoped) factory dep. The
 // cache itself lives on IMemoryCache (Singleton), so per-request
 // instances cost nothing and survive the captive-dependency check.
@@ -204,6 +222,33 @@ builder.Services.AddScoped<IAuthService>(sp => new AuthService(
     sp.GetRequiredService<ILogger<AuthService>>(),
     bcryptCostFactor: builder.Environment.IsDevelopment() ? 4 : 12));
 
+// Phase 17 — Hangfire on the MasterDb (system DB; single dashboard,
+// single job queue across the deployment — NOT per-tenant). Schema
+// auto-prepared on first run via PrepareSchemaIfNecessary=true.
+// Fire-and-forget jobs work immediately; recurring jobs registered
+// after build (see PackVideoRetentionCleanupJob).
+var hangfireConn = builder.Configuration.GetConnectionString("MasterDb")
+    ?? throw new InvalidOperationException("MasterDb connection string is required for Hangfire.");
+builder.Services.AddHangfire(cfg => cfg
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+    .UseSimpleAssemblyNameTypeSerializer()
+    .UseRecommendedSerializerSettings()
+    .UseSqlServerStorage(hangfireConn, new SqlServerStorageOptions
+    {
+        CommandBatchMaxTimeout = TimeSpan.FromMinutes(5),
+        SlidingInvisibilityTimeout = TimeSpan.FromMinutes(5),
+        QueuePollInterval = TimeSpan.Zero,
+        UseRecommendedIsolationLevel = true,
+        DisableGlobalLocks = true,
+        PrepareSchemaIfNecessary = true,
+        SchemaName = "HangFire",
+    }));
+builder.Services.AddHangfireServer(opts =>
+{
+    opts.WorkerCount = Math.Min(4, Environment.ProcessorCount);
+    opts.ServerName = $"{Environment.MachineName}:wms-web";
+});
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
@@ -222,6 +267,28 @@ app.UseTenantValidation();
 app.UseAuthorization();
 
 app.MapGet("/health", () => "Healthy");
+
+// Phase 17 — Hangfire dashboard. Auth filter requires
+// IsAuthenticated (MVP — tightening to ADMIN role check is a TD).
+app.MapHangfireDashboard("/hangfire", new Hangfire.DashboardOptions
+{
+    Authorization = new[] { new HangfireDashboardAuthFilter() },
+    DashboardTitle = "WMS Jobs",
+    StatsPollingInterval = 5000,
+});
+
+// Phase 17 (ADR-009) — register the daily pack-video retention
+// cleanup. AddOrUpdate is idempotent across restarts (uses the
+// stable JobId from PackVideoRetentionOptions). Cron resolved from
+// config; default is "0 3 * * *" (03:00 UTC daily).
+{
+    var retentionOptions = app.Services.GetRequiredService<IOptions<PackVideoRetentionOptions>>().Value;
+    RecurringJob.AddOrUpdate<PackVideoRetentionCleanupJob>(
+        retentionOptions.JobId,
+        job => job.ExecuteAsync(CancellationToken.None),
+        retentionOptions.CronSchedule,
+        new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+}
 
 app.MapControllerRoute(
     name: "default",

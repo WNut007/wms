@@ -15,15 +15,20 @@ public sealed class DocumentStorageOptions
     public LocalOptions Local { get; set; } = new();
 
     // Hard cap on a single upload, enforced before the file is written
-    // to disk. 25 MB matches the dropzone copy in _DocumentsPanel.
-    public int MaxFileSizeMB { get; set; } = 25;
+    // to disk. Phase 17 raised from 25 → 50 MB so a 60-second 720p
+    // WebM pack-video (~30 MB typical) fits. _DocumentsPanel dropzone
+    // copy still says 25 MB — pack videos go through their own upload
+    // path, not the generic doc dropzone.
+    public int MaxFileSizeMB { get; set; } = 50;
 
     // Lower-cased extensions including the leading dot. Whitelisted to keep
     // executables out — "everything else" is an expensive default.
+    // Phase 17 added .webm + .mp4 for pack-video uploads.
     public string[] AllowedExtensions { get; set; } = new[]
     {
         ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".txt",
         ".png", ".jpg", ".jpeg", ".webp", ".gif",
+        ".webm", ".mp4",
     };
 
     public sealed class LocalOptions
