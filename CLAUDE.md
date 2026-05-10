@@ -346,11 +346,96 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` + `v2.2.0-mobile-pick` · **Mobile picker PWA shipped** (single-page-per-task; same `IPickTaskService.SubmitAsync` entry as desktop)
-**Current Focus**: Phase 17+ post-MVP candidates: pack video (ADR-009 spec); carrier FK integration; manifest workflow; post-Submit reversal flows; 4-tier scan flow + SignalR + offline service worker for the mobile picker.
-**Blockers**: none — no new schema in 16 (mobile reuses Phase 14C entities + service)
+**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 + 17 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` + `v2.2.0-mobile-pick` + `v2.3.0-pack-video` · **Hangfire foundation shipped + Pack video MVP** (record + store + auto-cleanup at 10 days)
+**Current Focus**: Phase 18+ candidates: carrier FK integration; manifest workflow; post-Submit reversal flows; 4-tier scan flow + SignalR + offline service worker for the mobile picker; pack video next-iteration (Safari support, PDPA access log, per-station/channel policy).
+**Blockers**: none — Hangfire schema auto-prepared on first run via PrepareSchemaIfNecessary=true
 
 Update this section weekly during standups.
+
+### Day 10 — Phase 17 (Hangfire + Pack Video MVP — ADR-009)
+
+**Branch**: `feat/pack-video` → merged to `main` · **Tag**: `v2.3.0-pack-video` · **Closes**: deferred items from v2.0.0 outbound-mvp callout (pack video + automatic retention) · **Publishes**: ADR-009 Pack Video
+
+Two components shipped together because retention closes the privacy/storage gap that pack video would otherwise leave open.
+
+---
+
+**PART A — Hangfire infrastructure** (foundation; reusable for future jobs)
+
+- `Hangfire.AspNetCore` + `Hangfire.SqlServer` 1.8.14
+- Storage: **WMS_Master DB** (system DB; per-deployment, single dashboard, single job queue — NOT per-tenant). Schema name `HangFire`, auto-prepared on first run via `PrepareSchemaIfNecessary=true`.
+- Server: `WorkerCount = min(4, ProcessorCount)` (sized for dev; production override expected). `ServerName = "{MachineName}:wms-web"` so multi-instance deployments don't collide. 5-min `CommandBatchMaxTimeout` + `SlidingInvisibilityTimeout`. `DisableGlobalLocks=true` per SQL Server recommendations.
+- Dashboard at `/hangfire` — gated by `HangfireDashboardAuthFilter` (custom `IDashboardAuthorizationFilter`). MVP requires `IsAuthenticated` only; tightening to ADMIN role check via `IPermissionService` is a TD logged in the file.
+- Foundation enables: pack-video retention (Phase 17), email notifications, stock-aging cleanup, scheduled reports, SO auto-allocation, cycle-count scheduling — all future TDs.
+
+---
+
+**PART B — Pack Video MVP** (record + store + playback + auto-cleanup)
+
+**ADR-009** drafted in `docs/decisions/ADR-009_Pack_Video.md`. Covers: recording trigger (operator click), upload coupling (separate POST endpoint), browser format (WebM/VP9), storage path (reuse `IDocumentStorageService`), permissions (`OUTBOUND.ORDERS`), retention (10-day auto), microphone (muted by default — privacy), 11-item TD-039 family for deferred sub-features. Explicit alternatives section rejecting coupled-to-submit, continuous recording, server-side transcoding, audio capture, per-station policy enforcement.
+
+**Schema** (1 migration):
+- `20260510_032` — `outbound.PackVideos`. PackTaskId FK CASCADE; DocumentFileId FK NO ACTION → `documents.Files` (the actual blob; retention job deletes documents.Files first then PackVideos, so the FK never blocks). DurationSec int (captured client-side from MediaRecorder). RecordedAt + RecordedBy audit pair. 2 indexes (per-task playback lookup + retention-job WHERE filter). `CK_PackVideos_DurationSec_NonNegative`. No Version (recordings appended, never edited; matches PackTaskLines/Cartons convention).
+
+**Storage options widening**:
+- `MaxFileSizeMB`: 25 → 50 (covers a 60-second 720p WebM ~30 MB typical)
+- `AllowedExtensions`: + `.webm` + `.mp4` (mp4 future-proofing for server-transcoding TD)
+- `appsettings.json` mirrored
+
+**Service** (`IPackVideoService` in `WMS.Web.Services.Outbound` — lives in Web because dependency is `IDocumentStorageService` which is also Web-layer):
+- `UploadAsync(tenantId, packTaskId, content, fileName, contentType, durationSec, currentUserId)` — validates pack task is `Packed` (Pending → no carton sealed yet, video meaningless; Cancelled → won't ship). Storage write FIRST via `IDocumentStorageService.UploadAsync` (entityType=`PackTask`, category=`PackVideo`). Metadata INSERT after. **No TX** — if metadata insert fails, the orphan blob is collected by the retention job within 10 days.
+- `GetStreamAsync` — lookup metadata → resolve DocumentFileId → storage stream. Returns null when either side is missing (handles rare race where retention ran between the two reads).
+- `DeleteAsync` — storage delete first, then metadata. Mirrors retention pattern; storage failure leaves metadata for re-attempt rather than orphan blobs.
+- `GetLatestForPackTaskAsync` — UI surface for the "Watch video" link.
+
+**Controller** (3 endpoints added to `PackTasksController`):
+- `POST /PackTasks/UploadVideo/{id}` — `IFormFile` + `durationSec` form field. `RequestSizeLimit(60 * 1024 * 1024)` attribute (storage validates 50MB; extra 10MB allows HTTP framing). Returns JSON `{videoId}` on success — client updates UI without full reload. `StorageValidationException` → 400 with friendly message; `InvalidOperationException` → 400 (state errors).
+- `GET /PackTasks/Video/{videoId}` — playback. `File()` result with `enableRangeProcessing=true` so the framework handles simple Range requests over the FileStream (proper streaming TD).
+- `DELETE /PackTasks/Video/{videoId}` — admin/debug. NoContent on success, NotFound when missing.
+
+**UI** (`_PackTaskVideoPanel.cshtml`):
+- New custom tab "Video" on `Detail` (status-conditional — only shown on Packed tasks; tab count badge shows 1 if a video exists, 0 if not).
+- Browser MediaRecorder integration: 1280x720 prefer, **audio:false** per ADR-009 (privacy + bandwidth). Prefers VP9 codec, falls back to whatever browser offers.
+- Live `<video>` preview while recording. Elapsed-second counter; "past 60s soft cap" warning past the limit (no hard stop).
+- Stop button finalizes recording, builds Blob, posts via fetch+FormData. On success: full page reload (in-place insert is a TD).
+- Anti-forgery token via dedicated hidden form rendered by the panel itself (deterministic — no DOM scraping).
+- Safari handling: detects `MediaRecorder` absence + shows `wms-banner-warning` "Chromium browser required, Safari support is a TD".
+- Camera permission denied → in-panel error message instead of a console-only failure.
+- If a video already exists: HTML5 `<video>` player streaming from `/PackTasks/Video/{id}` above the recorder controls (operator can review + record a new take).
+
+**Retention job** (`PackVideoRetentionCleanupJob`):
+- `[DisableConcurrentExecution(timeoutInSeconds: 600)]` + `[AutomaticRetry(Attempts = 2)]`.
+- Iterates active tenants from `master.Tenants` (raw Dapper — no purpose-built ITenantsRepository today; if a 2nd job needs it, refactor to a shared interface).
+- Per-tenant: `IPackVideoRepository.GetOlderThanAsync(cutoff)` → per-video: `TryDelete` on-disk bytes → `IDocumentRepository.DeleteAsync` → `IPackVideoRepository.DeleteAsync`. Per-video failures logged + skipped (next run idempotently retries; already-deleted rows just disappear from the next GetOlderThanAsync result).
+- **Why direct on-disk delete instead of `LocalFileStorageService.DeleteAsync`**: the storage service depends on `ITenantContext` (HTTP-scoped). Job has no HTTP request → would need a mutable `JobTenantContext` + scope-per-iteration. Replicating the path-resolve + delete pattern inline is 5 lines, no DI gymnastics. Documented in the file's header.
+- `RecurringJob.AddOrUpdate` registered post-build. Cron `"0 3 * * *"` (03:00 UTC daily, configurable via `appsettings.json` `PackVideoRetention` section). UTC timezone explicit. Stable JobId (`pack-video-retention-cleanup`) so AddOrUpdate replaces rather than duplicates across restarts.
+
+**Tests** (+9 net cases — all video-endpoint):
+- `UploadVideo`: NoFile / EmptyFile → 400 guards · Happy → JSON `{videoId}` · `StorageValidationException` → 400 with message · `TaskNotPacked` (service throws InvalidOp) → 400 with message
+- `Video` (GET): NotFound → 404 · Happy → `FileStreamResult` with content-type + `EnableRangeProcessing=true`
+- `DeleteVideo`: NotFound → 404 · Happy → 204 NoContent
+
+Test posture: **838 passing** (was 829 / +9). 288 unit + 545 integration + 5 skipped.
+
+**Out of scope** (logged as TD-039 in ADR-009):
+- Pack video — Safari support via server-side transcoding
+- Pack video — PDPA access audit log (`documents.VideoAccessLog` per access)
+- Pack video — per-station policy (honor `PackStations.VideoEnabled`, needs admin UI)
+- Pack video — per-channel policy (B2C requires, B2B opt-in; needs SO-channel link first)
+- Pack video — per-tenant retention override
+- Pack video — admin role check on `/hangfire` dashboard
+- Pack video — range-request streaming for `GET /PackTasks/Video/{id}` (`enableRangeProcessing=true` is a partial answer)
+- Pack video — thumbnail extraction (preview frame on the carton tile)
+- Pack video — continuous recording mode
+- Pack video — mobile pack PWA with video
+- Pack video — finer perm split (`OUTBOUND.VIDEO` read/write)
+
+**Notes**:
+- Caught a layering issue mid-T4: initially put `IPackVideoService` in `WMS.BLL.Services.Outbound` but it depends on `IDocumentStorageService` which lives in `WMS.Web.Services.Storage`. BLL → Web is the wrong direction. Moved the service to `WMS.Web.Services.Outbound`. Pragmatic choice — the proper fix is moving the storage abstraction down to BLL/Common, but that's a separate refactor. Documented in commit `12c1873`.
+- `RecurringJob.AddOrUpdate` requires the job-id `string` parameter to be stable across restarts (otherwise you get duplicates). Pulled from `PackVideoRetentionOptions.JobId` so it's constant + visible in config.
+- 1 new TD added to the operational-followups list: monitor disk usage on the storage root before going to prod — even with retention, peak usage between recording and cleanup can be substantial (10 days × N tasks/day × ~30 MB).
+
+### Day 10 — Phase 16 (Mobile Picker PWA — single-page-per-task MVP)
 
 ### Day 10 — Phase 16 (Mobile Picker PWA — single-page-per-task MVP)
 
@@ -1683,7 +1768,7 @@ Change them only via a new ADR.
 - ADR-006: Activity-based billing
 - ADR-007: Owner concept for VMI/3PL
 - ADR-008: 3-step login flow — cookie auth, smart-skip, pre-auth tokens, BCrypt cost split, tenant validation middleware
-- ADR-009: Pack video (browser MediaRecorder)
+- ADR-009: Pack video — browser MediaRecorder (WebM/VP9), separate-POST upload, mic muted by default, 10-day Hangfire-driven retention, OUTBOUND.ORDERS perm, Safari/PDPA-log/per-station-policy deferred
 - ADR-010: Function-CRUD permission matrix — 5 action flags, MAX-aggregate across roles, IMemoryCache 15-min sliding, [RequirePermission] filter
 - ADR-011: 3D Warehouse Monitor — schema in Phase 1, implementation deferred to Phase 4 (post-launch)
 - ADR-012: Inter-warehouse Transfer — 9-state workflow, header+lines, status history, owner-aware
@@ -1758,5 +1843,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-10 (Day 10 — Phase 16 mobile picker PWA; v2.2.0-mobile-pick)
-**Version**: 1.30
+**Last updated**: 2026-05-10 (Day 10 — Phase 17 Hangfire + Pack Video MVP; v2.3.0-pack-video · ADR-009 published)
+**Version**: 1.31
