@@ -278,4 +278,75 @@ public class ShipmentsControllerTests
         Assert.Contains("already cancelled",
             b.Controller.TempData["ShipmentMessage"]?.ToString() ?? "");
     }
+
+    // ================================================================
+    // Index + GetData (Phase 15A list page)
+    // ================================================================
+
+    [Fact]
+    public void Index_ReturnsView()
+    {
+        var b = BuildController();
+        var result = b.Controller.Index();
+        Assert.IsType<ViewResult>(result);
+    }
+
+    [Fact]
+    public async Task GetData_Happy_ReturnsItemsAndCounts()
+    {
+        var b = BuildController();
+        var rowId = Guid.NewGuid();
+        b.ShipmentRepo.Setup(r => r.GetPagedAsync(
+                It.IsAny<ShipmentFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new WMS.DAL.Common.PagedResult<ShipmentListRow>
+            {
+                Items = new List<ShipmentListRow>
+                {
+                    new(rowId, "SHP-001", Guid.NewGuid(), "SO-001",
+                        "CUST-A", "Cust A", "Pending",
+                        CarrierName: "Flash Express",
+                        TrackingNumber: "TRK-XYZ",
+                        CartonCount: 1,
+                        GeneratedAt: DateTime.UtcNow,
+                        GeneratedByName: "Maya",
+                        ShippedAt: null,
+                        CancelledAt: null),
+                },
+                Total = 1, Page = 1, PageSize = 20, TotalPages = 1,
+            });
+        b.ShipmentRepo.Setup(r => r.GetStatusCountsAsync(
+                It.IsAny<ShipmentFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ShipmentStatusCounts(
+                All: 3, Pending: 1, Shipped: 1, Cancelled: 1));
+
+        var result = Assert.IsType<JsonResult>(await b.Controller.GetData());
+        var envelope = result.Value!;
+        Assert.Equal(1, envelope.GetType().GetProperty("total")!.GetValue(envelope));
+
+        var counts = envelope.GetType().GetProperty("counts")!.GetValue(envelope)!;
+        Assert.Equal(3, counts.GetType().GetProperty("all")!.GetValue(counts));
+        Assert.Equal(1, counts.GetType().GetProperty("shipped")!.GetValue(counts));
+    }
+
+    [Fact]
+    public async Task GetData_StatusFilter_MappedToDb()
+    {
+        var b = BuildController();
+        b.ShipmentRepo.Setup(r => r.GetPagedAsync(
+                It.IsAny<ShipmentFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new WMS.DAL.Common.PagedResult<ShipmentListRow>
+            {
+                Items = new(), Total = 0, Page = 1, PageSize = 20, TotalPages = 0,
+            });
+        b.ShipmentRepo.Setup(r => r.GetStatusCountsAsync(
+                It.IsAny<ShipmentFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ShipmentStatusCounts(0, 0, 0, 0));
+
+        await b.Controller.GetData(status: "shipped");
+
+        b.ShipmentRepo.Verify(r => r.GetPagedAsync(
+            It.Is<ShipmentFilter>(f => f.Status == "Shipped"),
+            It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
 }
