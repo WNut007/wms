@@ -34,4 +34,37 @@ internal sealed class CartonRepository : ICartonRepository
               WHERE CartonNumber LIKE @prefix + '%';",
             new { prefix = datePrefix },
             cancellationToken: ct));
+
+    public Task<int> StampShipmentForSalesOrderAsync(
+        Guid salesOrderId,
+        Guid shipmentId,
+        Guid? userId,
+        CancellationToken ct = default) =>
+        _connection.ExecuteAsync(new CommandDefinition(
+            @"UPDATE c
+              SET c.ShipmentId = @ShipmentId,
+                  c.UpdatedAt  = SYSUTCDATETIME(),
+                  c.UpdatedBy  = @UserId
+              FROM outbound.Cartons c
+              JOIN outbound.PackTasks pt ON pt.Id = c.PackTaskId
+              WHERE pt.SalesOrderId = @SalesOrderId
+                AND c.ShipmentId IS NULL;",
+            new { SalesOrderId = salesOrderId, ShipmentId = shipmentId, UserId = userId },
+            cancellationToken: ct));
+
+    public async Task<IReadOnlyList<Carton>> GetByShipmentIdAsync(
+        Guid shipmentId, CancellationToken ct = default)
+    {
+        const string sql = @"
+SELECT
+    Id, CartonNumber, PackTaskId, BoxTypeId, WeightKg, ShipmentId, Notes,
+    CreatedAt, UpdatedAt, CreatedBy, UpdatedBy
+FROM outbound.Cartons
+WHERE ShipmentId = @shipmentId
+ORDER BY CartonNumber;";
+
+        var rows = await _connection.QueryAsync<Carton>(new CommandDefinition(
+            sql, new { shipmentId }, cancellationToken: ct));
+        return rows.AsList();
+    }
 }

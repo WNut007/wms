@@ -36,14 +36,16 @@
                   ?? (TempData["TransferMessage"]   as string)
                   ?? (TempData["SalesOrderMessage"] as string)
                   ?? (TempData["PickTaskMessage"]   as string)
-                  ?? (TempData["PackTaskMessage"]   as string);
+                  ?? (TempData["PackTaskMessage"]   as string)
+                  ?? (TempData["ShipmentMessage"]   as string);
         var errMsg = (TempData["CancelError"]       as string)
                   ?? (TempData["AdjustmentError"]   as string)
                   ?? (TempData["CycleCountError"]   as string)
                   ?? (TempData["TransferError"]     as string)
                   ?? (TempData["SalesOrderError"]   as string)
                   ?? (TempData["PickTaskError"]     as string)
-                  ?? (TempData["PackTaskError"]     as string);
+                  ?? (TempData["PackTaskError"]     as string)
+                  ?? (TempData["ShipmentError"]     as string);
     }
     @if (!string.IsNullOrEmpty(okMsg))
     {
@@ -286,6 +288,13 @@
     @if (ViewBag.HeaderId is Guid && Model.EntityType == "PackTask")
     {
         @await Html.PartialAsync("Detail/_PackTaskDecisionModals")
+    }
+    @* Phase 14E — Cancel modal for Shipment Detail. Submit lives
+       inline in the Dispatch panel (needs the carrier + tracking +
+       notes inputs in scope). *@
+    @if (ViewBag.HeaderId is Guid && Model.EntityType == "Shipment")
+    {
+        @await Html.PartialAsync("Detail/_ShipmentDecisionModals")
     }
 </div>
 

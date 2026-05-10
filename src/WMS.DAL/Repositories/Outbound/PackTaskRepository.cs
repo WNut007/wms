@@ -31,7 +31,7 @@ internal sealed class PackTaskRepository : IPackTaskRepository
         FROM outbound.PackTaskLines";
 
     private const string CartonColumns = @"
-        Id, CartonNumber, PackTaskId, BoxTypeId, WeightKg, Notes,
+        Id, CartonNumber, PackTaskId, BoxTypeId, WeightKg, ShipmentId, Notes,
         CreatedAt, UpdatedAt, CreatedBy, UpdatedBy
         FROM outbound.Cartons";
 

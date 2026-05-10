@@ -1,0 +1,96 @@
+@model WMS.Web.ViewModels.Detail.DetailPageViewModel
+@{
+    var shipment = (WMS.Domain.Entities.Outbound.Shipment)ViewBag.Shipment;
+    var cartons = ViewBag.Cartons as IReadOnlyList<WMS.Domain.Entities.Outbound.Carton>
+                  ?? new List<WMS.Domain.Entities.Outbound.Carton>();
+    var headerId = (Guid)ViewBag.HeaderId;
+    var canSubmit = ViewBag.CanSubmit is true;
+}
+
+<section class="wmsd-section">
+    <p class="wmsd-section-eyebrow">— Dispatch</p>
+    <h2>@(canSubmit ? "Dispatch entry" : "Dispatch record")</h2>
+
+    @if (canSubmit)
+    {
+        <p style="font-size:12px;color:var(--wms-text-secondary);margin-bottom:12px;">
+            Fill in carrier + tracking number (both optional) and submit to dispatch. Submit stamps the SO's cartons with this Shipment ID and flips the SO to <strong>Shipped</strong>.
+        </p>
+
+        <form asp-controller="Shipments" asp-action="Submit"
+              asp-route-id="@headerId" method="post">
+            @Html.AntiForgeryToken()
+
+            <div style="display:grid;grid-template-columns:1fr 2fr;gap:14px;align-items:start;margin-bottom:16px;">
+                <label style="display:flex;flex-direction:column;gap:4px;">
+                    <span style="font-size:12px;font-weight:500;color:#374151;">Carrier (free-text)</span>
+                    <input type="text" class="wms-input"
+                           name="CarrierName" maxlength="50"
+                           placeholder="e.g. Flash Express" />
+                    <span style="font-size:11px;color:var(--wms-text-tertiary);">
+                        Optional. FK lookup to master.Carriers deferred to a future TD.
+                    </span>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;">
+                    <span style="font-size:12px;font-weight:500;color:#374151;">Tracking number</span>
+                    <input type="text" class="wms-input"
+                           name="TrackingNumber" maxlength="100"
+                           placeholder="(optional — operator may not have it yet)" />
+                </label>
+            </div>
+
+            <label style="display:flex;flex-direction:column;gap:4px;margin-bottom:16px;">
+                <span style="font-size:12px;font-weight:500;color:#374151;">Notes</span>
+                <textarea class="wms-input" name="Notes"
+                          rows="2" maxlength="1000"
+                          placeholder="(optional)"></textarea>
+            </label>
+
+            <div style="display:flex;justify-content:flex-end;padding:14px 0 4px;">
+                <button type="submit" class="wms-btn wms-btn-purple">
+                    <i class="ti ti-truck-delivery" style="margin-right:6px;"></i>
+                    Submit dispatch
+                </button>
+            </div>
+        </form>
+    }
+
+    @* Cartons claimed by this shipment — empty pre-Submit, populated post-Submit *@
+    <h3 style="margin:16px 0 8px;font-size:14px;font-weight:500;color:#374151;">Cartons</h3>
+    @if (cartons.Count == 0)
+    {
+        <p style="text-align:center;padding:24px;color:var(--wms-text-tertiary);font-size:12px;">
+            @(canSubmit
+                ? "Cartons will be stamped when you submit dispatch."
+                : "No cartons attached to this shipment.")
+        </p>
+    }
+    else
+    {
+        <div style="overflow-x:auto;">
+            <table class="wms-table" style="width:100%;">
+                <thead>
+                    <tr>
+                        <th>Carton #</th>
+                        <th style="width:140px;text-align:right;">Weight</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in cartons)
+                    {
+                        <tr>
+                            <td><span class="mono">@c.CartonNumber</span></td>
+                            <td style="text-align:right;">
+                                @(c.WeightKg.HasValue ? $"{c.WeightKg.Value:N3} kg" : "—")
+                            </td>
+                            <td style="font-size:11px;color:var(--wms-text-secondary);">
+                                @(c.Notes ?? "—")
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>

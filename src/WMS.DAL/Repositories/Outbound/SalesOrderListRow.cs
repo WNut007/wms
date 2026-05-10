@@ -43,7 +43,8 @@ public sealed record SalesOrderFilter(
 //
 // Phase 14B added Allocating + Allocated counts.
 // Phase 14C added Picking + Picked + PartiallyPicked counts.
-// Phase 14D added Packed count. Order matches the workflow chronology
+// Phase 14D added Packed count.
+// Phase 14E added Shipped count. Order matches the workflow chronology
 // so the chip strip renders left-to-right in pipeline order.
 public sealed record SalesOrderStatusCounts(
     int All,
@@ -55,6 +56,7 @@ public sealed record SalesOrderStatusCounts(
     int Picked,
     int PartiallyPicked,
     int Packed,
+    int Shipped,
     int Cancelled);
 
 // Phase 14A — read-projection for the Detail Lines tab. Resolved
