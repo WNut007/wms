@@ -658,4 +658,50 @@ public class SalesOrdersControllerTests
         Assert.Equal(soId, redirect.RouteValues!["id"]);
         Assert.Equal("no positively-picked lines", b.Controller.TempData["SalesOrderError"]);
     }
+
+    // ================================================================
+    // GenerateShipment (Phase 14E)
+    // ================================================================
+
+    [Fact]
+    public async Task GenerateShipment_Happy_RedirectsToShipmentDetail_WithTempDataMessage()
+    {
+        var b = BuildController();
+        var soId = Guid.NewGuid();
+        var newShipmentId = Guid.NewGuid();
+        b.ShipmentService.Setup(s => s.GenerateAsync(
+                TenantId, soId, b.CurrentUserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ShipmentGenerationResult(
+                ShipmentId: newShipmentId,
+                ShipmentNumber: "SHP-20260510-0001"));
+
+        var result = await b.Controller.GenerateShipment(soId, default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Detail", redirect.ActionName);
+        Assert.Equal("Shipments", redirect.ControllerName);
+        Assert.Equal(newShipmentId, redirect.RouteValues!["id"]);
+
+        var msg = b.Controller.TempData["ShipmentMessage"] as string;
+        Assert.NotNull(msg);
+        Assert.Contains("SHP-20260510-0001", msg);
+    }
+
+    [Fact]
+    public async Task GenerateShipment_ServiceThrows_RedirectsToSoDetail_WithError()
+    {
+        var b = BuildController();
+        var soId = Guid.NewGuid();
+        b.ShipmentService.Setup(s => s.GenerateAsync(
+                It.IsAny<Guid>(), soId, It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("SO not in Packed state"));
+
+        var result = await b.Controller.GenerateShipment(soId, default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Detail", redirect.ActionName);
+        Assert.Null(redirect.ControllerName);
+        Assert.Equal(soId, redirect.RouteValues!["id"]);
+        Assert.Equal("SO not in Packed state", b.Controller.TempData["SalesOrderError"]);
+    }
 }
