@@ -134,6 +134,10 @@
                class="wms-sidebar-item @(IsActive("PickTasks") ? "active" : "")">
                 <span class="wms-sidebar-item-text">Pick Tasks</span>
             </a>
+            <a href="@Url.Action("Index", "PackTasks")"
+               class="wms-sidebar-item @(IsActive("PackTasks") ? "active" : "")">
+                <span class="wms-sidebar-item-text">Pack Tasks</span>
+            </a>
         </div>
     }
     else

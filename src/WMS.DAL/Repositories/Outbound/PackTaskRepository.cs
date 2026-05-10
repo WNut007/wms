@@ -2,6 +2,7 @@ using System.Data;
 using System.Transactions;
 using Dapper;
 using Microsoft.Data.SqlClient;
+using WMS.DAL.Common;
 using WMS.Domain.Entities.Outbound;
 
 namespace WMS.DAL.Repositories.Outbound;
@@ -237,4 +238,89 @@ WHERE Id = @Id AND Status = 'Pending';";
               WHERE PackNumber LIKE @prefix + '%';",
             new { prefix = datePrefix },
             cancellationToken: ct));
+
+    public async Task<PagedResult<PackTaskListRow>> GetPagedAsync(
+        PackTaskFilter f, CancellationToken ct = default)
+    {
+        var orderBy = PackTaskSortMapper.ToOrderByClause(f.SortBy, f.SortDesc);
+        var skip = (f.Page - 1) * f.PageSize;
+        var take = f.PageSize;
+        var searchLike = string.IsNullOrWhiteSpace(f.Search) ? null : $"%{f.Search.Trim()}%";
+
+        const string whereClause = @"
+WHERE (@Status     IS NULL OR pt.Status = @Status)
+  AND (@SearchLike IS NULL OR pt.PackNumber LIKE @SearchLike OR so.SoNumber LIKE @SearchLike)";
+
+        var sql = $@"
+WITH agg AS (
+    SELECT PackTaskId, COUNT(*) AS LineCount
+    FROM outbound.PackTaskLines
+    GROUP BY PackTaskId
+)
+SELECT
+    pt.Id, pt.PackNumber,
+    pt.SalesOrderId, so.SoNumber,
+    c.Code AS CustomerCode, c.Name AS CustomerName,
+    pt.Status,
+    ISNULL(agg.LineCount, 0) AS LineCount,
+    pt.GeneratedAt,
+    COALESCE(u.FullName, u.Email, 'System') AS GeneratedByName,
+    pt.PackedAt,
+    pt.CancelledAt
+FROM outbound.PackTasks pt
+JOIN outbound.SalesOrders so ON so.Id = pt.SalesOrderId
+JOIN master.Customers     c  ON c.Id  = so.CustomerId
+LEFT JOIN security.Users  u  ON u.Id  = pt.GeneratedBy
+LEFT JOIN agg ON agg.PackTaskId = pt.Id
+{whereClause}
+ORDER BY {orderBy}
+OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY;
+
+SELECT COUNT(*)
+FROM outbound.PackTasks pt
+JOIN outbound.SalesOrders so ON so.Id = pt.SalesOrderId
+{whereClause};";
+
+        var args = new
+        {
+            f.Status,
+            SearchLike = searchLike,
+            Skip = skip,
+            Take = take,
+        };
+
+        using var multi = await _connection.QueryMultipleAsync(new CommandDefinition(
+            sql, args, cancellationToken: ct));
+
+        var items = (await multi.ReadAsync<PackTaskListRow>()).AsList();
+        var total = await multi.ReadSingleAsync<int>();
+
+        return new PagedResult<PackTaskListRow>
+        {
+            Items = items,
+            Total = total,
+            Page = f.Page,
+            PageSize = f.PageSize,
+            TotalPages = (int)Math.Ceiling(total / (double)f.PageSize),
+        };
+    }
+
+    public async Task<PackTaskStatusCounts> GetStatusCountsAsync(
+        PackTaskFilter f, CancellationToken ct = default)
+    {
+        var searchLike = string.IsNullOrWhiteSpace(f.Search) ? null : $"%{f.Search.Trim()}%";
+
+        const string sql = @"
+SELECT
+    COUNT(*)                                                   AS [All],
+    SUM(CASE WHEN pt.Status = 'Pending'   THEN 1 ELSE 0 END)  AS Pending,
+    SUM(CASE WHEN pt.Status = 'Packed'    THEN 1 ELSE 0 END)  AS Packed,
+    SUM(CASE WHEN pt.Status = 'Cancelled' THEN 1 ELSE 0 END)  AS Cancelled
+FROM outbound.PackTasks pt
+JOIN outbound.SalesOrders so ON so.Id = pt.SalesOrderId
+WHERE (@SearchLike IS NULL OR pt.PackNumber LIKE @SearchLike OR so.SoNumber LIKE @SearchLike);";
+
+        return await _connection.QuerySingleAsync<PackTaskStatusCounts>(
+            new CommandDefinition(sql, new { SearchLike = searchLike }, cancellationToken: ct));
+    }
 }

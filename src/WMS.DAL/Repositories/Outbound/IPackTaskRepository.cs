@@ -1,3 +1,4 @@
+using WMS.DAL.Common;
 using WMS.Domain.Entities.Outbound;
 
 namespace WMS.DAL.Repositories.Outbound;
@@ -63,6 +64,14 @@ public interface IPackTaskRepository
     // PACK-YYYYMMDD-NNNN — count of tasks with PackNumber LIKE prefix.
     Task<int> CountForDatePrefixAsync(
         string datePrefix, CancellationToken ct = default);
+
+    // ----- Phase 15A — list-page reads -----
+
+    Task<PagedResult<PackTaskListRow>> GetPagedAsync(
+        PackTaskFilter filter, CancellationToken ct = default);
+
+    Task<PackTaskStatusCounts> GetStatusCountsAsync(
+        PackTaskFilter filter, CancellationToken ct = default);
 }
 
 public interface IPackTaskRepositoryFactory
