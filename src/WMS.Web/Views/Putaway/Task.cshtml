@@ -1,0 +1,319 @@
+@model WMS.DAL.Repositories.Inventory.PutawayQueueRow
+@{
+    ViewData["Title"] = $"Putaway {Model.ProductCode}";
+    var suggestion = ViewBag.Suggestion as WMS.DAL.Repositories.Inventory.SuggestedLocationResult;
+
+    var okMsg = ViewBag.PutawayMessage as string;
+    var errMsg = ViewBag.PutawayError as string;
+}
+
+<style>
+    .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+
+    .pwt-page-pad { padding: 12px 14px 110px; }   /* 110px sticky bottom */
+
+    .pwt-banner {
+        padding: 8px 12px; border-radius: 8px;
+        font-size: 12px; margin-bottom: 10px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .pwt-banner-ok  { background: #E1F5EE; color: #0F6E56; }
+    .pwt-banner-err { background: #FCEBEB; color: #A32D2D; }
+
+    .pwt-crumb {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 9px; color: #6b7280; margin-bottom: 8px;
+    }
+    .pwt-back-btn {
+        width: 22px; height: 22px; border: 0.5px solid #e5e7eb;
+        background: #f3f4f6; border-radius: 6px;
+        display: inline-flex; align-items: center; justify-content: center;
+        text-decoration: none; color: #6b7280;
+    }
+    .pwt-current {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-weight: 500; color: #534AB7;
+    }
+
+    /* Item card (purple-accent border-left) */
+    .pwt-item-card {
+        background: #ffffff; border: 0.5px solid #e5e7eb;
+        border-left: 3px solid #534AB7;
+        border-radius: 11px; padding: 12px 14px; margin-bottom: 12px;
+    }
+    .pwt-item-icon-row {
+        display: flex; align-items: center; gap: 10px;
+        margin-bottom: 8px;
+    }
+    .pwt-item-icon {
+        width: 36px; height: 36px; border-radius: 8px;
+        background: #EEEDFE; color: #534AB7;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 18px;
+    }
+    .pwt-product-code {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 14px; font-weight: 500; color: #1f2937;
+    }
+    .pwt-product-name { font-size: 11px; color: #6b7280; margin-top: 2px; }
+    .pwt-meta-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    .pwt-meta-label {
+        font-size: 9px; color: #9ca3af; text-transform: uppercase;
+    }
+    .pwt-meta-value {
+        font-size: 13px; font-weight: 500; color: #1f2937;
+        font-variant-numeric: tabular-nums;
+    }
+    .pwt-meta-value.mono {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+    }
+
+    /* Suggested location hero (green-accent) */
+    .pwt-suggest {
+        background: #E1F5EE;
+        border: 0.5px solid #1D9E75; border-left: 3px solid #1D9E75;
+        border-radius: 12px; padding: 12px 14px; margin-bottom: 12px;
+    }
+    .pwt-suggest-label {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 10px; font-weight: 500; color: #0F6E56;
+        text-transform: uppercase;
+        margin-bottom: 6px;
+    }
+    .pwt-suggest-loc {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 22px; font-weight: 500; color: #534AB7;
+    }
+    .pwt-suggest-zone {
+        font-size: 10px; color: #6b7280; margin-top: 2px;
+    }
+    .pwt-reasons {
+        margin-top: 10px; padding-top: 10px;
+        border-top: 0.5px dashed rgba(15, 110, 86, 0.25);
+    }
+    .pwt-reasons-title {
+        font-size: 9px; color: #0F6E56; text-transform: uppercase;
+        margin-bottom: 4px;
+    }
+    .pwt-reasons ul { list-style: none; padding: 0; margin: 0; }
+    .pwt-reasons li {
+        font-size: 11px; color: #1f2937; padding: 1px 0;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .pwt-reasons li::before {
+        content: '✓'; color: #1D9E75; font-weight: 600;
+    }
+
+    .pwt-no-suggest {
+        background: #FAEEDA;
+        border: 0.5px solid #EF9F27; border-left: 3px solid #EF9F27;
+        border-radius: 11px; padding: 11px 13px; margin-bottom: 12px;
+        font-size: 11px; color: #854F0B;
+    }
+
+    /* Override scan section */
+    .pwt-override-label {
+        font-size: 10px; color: #6b7280;
+        margin-top: 8px; margin-bottom: 4px;
+    }
+    .pwt-input-text {
+        width: 100%; height: 40px;
+        padding: 4px 12px; font-size: 14px;
+        border: 1.5px dashed #534AB7; border-radius: 8px;
+        background: #ffffff; color: #1f2937;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+    }
+    .pwt-input-text:focus {
+        outline: none; border-style: solid; background: #FAFAFE;
+    }
+    .pwt-qty-input {
+        width: 100%; height: 40px;
+        padding: 4px 8px; font-size: 22px; font-weight: 500;
+        border: 0.5px solid #e5e7eb; border-radius: 7px;
+        color: #534AB7; background: #ffffff;
+        font-variant-numeric: tabular-nums;
+    }
+    .pwt-field { margin-bottom: 8px; }
+    .pwt-field-label {
+        font-size: 10px; color: #6b7280; margin-bottom: 4px;
+    }
+
+    /* Sticky bottom action */
+    .pwt-sticky {
+        position: fixed; left: 0; right: 0; bottom: 0;
+        background: #ffffff; border-top: 0.5px solid #e5e7eb;
+        padding: 10px 14px;
+        box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
+    }
+    .pwt-submit {
+        width: 100%; height: 46px;
+        background: #534AB7; color: #ffffff;
+        border: none; border-radius: 8px;
+        font-size: 14px; font-weight: 500; cursor: pointer;
+    }
+    .pwt-submit:disabled {
+        background: #d1d5db; color: #9ca3af; cursor: not-allowed;
+    }
+    .pwt-back-link {
+        width: 100%; height: 36px; margin-top: 6px;
+        background: #ffffff; color: #6b7280;
+        border: 0.5px solid #e5e7eb; border-radius: 7px;
+        font-size: 12px; cursor: pointer; text-align: center;
+        line-height: 36px; text-decoration: none; display: block;
+    }
+</style>
+
+<div class="pwt-page-pad" x-data="putawayTask({ defaultQty: @Model.QuantityOnHand, suggestedCode: @System.Text.Json.JsonSerializer.Serialize(suggestion?.LocationCode ?? "") })">
+    @if (!string.IsNullOrEmpty(okMsg))
+    {
+        <div class="pwt-banner pwt-banner-ok">
+            <i class="ti ti-check"></i> @okMsg
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(errMsg))
+    {
+        <div class="pwt-banner pwt-banner-err">
+            <i class="ti ti-alert-circle"></i> @errMsg
+        </div>
+    }
+
+    <div class="pwt-crumb">
+        <a href="/putaway" class="pwt-back-btn"><i class="ti ti-arrow-left"></i></a>
+        <span>Putaway</span>
+        <i class="ti ti-chevron-right"></i>
+        <span class="pwt-current">@Model.ProductCode</span>
+    </div>
+
+    @* === Item card === *@
+    <div class="pwt-item-card">
+        <div class="pwt-item-icon-row">
+            <div class="pwt-item-icon"><i class="ti ti-package"></i></div>
+            <div>
+                <div class="pwt-product-code">@Model.ProductCode</div>
+                <div class="pwt-product-name">@Model.ProductName</div>
+            </div>
+        </div>
+        <div class="pwt-meta-grid">
+            <div>
+                <div class="pwt-meta-label">From</div>
+                <div class="pwt-meta-value mono">@Model.LocationCode</div>
+            </div>
+            <div>
+                <div class="pwt-meta-label">Qty available</div>
+                <div class="pwt-meta-value">@Model.QuantityOnHand.ToString("N2") @Model.UomCode</div>
+            </div>
+            @if (!string.IsNullOrEmpty(Model.LotNumber))
+            {
+                <div>
+                    <div class="pwt-meta-label">Lot</div>
+                    <div class="pwt-meta-value mono">@Model.LotNumber</div>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(Model.PalletNumber))
+            {
+                <div>
+                    <div class="pwt-meta-label">Pallet</div>
+                    <div class="pwt-meta-value mono">@Model.PalletNumber</div>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* === Suggested location hero === *@
+    @if (suggestion is not null)
+    {
+        <div class="pwt-suggest">
+            <div class="pwt-suggest-label">
+                <i class="ti ti-circle-check-filled"></i> Suggested location
+            </div>
+            <div class="pwt-suggest-loc">@suggestion.LocationCode</div>
+            <div class="pwt-suggest-zone">@suggestion.ZoneCode · @suggestion.ZoneName@(suggestion.BinRank.HasValue ? $" · BinRank {suggestion.BinRank.Value}" : "")</div>
+
+            <div class="pwt-reasons">
+                <div class="pwt-reasons-title">Why this location</div>
+                <ul>
+                    @foreach (var reason in suggestion.Reasons)
+                    {
+                        <li>@reason</li>
+                    }
+                </ul>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="pwt-no-suggest">
+            <i class="ti ti-alert-triangle"></i>
+            <strong>No suggestion available.</strong>
+            Scan a target bin below to put away.
+        </div>
+    }
+
+    @* === Submit form === *@
+    <form id="putaway-form"
+          asp-controller="Putaway" asp-action="Submit"
+          asp-route-stockId="@Model.StockId" method="post">
+        @Html.AntiForgeryToken()
+
+        <div class="pwt-field">
+            <div class="pwt-field-label">
+                Or scan a different bin (overrides suggestion)
+            </div>
+            <input type="text"
+                   class="pwt-input-text"
+                   name="ToLocationCode"
+                   x-model="overrideCode"
+                   placeholder="@(suggestion?.LocationCode ?? "Scan or type location code")"
+                   autocomplete="off" />
+        </div>
+
+        <div class="pwt-field">
+            <div class="pwt-field-label">Quantity (max @Model.QuantityOnHand.ToString("N2"))</div>
+            <input type="number" step="0.0001" min="0.0001"
+                   max="@Model.QuantityOnHand"
+                   class="pwt-qty-input"
+                   inputmode="decimal"
+                   name="Quantity"
+                   x-model.number="quantity" />
+        </div>
+
+        <div class="pwt-sticky">
+            <button type="submit" class="pwt-submit"
+                    :disabled="!isValid()">
+                <i class="ti ti-check"></i> <span x-text="submitLabel()"></span>
+            </button>
+        </div>
+    </form>
+
+    <a href="/putaway" class="pwt-back-link"
+       style="position:fixed;left:14px;right:14px;bottom:62px;">
+        <i class="ti ti-arrow-left"></i> Back to queue
+    </a>
+</div>
+
+@section Scripts {
+    <script>
+        function putawayTask(opts) {
+            return {
+                quantity: opts.defaultQty,
+                overrideCode: '',
+                suggestedCode: opts.suggestedCode || '',
+                isValid() {
+                    if (!(this.quantity > 0)) return false;
+                    // Either we have an override code OR a suggestion
+                    // exists. Otherwise the controller will reject with
+                    // "No suggested storage location" — gate client-side.
+                    return (this.overrideCode || '').trim().length > 0
+                        || (this.suggestedCode || '').length > 0;
+                },
+                submitLabel() {
+                    const dest = (this.overrideCode || '').trim() || this.suggestedCode;
+                    return dest ? `Confirm putaway → ${dest}` : 'Confirm putaway';
+                },
+            };
+        }
+    </script>
+}
