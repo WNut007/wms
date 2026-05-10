@@ -1,0 +1,143 @@
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Shipments";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Shipments</p>
+        <div class="wms-breadcrumb">
+            <span>Operations</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span>Outbound</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Shipments</span>
+        </div>
+    </div>
+</div>
+
+<div class="wms-card" style="padding: 0;" x-data="shipmentList()">
+    <div class="wms-filter-bar">
+        <div class="wms-filter-search">
+            <i class="ti ti-search wms-filter-search-icon" aria-hidden="true"></i>
+            <input type="text" class="wms-input"
+                   placeholder="Search by SHP # / SO # / tracking #..."
+                   x-model.debounce.250ms="search"
+                   @@input="reload()" />
+        </div>
+
+        <div class="wmsp-chips" style="margin-left: 8px;">
+            <template x-for="s in statuses" :key="s.value">
+                <button type="button"
+                        class="wmsp-chip"
+                        :class="{ 'is-active': status === s.value }"
+                        @@click="status = s.value; reload()">
+                    <span x-text="s.label"></span>
+                    <span class="wmsp-chip-count" x-text="counts[s.value] ?? 0"></span>
+                </button>
+            </template>
+        </div>
+
+        <span style="margin-left: auto; font-size: 11px; color: var(--wms-text-secondary);" x-text="totalLabel()"></span>
+    </div>
+
+    <div style="overflow-x: auto;">
+        <table class="wms-table" style="width: 100%;">
+            <thead>
+                <tr>
+                    <th>Shipment #</th>
+                    <th>Sales order</th>
+                    <th>Customer</th>
+                    <th>Status</th>
+                    <th>Carrier</th>
+                    <th>Tracking</th>
+                    <th style="text-align: right;">Cartons</th>
+                    <th>Generated</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="row in rows" :key="row.id">
+                    <tr style="cursor: pointer;" @@click="navigate(row.id)">
+                        <td><span class="mono" x-text="row.shipmentNumber"></span></td>
+                        <td><span class="mono" x-text="row.soNumber"></span></td>
+                        <td>
+                            <span class="mono" style="font-weight:500;" x-text="row.customerCode"></span>
+                            <span style="font-size: 11px; color: var(--wms-text-secondary); display: block;" x-text="row.customerName"></span>
+                        </td>
+                        <td>
+                            <span class="wmsd-badge" :class="badgeClass(row.status)" x-text="row.statusLabel"></span>
+                        </td>
+                        <td x-text="row.carrierName || '—'"></td>
+                        <td><span class="mono" x-text="row.trackingNumber || '—'"></span></td>
+                        <td style="text-align: right;" x-text="row.cartonCount"></td>
+                        <td x-text="row.generatedRelative"></td>
+                    </tr>
+                </template>
+                <tr x-show="!rows.length && !loading">
+                    <td colspan="8" style="padding: 36px; text-align: center; color: var(--wms-text-tertiary);">
+                        No shipments match the current filters.
+                    </td>
+                </tr>
+                <tr x-show="loading">
+                    <td colspan="8" style="padding: 24px; text-align: center; color: var(--wms-text-secondary);">
+                        Loading...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-top: 0.5px solid var(--wms-border); font-size: 12px;">
+        <span x-text="`Page ${page} of ${totalPages || 1}`"></span>
+        <div style="display: flex; gap: 6px;">
+            <button type="button" class="wms-btn" :disabled="page <= 1" @@click="page--; reload()">← Prev</button>
+            <button type="button" class="wms-btn" :disabled="page >= totalPages" @@click="page++; reload()">Next →</button>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function shipmentList() {
+            return {
+                rows: [], total: 0, totalPages: 1, page: 1, pageSize: 20,
+                search: '', status: 'all', loading: false,
+                counts: { all: 0, pending: 0, shipped: 0, cancelled: 0 },
+                statuses: [
+                    { value: 'all',       label: 'All' },
+                    { value: 'pending',   label: 'Pending' },
+                    { value: 'shipped',   label: 'Shipped' },
+                    { value: 'cancelled', label: 'Cancelled' },
+                ],
+                async init() { await this.reload(); },
+                async reload() {
+                    this.loading = true;
+                    const url = new URL('/Shipments/Data', window.location.origin);
+                    url.searchParams.set('page', this.page);
+                    url.searchParams.set('pageSize', this.pageSize);
+                    if (this.search.trim()) url.searchParams.set('search', this.search.trim());
+                    if (this.status !== 'all') url.searchParams.set('status', this.status);
+                    try {
+                        const r = await fetch(url);
+                        const data = await r.json();
+                        this.rows = data.items;
+                        this.total = data.total;
+                        this.totalPages = data.totalPages;
+                        if (data.counts) this.counts = data.counts;
+                    } finally { this.loading = false; }
+                },
+                navigate(id) { window.location.href = `/Shipments/Detail/${id}`; },
+                totalLabel() {
+                    return this.total === 1 ? '1 shipment' : `${this.total} shipments`;
+                },
+                badgeClass(status) {
+                    return {
+                        'pending':   's-neutral',
+                        'shipped':   's-success',
+                        'cancelled': 's-neutral',
+                    }[status] || 's-neutral';
+                },
+            };
+        }
+    </script>
+}

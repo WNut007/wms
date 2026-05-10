@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using WMS.DAL.Common;
 using WMS.Domain.Entities.Outbound;
 
 namespace WMS.DAL.Repositories.Outbound;
@@ -129,4 +130,101 @@ WHERE Id = @Id AND Status = 'Pending';";
               WHERE ShipmentNumber LIKE @prefix + '%';",
             new { prefix = datePrefix },
             cancellationToken: ct));
+
+    public async Task<PagedResult<ShipmentListRow>> GetPagedAsync(
+        ShipmentFilter f, CancellationToken ct = default)
+    {
+        var orderBy = ShipmentSortMapper.ToOrderByClause(f.SortBy, f.SortDesc);
+        var skip = (f.Page - 1) * f.PageSize;
+        var take = f.PageSize;
+        var searchLike = string.IsNullOrWhiteSpace(f.Search) ? null : $"%{f.Search.Trim()}%";
+
+        // Search matches ShipmentNumber, SoNumber, AND TrackingNumber —
+        // operators look up shipments by any of these (e.g. customer
+        // calls with a tracking number, ops needs to find the SO).
+        const string whereClause = @"
+WHERE (@Status     IS NULL OR s.Status = @Status)
+  AND (@SearchLike IS NULL
+       OR s.ShipmentNumber LIKE @SearchLike
+       OR so.SoNumber      LIKE @SearchLike
+       OR s.TrackingNumber LIKE @SearchLike)";
+
+        var sql = $@"
+WITH agg AS (
+    SELECT ShipmentId, COUNT(*) AS CartonCount
+    FROM outbound.Cartons
+    WHERE ShipmentId IS NOT NULL
+    GROUP BY ShipmentId
+)
+SELECT
+    s.Id, s.ShipmentNumber,
+    s.SalesOrderId, so.SoNumber,
+    c.Code AS CustomerCode, c.Name AS CustomerName,
+    s.Status,
+    s.CarrierName,
+    s.TrackingNumber,
+    ISNULL(agg.CartonCount, 0) AS CartonCount,
+    s.GeneratedAt,
+    COALESCE(u.FullName, u.Email, 'System') AS GeneratedByName,
+    s.ShippedAt,
+    s.CancelledAt
+FROM outbound.Shipments s
+JOIN outbound.SalesOrders so ON so.Id = s.SalesOrderId
+JOIN master.Customers     c  ON c.Id  = so.CustomerId
+LEFT JOIN security.Users  u  ON u.Id  = s.GeneratedBy
+LEFT JOIN agg ON agg.ShipmentId = s.Id
+{whereClause}
+ORDER BY {orderBy}
+OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY;
+
+SELECT COUNT(*)
+FROM outbound.Shipments s
+JOIN outbound.SalesOrders so ON so.Id = s.SalesOrderId
+{whereClause};";
+
+        var args = new
+        {
+            f.Status,
+            SearchLike = searchLike,
+            Skip = skip,
+            Take = take,
+        };
+
+        using var multi = await _connection.QueryMultipleAsync(new CommandDefinition(
+            sql, args, cancellationToken: ct));
+
+        var items = (await multi.ReadAsync<ShipmentListRow>()).AsList();
+        var total = await multi.ReadSingleAsync<int>();
+
+        return new PagedResult<ShipmentListRow>
+        {
+            Items = items,
+            Total = total,
+            Page = f.Page,
+            PageSize = f.PageSize,
+            TotalPages = (int)Math.Ceiling(total / (double)f.PageSize),
+        };
+    }
+
+    public async Task<ShipmentStatusCounts> GetStatusCountsAsync(
+        ShipmentFilter f, CancellationToken ct = default)
+    {
+        var searchLike = string.IsNullOrWhiteSpace(f.Search) ? null : $"%{f.Search.Trim()}%";
+
+        const string sql = @"
+SELECT
+    COUNT(*)                                                  AS [All],
+    SUM(CASE WHEN s.Status = 'Pending'   THEN 1 ELSE 0 END)  AS Pending,
+    SUM(CASE WHEN s.Status = 'Shipped'   THEN 1 ELSE 0 END)  AS Shipped,
+    SUM(CASE WHEN s.Status = 'Cancelled' THEN 1 ELSE 0 END)  AS Cancelled
+FROM outbound.Shipments s
+JOIN outbound.SalesOrders so ON so.Id = s.SalesOrderId
+WHERE (@SearchLike IS NULL
+       OR s.ShipmentNumber LIKE @SearchLike
+       OR so.SoNumber      LIKE @SearchLike
+       OR s.TrackingNumber LIKE @SearchLike);";
+
+        return await _connection.QuerySingleAsync<ShipmentStatusCounts>(
+            new CommandDefinition(sql, new { SearchLike = searchLike }, cancellationToken: ct));
+    }
 }

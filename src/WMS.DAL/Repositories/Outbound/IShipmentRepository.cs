@@ -1,3 +1,4 @@
+using WMS.DAL.Common;
 using WMS.Domain.Entities.Outbound;
 
 namespace WMS.DAL.Repositories.Outbound;
@@ -45,6 +46,14 @@ public interface IShipmentRepository
     // prefix.
     Task<int> CountForDatePrefixAsync(
         string datePrefix, CancellationToken ct = default);
+
+    // ----- Phase 15A — list-page reads -----
+
+    Task<PagedResult<ShipmentListRow>> GetPagedAsync(
+        ShipmentFilter filter, CancellationToken ct = default);
+
+    Task<ShipmentStatusCounts> GetStatusCountsAsync(
+        ShipmentFilter filter, CancellationToken ct = default);
 }
 
 public interface IShipmentRepositoryFactory
