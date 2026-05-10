@@ -139,6 +139,12 @@ builder.Services.AddScoped<IAllocationStrategyResolver, AllocationStrategyResolv
 builder.Services.AddScoped<IPickTaskRepositoryFactory, PickTaskRepositoryFactory>();
 builder.Services.AddScoped<IPickTaskService, PickTaskService>();
 
+// Phase 14D — Pack task workflow. Service registration arrives in T4;
+// T3 wires the repo factories + the BoxType lookup for the box dropdown.
+builder.Services.AddScoped<IPackTaskRepositoryFactory, PackTaskRepositoryFactory>();
+builder.Services.AddScoped<ICartonRepositoryFactory, CartonRepositoryFactory>();
+builder.Services.AddScoped<IBoxTypeRepositoryFactory, BoxTypeRepositoryFactory>();
+
 // PermissionService — Scoped to match the (Scoped) factory dep. The
 // cache itself lives on IMemoryCache (Singleton), so per-request
 // instances cost nothing and survive the captive-dependency check.

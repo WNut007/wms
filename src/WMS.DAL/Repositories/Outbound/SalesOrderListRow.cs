@@ -42,9 +42,9 @@ public sealed record SalesOrderFilter(
 // inactive chips still display their totals.
 //
 // Phase 14B added Allocating + Allocated counts.
-// Phase 14C added Picking + Picked + PartiallyPicked counts. Order
-// matches the workflow chronology so the chip strip renders left-
-// to-right in pipeline order.
+// Phase 14C added Picking + Picked + PartiallyPicked counts.
+// Phase 14D added Packed count. Order matches the workflow chronology
+// so the chip strip renders left-to-right in pipeline order.
 public sealed record SalesOrderStatusCounts(
     int All,
     int Draft,
@@ -54,6 +54,7 @@ public sealed record SalesOrderStatusCounts(
     int Picking,
     int Picked,
     int PartiallyPicked,
+    int Packed,
     int Cancelled);
 
 // Phase 14A — read-projection for the Detail Lines tab. Resolved
