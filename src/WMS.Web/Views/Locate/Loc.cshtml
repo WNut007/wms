@@ -1,0 +1,248 @@
+@model IReadOnlyList<WMS.DAL.Repositories.Inventory.LocateLocationRow>
+@{
+    var locationCode = ViewBag.LocationCode as string ?? "—";
+    var locationName = ViewBag.LocationName as string ?? "—";
+    var zoneCode     = ViewBag.ZoneCode     as string ?? "";
+    var zoneName     = ViewBag.ZoneName     as string ?? "";
+    var zoneType     = ViewBag.ZoneType     as string ?? "Storage";
+    var locationStatus = ViewBag.LocationStatus as string ?? "Active";
+    var capacityPolicy = ViewBag.CapacityPolicy as string ?? "NoLimit";
+    var okMsg = ViewBag.LocateMessage as string;
+    var errMsg = ViewBag.LocateError as string;
+    ViewData["Title"] = $"Locate {locationCode}";
+
+    var totalOnHand = Model.Sum(r => r.QuantityOnHand);
+    var distinctProducts = Model.Select(r => r.ProductId).Distinct().Count();
+
+    var statusClass = locationStatus switch
+    {
+        "Active" => "is-active",
+        "Blocked" => "is-blocked",
+        "Maintenance" => "is-maint",
+        _ => "is-other",
+    };
+}
+
+<style>
+    .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+
+    .lcl-page-pad { padding: 12px 14px 24px; }
+
+    .lcl-banner {
+        padding: 8px 12px; border-radius: 8px;
+        font-size: 12px; margin-bottom: 10px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .lcl-banner-ok  { background: #E1F5EE; color: #0F6E56; }
+    .lcl-banner-err { background: #FCEBEB; color: #A32D2D; }
+
+    .lcl-crumb {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 9px; color: #6b7280; margin-bottom: 8px;
+    }
+    .lcl-back-btn {
+        width: 22px; height: 22px; border: 0.5px solid #e5e7eb;
+        background: #f3f4f6; border-radius: 6px;
+        display: inline-flex; align-items: center; justify-content: center;
+        text-decoration: none; color: #6b7280;
+    }
+    .lcl-current {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-weight: 500; color: #534AB7;
+    }
+
+    /* Location HERO card */
+    .lcl-loc-hero {
+        background: #ffffff; border: 0.5px solid #534AB7;
+        border-radius: 12px; padding: 12px 14px; margin-bottom: 12px;
+    }
+    .lcl-loc-row {
+        display: flex; align-items: center; gap: 10px;
+        margin-bottom: 10px;
+    }
+    .lcl-loc-icon {
+        width: 44px; height: 44px; border-radius: 8px;
+        background: #EEEDFE; color: #534AB7;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 22px;
+    }
+    .lcl-loc-code {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 18px; font-weight: 500; color: #534AB7;
+    }
+    .lcl-loc-meta { font-size: 10px; color: #6b7280; margin-top: 2px; }
+
+    .lcl-status-row {
+        display: flex; align-items: center; gap: 6px;
+        margin-top: 4px;
+    }
+    .lcl-status-badge {
+        display: inline-flex; align-items: center;
+        font-size: 9px; font-weight: 500;
+        padding: 2px 8px; border-radius: 100px;
+    }
+    .lcl-status-badge.is-active  { background: #E1F5EE; color: #0F6E56; }
+    .lcl-status-badge.is-blocked { background: #FCEBEB; color: #A32D2D; }
+    .lcl-status-badge.is-maint   { background: #FAEEDA; color: #854F0B; }
+    .lcl-status-badge.is-other   { background: #f3f4f6; color: #6b7280; }
+
+    .lcl-stat-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+        margin-top: 10px;
+    }
+    .lcl-stat {
+        background: #f9fafb; padding: 6px 10px; border-radius: 6px;
+    }
+    .lcl-stat-label { font-size: 8px; color: #6b7280; text-transform: uppercase; }
+    .lcl-stat-value { font-size: 11px; font-weight: 500; color: #1f2937; margin-top: 2px; }
+
+    /* Section title */
+    .lcl-section-title {
+        font-size: 9px; font-weight: 600; color: #6b7280;
+        text-transform: uppercase; letter-spacing: 0.5px;
+        margin: 6px 0 6px;
+    }
+
+    /* Item card */
+    .lcl-item-card {
+        background: #ffffff; border: 0.5px solid #e5e7eb;
+        border-radius: 11px; padding: 11px 13px; margin-bottom: 8px;
+    }
+    .lcl-item-row {
+        display: flex; align-items: center; gap: 10px;
+    }
+    .lcl-item-icon {
+        width: 32px; height: 32px; border-radius: 8px;
+        background: #f3f4f6; color: #6b7280;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 16px; flex-shrink: 0;
+    }
+    .lcl-item-content { flex: 1; min-width: 0; }
+    .lcl-item-code {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 12px; font-weight: 500; color: #1f2937;
+    }
+    .lcl-item-name { font-size: 9px; color: #6b7280; margin-top: 1px; }
+    .lcl-item-lot {
+        font-size: 9px; color: #6b7280; margin-top: 2px;
+    }
+    .lcl-item-trailing { text-align: right; flex-shrink: 0; }
+    .lcl-item-qty {
+        font-size: 14px; font-weight: 500; color: #1f2937;
+        font-variant-numeric: tabular-nums;
+    }
+    .lcl-item-qty-unit { font-size: 9px; color: #6b7280; }
+
+    .lcl-item-deeplink {
+        display: block; text-decoration: none; color: inherit;
+    }
+    .lcl-item-deeplink:active .lcl-item-card { background: #f9fafb; }
+
+    .lcl-empty {
+        text-align: center; padding: 32px 16px;
+        color: #9ca3af; font-size: 12px;
+    }
+    .lcl-empty-icon { font-size: 32px; opacity: 0.4; }
+</style>
+
+<div class="lcl-page-pad">
+    @if (!string.IsNullOrEmpty(okMsg))
+    {
+        <div class="lcl-banner lcl-banner-ok">
+            <i class="ti ti-check"></i> @okMsg
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(errMsg))
+    {
+        <div class="lcl-banner lcl-banner-err">
+            <i class="ti ti-alert-circle"></i> @errMsg
+        </div>
+    }
+
+    <div class="lcl-crumb">
+        <a href="/locate" class="lcl-back-btn"><i class="ti ti-arrow-left"></i></a>
+        <span>Locate</span>
+        <i class="ti ti-chevron-right"></i>
+        <span class="lcl-current">@locationCode</span>
+    </div>
+
+    <div class="lcl-loc-hero">
+        <div class="lcl-loc-row">
+            <div class="lcl-loc-icon"><i class="ti ti-map-pin"></i></div>
+            <div>
+                <div class="lcl-loc-code">@locationCode</div>
+                <div class="lcl-loc-meta">@zoneCode · @zoneName · @zoneType</div>
+                <div class="lcl-status-row">
+                    <span class="lcl-status-badge @statusClass">@locationStatus</span>
+                </div>
+            </div>
+        </div>
+        <div class="lcl-stat-grid">
+            <div class="lcl-stat">
+                <div class="lcl-stat-label">Distinct items</div>
+                <div class="lcl-stat-value">@distinctProducts</div>
+            </div>
+            <div class="lcl-stat">
+                <div class="lcl-stat-label">Total qty</div>
+                <div class="lcl-stat-value">@totalOnHand.ToString("N0")</div>
+            </div>
+            <div class="lcl-stat">
+                <div class="lcl-stat-label">Capacity policy</div>
+                <div class="lcl-stat-value">@capacityPolicy</div>
+            </div>
+            <div class="lcl-stat">
+                <div class="lcl-stat-label">Stock rows</div>
+                <div class="lcl-stat-value">@Model.Count</div>
+            </div>
+        </div>
+    </div>
+
+    @if (Model.Count == 0)
+    {
+        <div class="lcl-empty">
+            <div class="lcl-empty-icon"><i class="ti ti-package-off"></i></div>
+            <p class="m-0 mt-2">No items at this location.</p>
+            <p class="m-0 small">The bin is empty.</p>
+        </div>
+    }
+    else
+    {
+        <div class="lcl-section-title">Items at this location (@Model.Count)</div>
+        @foreach (var row in Model)
+        {
+            <a href="/locate/item/@row.ProductId" class="lcl-item-deeplink">
+                <div class="lcl-item-card">
+                    <div class="lcl-item-row">
+                        <div class="lcl-item-icon"><i class="ti ti-package"></i></div>
+                        <div class="lcl-item-content">
+                            <div class="lcl-item-code">@row.ProductCode</div>
+                            <div class="lcl-item-name">@row.ProductName</div>
+                            @if (!string.IsNullOrEmpty(row.LotNumber) || !string.IsNullOrEmpty(row.PalletNumber))
+                            {
+                                <div class="lcl-item-lot">
+                                    @if (!string.IsNullOrEmpty(row.LotNumber))
+                                    {
+                                        <span>Lot @row.LotNumber</span>
+                                        @if (row.LotAgeDays is { } days)
+                                        {
+                                            <span> · @days days old</span>
+                                        }
+                                    }
+                                    @if (!string.IsNullOrEmpty(row.PalletNumber))
+                                    {
+                                        <span> · Pallet @row.PalletNumber</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                        <div class="lcl-item-trailing">
+                            <div class="lcl-item-qty">@row.QuantityOnHand.ToString("N0")</div>
+                            <div class="lcl-item-qty-unit">@row.UomCode</div>
+                        </div>
+                    </div>
+                </div>
+            </a>
+        }
+    }
+</div>
