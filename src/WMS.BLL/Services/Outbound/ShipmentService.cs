@@ -145,6 +145,49 @@ public sealed class ShipmentService : IShipmentService
             CartonCount: cartonCount);
     }
 
+    public async Task<bool> CancelAsync(
+        Guid tenantId,
+        Guid shipmentId,
+        string reason,
+        Guid currentUserId,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ArgumentException("Cancel reason is required.", nameof(reason));
+
+        var shipmentRepo = _shipmentRepoFactory.For(tenantId);
+
+        var shipment = await shipmentRepo.GetByIdAsync(shipmentId, ct)
+            ?? throw new InvalidOperationException(
+                $"Shipment {shipmentId} not found.");
+
+        var fromStatus = shipment.Status;
+
+        if (fromStatus == "Cancelled") return false;
+
+        if (fromStatus == "Shipped")
+            throw new InvalidOperationException(
+                $"Cannot cancel shipment in 'Shipped' state — already dispatched. " +
+                "Use a future return-to-stock flow to reverse a posted shipment (not yet implemented).");
+
+        if (fromStatus != "Pending")
+            throw new InvalidOperationException(
+                $"Cannot cancel shipment in '{fromStatus}' state.");
+
+        var trimmedReason = reason.Trim();
+        var changed = await shipmentRepo.SetCancelledAsync(
+            shipmentId, trimmedReason, currentUserId, ct);
+        if (!changed)
+            throw new InvalidOperationException(
+                $"Failed to cancel shipment {shipmentId} from 'Pending' — concurrent state change?");
+
+        _logger.LogInformation(
+            "Cancelled shipment {ShipmentNumber} ({ShipmentId}) — reason: {Reason}",
+            shipment.ShipmentNumber, shipmentId, trimmedReason);
+
+        return true;
+    }
+
     private static string Trunc(string s, int max) =>
         s.Length <= max ? s : s.Substring(0, max);
 }

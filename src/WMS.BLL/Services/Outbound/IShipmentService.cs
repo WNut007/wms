@@ -58,6 +58,25 @@ public interface IShipmentService
         SubmitShipmentRequest request,
         Guid currentUserId,
         CancellationToken ct = default);
+
+    // Phase 14E — pre-Submit reversal. Pending shipment → Cancelled
+    // with required reason. SO state is NOT touched (Generate didn't
+    // flip it — SO stayed Packed; cancelling the shipment leaves the
+    // SO in Packed, ready for re-Generate by another operator).
+    //
+    // No carton stamping reversal (Pending shipments haven't claimed
+    // any cartons — that's a SubmitAsync concern). No TX needed —
+    // single repo write.
+    //
+    // Idempotent on already-Cancelled (returns false). Rejects Shipped
+    // (post-Submit terminal — reversing a posted shipment needs a
+    // separate workflow, future TD).
+    Task<bool> CancelAsync(
+        Guid tenantId,
+        Guid shipmentId,
+        string reason,
+        Guid currentUserId,
+        CancellationToken ct = default);
 }
 
 // Phase 14E — return shape for GenerateAsync. Carries enough for the
