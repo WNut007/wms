@@ -88,9 +88,9 @@
     }
     else if (string.Equals(module.Code, "INVENTORY", StringComparison.OrdinalIgnoreCase))
     {
-        // Phase 11A — Inventory currently expands to Adjustments only.
-        // Future: Stock browser, Lots, Pallets, Cycle counts.
-        var inventoryActive = IsActive("INVENTORY") || IsActive("Adjustments");
+        // Phase 11A + 13 — Inventory submenu: Adjustments + Transfers.
+        // Future: Stock browser, Lots, Pallets.
+        var inventoryActive = IsActive("INVENTORY") || IsActive("Adjustments") || IsActive("Transfers");
         <a href="@Url.Action("Index", "Adjustments")"
            class="wms-sidebar-item @(inventoryActive ? "active" : "")"
            title="@module.DisplayName">
@@ -102,6 +102,10 @@
             <a href="@Url.Action("Index", "Adjustments")"
                class="wms-sidebar-item @(IsActive("Adjustments") ? "active" : "")">
                 <span class="wms-sidebar-item-text">Adjustments</span>
+            </a>
+            <a href="@Url.Action("Index", "Transfers")"
+               class="wms-sidebar-item @(IsActive("Transfers") ? "active" : "")">
+                <span class="wms-sidebar-item-text">Transfers</span>
             </a>
         </div>
     }

@@ -1,0 +1,178 @@
+@*
+    Phase 13 (ADR-012) — Submit / Approve / Cancel / MarkLost modals for
+    Transfer Detail. Same CSS-only :target activation pattern as Phase
+    10B / 11A / 12. Each modal renders only when its corresponding
+    ViewBag flag is true (CanSubmit / CanApprove / CanCancel / CanMarkLost)
+    so unauthorized users don't see actionable affordances.
+*@
+
+<style>
+    .wms-tr-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        z-index: 9999;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+    }
+    .wms-tr-overlay:target { display: flex; }
+
+    .wms-tr-modal {
+        background: #fff;
+        border-radius: 12px;
+        max-width: 460px;
+        width: 100%;
+        padding: 24px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+    }
+    .wms-tr-modal h2 {
+        margin: 0 0 6px;
+        font-size: 18px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .wms-tr-modal h2.is-info    { color: #0C447C; }
+    .wms-tr-modal h2.is-success { color: #0F6E56; }
+    .wms-tr-modal h2.is-danger  { color: #A32D2D; }
+    .wms-tr-modal p.lead {
+        margin: 0 0 16px;
+        font-size: 13px;
+        color: var(--wmsd-text-secondary, #6B7280);
+    }
+    .wms-tr-modal label {
+        display: block; margin: 0 0 4px;
+        font-size: 12px; font-weight: 500;
+    }
+    .wms-tr-modal textarea {
+        width: 100%; min-height: 84px; padding: 8px 10px;
+        font-size: 13px; font-family: inherit;
+        border: 1px solid #D1D5DB; border-radius: 6px;
+        resize: vertical; box-sizing: border-box;
+    }
+    .wms-tr-modal textarea:focus {
+        outline: none; border-color: #534AB7;
+        box-shadow: 0 0 0 3px rgba(83, 74, 183, 0.15);
+    }
+    .wms-tr-actions {
+        display: flex; justify-content: flex-end; gap: 8px;
+        margin-top: 16px;
+    }
+    .wms-tr-btn {
+        padding: 8px 16px; font-size: 13px; font-weight: 500;
+        border-radius: 6px; border: 0.5px solid #D1D5DB;
+        background: #fff; color: #374151;
+        cursor: pointer; text-decoration: none; line-height: 1;
+    }
+    .wms-tr-btn:hover { background: #F3F4F6; }
+    .wms-tr-btn.is-info    { background: #0C447C; border-color: #0C447C; color: #fff; }
+    .wms-tr-btn.is-info:hover    { background: #0A3760; }
+    .wms-tr-btn.is-success { background: #0F6E56; border-color: #0F6E56; color: #fff; }
+    .wms-tr-btn.is-success:hover { background: #0B5A47; }
+    .wms-tr-btn.is-danger  { background: #A32D2D; border-color: #A32D2D; color: #fff; }
+    .wms-tr-btn.is-danger:hover  { background: #8B2424; }
+</style>
+
+@if (ViewBag.CanSubmit is true)
+{
+    <div id="submit-modal" class="wms-tr-overlay">
+        <div class="wms-tr-modal" role="dialog">
+            <h2 class="is-info">
+                <i class="ti ti-send"></i> Submit transfer
+            </h2>
+            <p class="lead">
+                Moves to <strong>Submitted</strong>. Another user (not you) approves it.
+                You won't be able to edit lines after this.
+            </p>
+            <form asp-controller="Transfers" asp-action="Submit"
+                  asp-route-id="@ViewBag.HeaderId" method="post">
+                @Html.AntiForgeryToken()
+                <div class="wms-tr-actions">
+                    <a href="#" class="wms-tr-btn">Cancel</a>
+                    <button type="submit" class="wms-tr-btn is-info">Confirm submit</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
+@if (ViewBag.CanApprove is true)
+{
+    <div id="approve-modal" class="wms-tr-overlay">
+        <div class="wms-tr-modal" role="dialog">
+            <h2 class="is-success">
+                <i class="ti ti-check"></i> Approve transfer
+            </h2>
+            <p class="lead">
+                Moves to <strong>Approved</strong>. Source warehouse can now dispatch.
+                Stock won't move until Dispatch posts.
+            </p>
+            <form asp-controller="Transfers" asp-action="Approve"
+                  asp-route-id="@ViewBag.HeaderId" method="post">
+                @Html.AntiForgeryToken()
+                <div class="wms-tr-actions">
+                    <a href="#" class="wms-tr-btn">Cancel</a>
+                    <button type="submit" class="wms-tr-btn is-success">Confirm approve</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
+@if (ViewBag.CanCancel is true)
+{
+    <div id="cancel-modal" class="wms-tr-overlay">
+        <div class="wms-tr-modal" role="dialog">
+            <h2 class="is-danger">
+                <i class="ti ti-x"></i> Cancel transfer
+            </h2>
+            <p class="lead">
+                Terminates the transfer. Stock untouched (nothing has dispatched yet).
+                Reason saved for audit.
+            </p>
+            <form asp-controller="Transfers" asp-action="Cancel"
+                  asp-route-id="@ViewBag.HeaderId" method="post">
+                @Html.AntiForgeryToken()
+                <label for="tr-cancel-reason">Reason (required, 3–500 chars)</label>
+                <textarea id="tr-cancel-reason" name="Reason"
+                          required minlength="3" maxlength="500"
+                          placeholder="e.g. duplicate request — superseded by TRN-..."></textarea>
+                <div class="wms-tr-actions">
+                    <a href="#" class="wms-tr-btn">Keep transfer</a>
+                    <button type="submit" class="wms-tr-btn is-danger">Confirm cancellation</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
+@if (ViewBag.CanMarkLost is true)
+{
+    <div id="lost-modal" class="wms-tr-overlay">
+        <div class="wms-tr-modal" role="dialog">
+            <h2 class="is-danger">
+                <i class="ti ti-alert-triangle"></i> Mark as lost
+            </h2>
+            <p class="lead">
+                Records the entire shipment as lost in transit. No stock writes — the loss
+                is captured by <strong>QtyLossInTransit</strong> on lines whose QtyReceived
+                stays NULL. Use only when delivery is confirmed lost.
+            </p>
+            <form asp-controller="Transfers" asp-action="MarkLost"
+                  asp-route-id="@ViewBag.HeaderId" method="post">
+                @Html.AntiForgeryToken()
+                <label for="tr-lost-reason">Loss reason (required, 3–500 chars)</label>
+                <textarea id="tr-lost-reason" name="Reason"
+                          required minlength="3" maxlength="500"
+                          placeholder="e.g. carrier reported truck stolen between WH-A and WH-B"></textarea>
+                <div class="wms-tr-actions">
+                    <a href="#" class="wms-tr-btn">Cancel</a>
+                    <button type="submit" class="wms-tr-btn is-danger">Confirm loss</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}

@@ -31,10 +31,12 @@
     @{
         var okMsg  = (TempData["CancelMessage"]     as string)
                   ?? (TempData["AdjustmentMessage"] as string)
-                  ?? (TempData["CycleCountMessage"] as string);
+                  ?? (TempData["CycleCountMessage"] as string)
+                  ?? (TempData["TransferMessage"]   as string);
         var errMsg = (TempData["CancelError"]       as string)
                   ?? (TempData["AdjustmentError"]   as string)
-                  ?? (TempData["CycleCountError"]   as string);
+                  ?? (TempData["CycleCountError"]   as string)
+                  ?? (TempData["TransferError"]     as string);
     }
     @if (!string.IsNullOrEmpty(okMsg))
     {
@@ -250,6 +252,13 @@
     @if (ViewBag.HeaderId is Guid && Model.EntityType == "CycleCount")
     {
         @await Html.PartialAsync("Detail/_CycleCountDecisionModals")
+    }
+    @* Phase 13 — Submit / Approve / Cancel / MarkLost modals for Transfer
+       Detail. Each modal renders only when its corresponding ViewBag flag
+       is true (CanSubmit / CanApprove / CanCancel / CanMarkLost). *@
+    @if (ViewBag.HeaderId is Guid && Model.EntityType == "Transfer")
+    {
+        @await Html.PartialAsync("Detail/_TransferDecisionModals")
     }
 </div>
 

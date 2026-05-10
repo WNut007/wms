@@ -1,0 +1,321 @@
+@model WMS.Web.Models.Inventory.TransferOrderCreateViewModel
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "New transfer";
+
+    var fromLocationsJson = System.Text.Json.JsonSerializer.Serialize(
+        Model.FromLocations.Select(l => new { id = l.Id, code = l.Code, name = l.Name }));
+    var toLocationsJson = System.Text.Json.JsonSerializer.Serialize(
+        Model.ToLocations.Select(l => new { id = l.Id, code = l.Code, name = l.Name }));
+    var productsJson = System.Text.Json.JsonSerializer.Serialize(
+        Model.Products.Select(p => new { id = p.Id, code = p.Code, name = p.Name }));
+    var ownersJson = System.Text.Json.JsonSerializer.Serialize(
+        Model.Owners.Select(o => new { id = o.Id, code = o.Code, name = o.Name }));
+    var uomsJson = System.Text.Json.JsonSerializer.Serialize(
+        Model.Uoms.Select(u => new { id = u.Id, code = u.Code, name = u.Name }));
+    var initialLinesJson = System.Text.Json.JsonSerializer.Serialize(
+        Model.Lines.Select((l, i) => new {
+            lineNumber     = l.LineNumber > 0 ? l.LineNumber : i + 1,
+            productId      = l.ProductId == Guid.Empty ? "" : l.ProductId.ToString(),
+            ownerId        = l.OwnerId == Guid.Empty ? "" : l.OwnerId.ToString(),
+            uomId          = l.UomId == Guid.Empty ? "" : l.UomId.ToString(),
+            fromLocationId = l.FromLocationId == Guid.Empty ? "" : l.FromLocationId.ToString(),
+            toLocationId   = l.ToLocationId == Guid.Empty ? "" : l.ToLocationId.ToString(),
+            qtyRequested   = l.QtyRequested,
+            notes          = l.Notes ?? "",
+        }));
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">New transfer</p>
+        <div class="wms-breadcrumb">
+            <span>Operations</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span>Inventory</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <a asp-action="Index">Transfers</a>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">New</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <a asp-action="Index" class="wms-btn">
+            <i class="ti ti-arrow-left" aria-hidden="true"></i>
+            Cancel
+        </a>
+    </div>
+</div>
+
+<form asp-controller="Transfers" asp-action="Create" method="post"
+      x-data="transferForm({
+          fromWarehouseId: '@(Model.FromWarehouseId == Guid.Empty ? "" : Model.FromWarehouseId.ToString())',
+          toWarehouseId:   '@(Model.ToWarehouseId == Guid.Empty ? "" : Model.ToWarehouseId.ToString())',
+          fromLocations:   @Html.Raw(fromLocationsJson),
+          toLocations:     @Html.Raw(toLocationsJson),
+          products:        @Html.Raw(productsJson),
+          owners:          @Html.Raw(ownersJson),
+          uoms:            @Html.Raw(uomsJson),
+          initialLines:    @Html.Raw(initialLinesJson)
+      })">
+    @Html.AntiForgeryToken()
+
+    @if (ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div style="padding: 10px 14px; margin-bottom: 12px; background: #FCEBEB; color: #A32D2D; border-radius: 8px; font-size: 13px;">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px;">
+
+        @* === Left column: Header + Lines === *@
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+
+            <div class="wms-card" style="padding: 18px;">
+                <h3 style="margin: 0 0 4px; font-size: 14px; font-weight: 500;">
+                    <i class="ti ti-transfer" style="color: #534AB7; margin-right: 6px;"></i>
+                    Header
+                </h3>
+                <p style="margin: 0 0 16px; font-size: 12px; color: var(--wms-text-secondary);">
+                    Choose source and destination warehouses. Source must differ from destination.
+                </p>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div>
+                        <label asp-for="FromWarehouseId" style="display:block;font-size:12px;font-weight:500;margin-bottom:4px;">From warehouse *</label>
+                        <select asp-for="FromWarehouseId" class="wms-input" required
+                                @@change="onFromChanged($event.target.value)">
+                            <option value="">— Select —</option>
+                            @foreach (var w in Model.Warehouses)
+                            {
+                                <option value="@w.Id">@w.Code · @w.Name</option>
+                            }
+                        </select>
+                        <span asp-validation-for="FromWarehouseId" style="color:#A32D2D;font-size:11px;"></span>
+                    </div>
+
+                    <div>
+                        <label asp-for="ToWarehouseId" style="display:block;font-size:12px;font-weight:500;margin-bottom:4px;">To warehouse *</label>
+                        <select asp-for="ToWarehouseId" class="wms-input" required
+                                @@change="onToChanged($event.target.value)">
+                            <option value="">— Select —</option>
+                            @foreach (var w in Model.Warehouses)
+                            {
+                                <option value="@w.Id">@w.Code · @w.Name</option>
+                            }
+                        </select>
+                        <span asp-validation-for="ToWarehouseId" style="color:#A32D2D;font-size:11px;"></span>
+                    </div>
+
+                    <div>
+                        <label asp-for="Reason" style="display:block;font-size:12px;font-weight:500;margin-bottom:4px;">Reason *</label>
+                        <select asp-for="Reason" class="wms-input" required>
+                            @foreach (var r in WMS.Web.Models.Inventory.TransferOrderCreateViewModel.AllReasons)
+                            {
+                                <option value="@r">@r</option>
+                            }
+                        </select>
+                        <span asp-validation-for="Reason" style="color:#A32D2D;font-size:11px;"></span>
+                    </div>
+
+                    <div></div>
+
+                    <div style="grid-column: 1 / -1;">
+                        <label asp-for="Notes" style="display:block;font-size:12px;font-weight:500;margin-bottom:4px;">Notes</label>
+                        <textarea asp-for="Notes" class="wms-input" rows="2" maxlength="1000"
+                                  placeholder="(optional)"></textarea>
+                        <span asp-validation-for="Notes" style="color:#A32D2D;font-size:11px;"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="wms-card" style="padding: 18px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                    <h3 style="margin: 0; font-size: 14px; font-weight: 500;">
+                        <i class="ti ti-list-details" style="color: #534AB7; margin-right: 6px;"></i>
+                        Lines
+                        <span style="font-size:11px;color:var(--wms-text-secondary);font-weight:400;margin-left:6px;"
+                              x-text="`${lines.length} line(s)`"></span>
+                    </h3>
+                    <button type="button" class="wms-btn" @@click="addLine()">
+                        <i class="ti ti-plus" aria-hidden="true"></i> Add line
+                    </button>
+                </div>
+
+                <div style="overflow-x:auto;">
+                    <table class="wms-table" style="width:100%;font-size:12px;">
+                        <thead>
+                            <tr>
+                                <th style="width:36px;">#</th>
+                                <th>Product</th>
+                                <th style="width:120px;">Owner</th>
+                                <th style="width:80px;">UoM</th>
+                                <th>From location</th>
+                                <th>To location</th>
+                                <th style="width:100px;text-align:right;">Qty *</th>
+                                <th style="width:36px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="(line, idx) in lines" :key="idx">
+                                <tr>
+                                    <td>
+                                        <input type="hidden" :name="`Lines[${idx}].LineNumber`" :value="idx + 1" />
+                                        <span class="mono" x-text="idx + 1"></span>
+                                    </td>
+                                    <td>
+                                        <select :name="`Lines[${idx}].ProductId`" class="wms-input" required x-model="line.productId">
+                                            <option value="">—</option>
+                                            <template x-for="p in products" :key="p.id">
+                                                <option :value="p.id" x-text="p.code + ' · ' + p.name"></option>
+                                            </template>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <select :name="`Lines[${idx}].OwnerId`" class="wms-input" required x-model="line.ownerId">
+                                            <option value="">—</option>
+                                            <template x-for="o in owners" :key="o.id">
+                                                <option :value="o.id" x-text="o.code"></option>
+                                            </template>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <select :name="`Lines[${idx}].UomId`" class="wms-input" required x-model="line.uomId">
+                                            <option value="">—</option>
+                                            <template x-for="u in uoms" :key="u.id">
+                                                <option :value="u.id" x-text="u.code"></option>
+                                            </template>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <select :name="`Lines[${idx}].FromLocationId`" class="wms-input" required
+                                                x-model="line.fromLocationId" :disabled="!fromWarehouseId">
+                                            <option value="">— Pick warehouse —</option>
+                                            <template x-for="l in fromLocations" :key="l.id">
+                                                <option :value="l.id" x-text="l.code + ' · ' + l.name"></option>
+                                            </template>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <select :name="`Lines[${idx}].ToLocationId`" class="wms-input" required
+                                                x-model="line.toLocationId" :disabled="!toWarehouseId">
+                                            <option value="">— Pick warehouse —</option>
+                                            <template x-for="l in toLocations" :key="l.id">
+                                                <option :value="l.id" x-text="l.code + ' · ' + l.name"></option>
+                                            </template>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <input type="number" step="0.01" min="0.0001"
+                                               :name="`Lines[${idx}].QtyRequested`" class="wms-input"
+                                               style="text-align:right;"
+                                               x-model.number="line.qtyRequested" required />
+                                    </td>
+                                    <td style="text-align:center;">
+                                        <button type="button" class="wms-btn" :disabled="lines.length <= 1"
+                                                @@click="removeLine(idx)" title="Remove line">
+                                            <i class="ti ti-trash" aria-hidden="true"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        @* === Right column: Submit + summary === *@
+        <aside style="display: flex; flex-direction: column; gap: 12px;">
+            <div class="wms-card" style="padding: 16px;">
+                <p style="margin: 0 0 12px; font-size: 12px; color: var(--wms-text-secondary);">
+                    Lands as <strong>Draft</strong>. Submit it for approval next.
+                    Stock won't move until Dispatch.
+                </p>
+                <button type="submit" class="wms-btn wms-btn-purple" style="width: 100%;">
+                    <i class="ti ti-check" style="margin-right: 6px;"></i>
+                    Create transfer
+                </button>
+                <a asp-action="Index" class="wms-btn" style="width: 100%; display:block; text-align:center; margin-top: 8px;">
+                    Cancel
+                </a>
+            </div>
+
+            <div class="wms-card" style="padding: 16px;">
+                <p style="font-size: 11px; color: var(--wms-text-secondary); margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.4px;">Workflow</p>
+                <ul style="font-size: 12px; color: var(--wms-text-secondary); padding-left: 18px; margin: 0;">
+                    <li><strong>Draft</strong> — created, not yet submitted</li>
+                    <li><strong>Submitted</strong> → another user approves</li>
+                    <li><strong>Approved</strong> → dispatch decrements source stock</li>
+                    <li><strong>InTransit</strong> → arrives at destination</li>
+                    <li><strong>Received</strong> → stock incremented at destination</li>
+                </ul>
+            </div>
+
+            <div class="wms-card" style="padding: 16px;">
+                <p style="font-size: 11px; color: var(--wms-text-secondary); margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.4px;">Reason guide</p>
+                <ul style="font-size: 12px; color: var(--wms-text-secondary); padding-left: 18px; margin: 0;">
+                    <li><strong>Rebalance</strong> — even out stock between sites</li>
+                    <li><strong>Replenish</strong> — top up forward-pick from reserve</li>
+                    <li><strong>CustomerOrder</strong> — fulfil from another warehouse</li>
+                    <li><strong>Other</strong> — custom case</li>
+                </ul>
+            </div>
+        </aside>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        function transferForm(opts) {
+            return {
+                fromWarehouseId: opts.fromWarehouseId,
+                toWarehouseId:   opts.toWarehouseId,
+                fromLocations:   opts.fromLocations || [],
+                toLocations:     opts.toLocations || [],
+                products:        opts.products || [],
+                owners:          opts.owners || [],
+                uoms:            opts.uoms || [],
+                lines:           (opts.initialLines && opts.initialLines.length > 0)
+                                  ? opts.initialLines
+                                  : [this._newLine(1)],
+
+                _newLine(n) {
+                    return {
+                        lineNumber: n,
+                        productId: '', ownerId: '', uomId: '',
+                        fromLocationId: '', toLocationId: '',
+                        qtyRequested: 0,
+                        notes: '',
+                    };
+                },
+                addLine() { this.lines.push(this._newLine(this.lines.length + 1)); },
+                removeLine(idx) {
+                    if (this.lines.length <= 1) return;
+                    this.lines.splice(idx, 1);
+                },
+                async onFromChanged(newId) {
+                    this.fromWarehouseId = newId;
+                    if (!newId) { this.fromLocations = []; return; }
+                    try {
+                        const r = await fetch(`/Transfers/Locations/${newId}`);
+                        this.fromLocations = await r.json();
+                    } catch (e) { this.fromLocations = []; }
+                },
+                async onToChanged(newId) {
+                    this.toWarehouseId = newId;
+                    if (!newId) { this.toLocations = []; return; }
+                    try {
+                        const r = await fetch(`/Transfers/Locations/${newId}`);
+                        this.toLocations = await r.json();
+                    } catch (e) { this.toLocations = []; }
+                },
+            };
+        }
+    </script>
+}

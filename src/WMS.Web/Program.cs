@@ -115,6 +115,10 @@ builder.Services.AddScoped<IAdjustmentService, AdjustmentService>();
 builder.Services.AddScoped<ICycleCountRepositoryFactory, CycleCountRepositoryFactory>();
 builder.Services.AddScoped<ICycleCountService, CycleCountService>();
 
+// Phase 13 — Inter-warehouse Transfers (ADR-012).
+builder.Services.AddScoped<ITransferOrderRepositoryFactory, TransferOrderRepositoryFactory>();
+builder.Services.AddScoped<ITransferOrderService, TransferOrderService>();
+
 // PermissionService — Scoped to match the (Scoped) factory dep. The
 // cache itself lives on IMemoryCache (Singleton), so per-request
 // instances cost nothing and survive the captive-dependency check.
