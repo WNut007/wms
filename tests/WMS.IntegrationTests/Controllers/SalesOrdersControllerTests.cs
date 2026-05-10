@@ -29,6 +29,7 @@ public class SalesOrdersControllerTests
         Mock<ISalesOrderRepository> Repo,
         Mock<ISalesOrderService> Service,
         Mock<IAllocationService> AllocationService,
+        Mock<IPickTaskService> PickTaskService,
         Mock<ICustomerRepository> CustomerRepo,
         Mock<IValidator<SalesOrderCreateViewModel>> CreateValidator,
         Mock<IValidator<SalesOrderEditViewModel>> EditValidator,
@@ -131,8 +132,8 @@ public class SalesOrdersControllerTests
         var tempDataProvider = new Mock<ITempDataProvider>();
         ctrl.TempData = new TempDataDictionary(new DefaultHttpContext(), tempDataProvider.Object);
 
-        return new Build(ctrl, repo, service, allocationService, customerRepo,
-            createValidator, editValidator, currentUserId);
+        return new Build(ctrl, repo, service, allocationService, pickTaskService,
+            customerRepo, createValidator, editValidator, currentUserId);
     }
 
     private static SalesOrder SampleHeader(string status = "Draft") => new()
@@ -548,5 +549,54 @@ public class SalesOrdersControllerTests
         var result = await b.Controller.Allocate(id, default);
         Assert.IsType<RedirectToActionResult>(result);
         Assert.Equal("Wrong state", b.Controller.TempData["SalesOrderError"]);
+    }
+
+    // ================================================================
+    // Generate (Phase 14C)
+    // ================================================================
+
+    [Fact]
+    public async Task Generate_Happy_RedirectsToPickTaskDetail_WithTempDataMessage()
+    {
+        var b = BuildController();
+        var soId = Guid.NewGuid();
+        var newPickId = Guid.NewGuid();
+        b.PickTaskService.Setup(s => s.GenerateAsync(
+                TenantId, soId, b.CurrentUserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PickTaskGenerationResult(
+                PickTaskId: newPickId,
+                PickNumber: "PICK-20260510-0001",
+                LineCount: 3,
+                TotalExpectedQuantity: 42m));
+
+        var result = await b.Controller.Generate(soId, default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Detail", redirect.ActionName);
+        Assert.Equal("PickTasks", redirect.ControllerName);
+        Assert.Equal(newPickId, redirect.RouteValues!["id"]);
+
+        var msg = b.Controller.TempData["PickTaskMessage"] as string;
+        Assert.NotNull(msg);
+        Assert.Contains("PICK-20260510-0001", msg);
+        Assert.Contains("3 line", msg);
+    }
+
+    [Fact]
+    public async Task Generate_ServiceThrows_RedirectsToSoDetail_WithError()
+    {
+        var b = BuildController();
+        var soId = Guid.NewGuid();
+        b.PickTaskService.Setup(s => s.GenerateAsync(
+                It.IsAny<Guid>(), soId, It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("SO not in Allocated state"));
+
+        var result = await b.Controller.Generate(soId, default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Detail", redirect.ActionName);
+        Assert.Null(redirect.ControllerName);   // same controller (SalesOrders)
+        Assert.Equal(soId, redirect.RouteValues!["id"]);
+        Assert.Equal("SO not in Allocated state", b.Controller.TempData["SalesOrderError"]);
     }
 }
