@@ -35,13 +35,15 @@
                   ?? (TempData["CycleCountMessage"] as string)
                   ?? (TempData["TransferMessage"]   as string)
                   ?? (TempData["SalesOrderMessage"] as string)
-                  ?? (TempData["PickTaskMessage"]   as string);
+                  ?? (TempData["PickTaskMessage"]   as string)
+                  ?? (TempData["PackTaskMessage"]   as string);
         var errMsg = (TempData["CancelError"]       as string)
                   ?? (TempData["AdjustmentError"]   as string)
                   ?? (TempData["CycleCountError"]   as string)
                   ?? (TempData["TransferError"]     as string)
                   ?? (TempData["SalesOrderError"]   as string)
-                  ?? (TempData["PickTaskError"]     as string);
+                  ?? (TempData["PickTaskError"]     as string)
+                  ?? (TempData["PackTaskError"]     as string);
     }
     @if (!string.IsNullOrEmpty(okMsg))
     {
@@ -277,6 +279,13 @@
     @if (ViewBag.HeaderId is Guid && Model.EntityType == "PickTask")
     {
         @await Html.PartialAsync("Detail/_PickTaskDecisionModals")
+    }
+    @* Phase 14D — Cancel modal for PackTask Detail. Submit lives
+       inline in the Lines panel (needs the per-line inputs + carton
+       metadata in scope). *@
+    @if (ViewBag.HeaderId is Guid && Model.EntityType == "PackTask")
+    {
+        @await Html.PartialAsync("Detail/_PackTaskDecisionModals")
     }
 </div>
 

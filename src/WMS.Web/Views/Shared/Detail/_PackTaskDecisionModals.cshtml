@@ -1,0 +1,117 @@
+@*
+    Phase 14D — Cancel modal for PackTask Detail. Same CSS-only :target
+    activation as Phase 11A/12/13/14A/14C. Renders only when CanCancel
+    is true (Pending) so post-Submit terminals don't see an actionable
+    affordance.
+
+    Submit lives inline in _PackTaskLinesPanel — it needs the per-line
+    inputs + carton metadata fields in scope, so a separate modal would
+    mean duplicating both.
+*@
+
+<style>
+    .wms-pk-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        z-index: 9999;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+    }
+    .wms-pk-overlay:target { display: flex; }
+
+    .wms-pk-modal {
+        background: #fff;
+        border-radius: 12px;
+        max-width: 520px;
+        width: 100%;
+        padding: 24px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+    }
+    .wms-pk-modal h2 {
+        margin: 0 0 6px;
+        font-size: 18px;
+        font-weight: 500;
+        display: flex; align-items: center; gap: 8px;
+        color: #A32D2D;
+    }
+    .wms-pk-modal p.lead {
+        margin: 0 0 16px;
+        font-size: 13px;
+        color: var(--wmsd-text-secondary, #6B7280);
+    }
+    .wms-pk-field { margin-bottom: 12px; }
+    .wms-pk-field label {
+        display: block;
+        font-size: 12px;
+        font-weight: 500;
+        color: #374151;
+        margin-bottom: 4px;
+    }
+    .wms-pk-field textarea {
+        width: 100%;
+        padding: 8px 10px;
+        font-size: 13px;
+        border-radius: 6px;
+        border: 1px solid #D1D5DB;
+        background: #fff;
+        font-family: inherit;
+        resize: vertical;
+        min-height: 70px;
+    }
+    .wms-pk-actions {
+        display: flex; justify-content: flex-end; gap: 8px;
+        margin-top: 16px;
+    }
+    .wms-pk-btn {
+        padding: 8px 16px; font-size: 13px; font-weight: 500;
+        border-radius: 6px; border: 0.5px solid #D1D5DB;
+        background: #fff; color: #374151;
+        cursor: pointer; text-decoration: none; line-height: 1;
+    }
+    .wms-pk-btn:hover { background: #F3F4F6; }
+    .wms-pk-btn.is-danger {
+        background: #A32D2D; border-color: #A32D2D; color: #fff;
+    }
+    .wms-pk-btn.is-danger:hover { background: #8B2424; }
+</style>
+
+@if (ViewBag.CanCancel is true)
+{
+    <div id="cancel-pack-modal" class="wms-pk-overlay">
+        <div class="wms-pk-modal" role="dialog">
+            <h2>
+                <i class="ti ti-x"></i> Cancel pack task
+            </h2>
+            <p class="lead">
+                The SO state is <strong>not</strong> touched (Generate
+                didn't flip it; the SO stays Picked or PartiallyPicked).
+                A different packer can re-Generate from the same SO. No
+                stock or allocation movements are reversed (none were
+                made — pack is post-stock).
+            </p>
+
+            <form asp-controller="PackTasks" asp-action="Cancel"
+                  asp-route-id="@ViewBag.HeaderId" method="post">
+                @Html.AntiForgeryToken()
+
+                <div class="wms-pk-field">
+                    <label for="cancel-pack-reason">Reason (3–500 chars)</label>
+                    <textarea id="cancel-pack-reason"
+                              name="Reason"
+                              maxlength="500"
+                              minlength="3"
+                              required
+                              placeholder="e.g. Pack station offline; reassigning"></textarea>
+                </div>
+
+                <div class="wms-pk-actions">
+                    <a href="#" class="wms-pk-btn">Keep task</a>
+                    <button type="submit" class="wms-pk-btn is-danger">Confirm cancellation</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
