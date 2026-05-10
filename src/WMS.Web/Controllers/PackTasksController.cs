@@ -134,6 +134,14 @@ public sealed class PackTasksController : Controller
         var isCancelled = h.Status == "Cancelled";
         var isTerminal  = isPacked || isCancelled;
 
+        // Phase 17 — fetch the latest video for the playback link
+        // when status=Packed. Pending tasks can't have videos
+        // (UploadAsync rejects); Cancelled tasks shouldn't either,
+        // so we only check on Packed.
+        var latestVideo = isPacked
+            ? await _videoService.GetLatestForPackTaskAsync(tenantId, id, ct)
+            : null;
+
         var canSubmit = isPending;
         var canCancel = isPending;
 
@@ -181,13 +189,22 @@ public sealed class PackTasksController : Controller
                 new("Status",  h.Status),
             },
             ShowImagesTab = false,
-            CustomTabs = new()
-            {
-                // Lines tab — submit form when Pending; read-only with
-                // packed/picked/short highlight on Packed / Cancelled.
-                new("lines", "Lines", "ti-list-details",
-                    "Detail/_PackTaskLinesPanel", lines.Count),
-            },
+            CustomTabs = isPacked
+                ? new()
+                {
+                    new("lines", "Lines", "ti-list-details",
+                        "Detail/_PackTaskLinesPanel", lines.Count),
+                    // Phase 17 — Video tab on Packed only. Tab count
+                    // shows 1 if a video exists, 0 if not (renders
+                    // a "Record now" prompt in the empty state).
+                    new("video", "Video", "ti-video",
+                        "Detail/_PackTaskVideoPanel", latestVideo is not null ? 1 : 0),
+                }
+                : new()
+                {
+                    new("lines", "Lines", "ti-list-details",
+                        "Detail/_PackTaskLinesPanel", lines.Count),
+                },
             QuickActions = new()
             {
                 new("Cancel", "ti-x",
@@ -209,6 +226,7 @@ public sealed class PackTasksController : Controller
         ViewBag.LineRows        = lines;
         ViewBag.Carton          = carton;
         ViewBag.BoxTypes        = boxTypes;
+        ViewBag.LatestVideo     = latestVideo;
         ViewBag.PackTaskMessage = TempData["PackTaskMessage"] as string;
         ViewBag.PackTaskError   = TempData["PackTaskError"]   as string;
         return View("~/Views/Shared/_DetailLayout.cshtml", vm);
