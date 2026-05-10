@@ -33,11 +33,13 @@
         var okMsg  = (TempData["CancelMessage"]     as string)
                   ?? (TempData["AdjustmentMessage"] as string)
                   ?? (TempData["CycleCountMessage"] as string)
-                  ?? (TempData["TransferMessage"]   as string);
+                  ?? (TempData["TransferMessage"]   as string)
+                  ?? (TempData["SalesOrderMessage"] as string);
         var errMsg = (TempData["CancelError"]       as string)
                   ?? (TempData["AdjustmentError"]   as string)
                   ?? (TempData["CycleCountError"]   as string)
-                  ?? (TempData["TransferError"]     as string);
+                  ?? (TempData["TransferError"]     as string)
+                  ?? (TempData["SalesOrderError"]   as string);
     }
     @if (!string.IsNullOrEmpty(okMsg))
     {
@@ -260,6 +262,13 @@
     @if (ViewBag.HeaderId is Guid && Model.EntityType == "Transfer")
     {
         @await Html.PartialAsync("Detail/_TransferDecisionModals")
+    }
+    @* Phase 14A — Submit / Cancel modals for SalesOrder Detail.
+       Each modal renders only when its corresponding ViewBag flag
+       is true (CanSubmit / CanCancel). *@
+    @if (ViewBag.HeaderId is Guid && Model.EntityType == "SalesOrder")
+    {
+        @await Html.PartialAsync("Detail/_SalesOrderDecisionModals")
     }
 </div>
 

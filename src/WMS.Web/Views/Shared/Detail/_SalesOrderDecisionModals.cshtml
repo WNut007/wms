@@ -1,0 +1,111 @@
+@*
+    Phase 14A — Submit / Cancel modals for SalesOrder Detail. Same
+    CSS-only :target activation pattern as Phase 11A/12/13. Each modal
+    renders only when its corresponding ViewBag flag is true (CanSubmit
+    / CanCancel) so unauthorized users don't see actionable affordances.
+
+    MVP: no reason field on Cancel (operator can edit Notes pre-cancel).
+    Phase 14B may add CancelReason once allocation reversal lands.
+*@
+
+<style>
+    .wms-so-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        z-index: 9999;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+    }
+    .wms-so-overlay:target { display: flex; }
+
+    .wms-so-modal {
+        background: #fff;
+        border-radius: 12px;
+        max-width: 460px;
+        width: 100%;
+        padding: 24px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+    }
+    .wms-so-modal h2 {
+        margin: 0 0 6px;
+        font-size: 18px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .wms-so-modal h2.is-info    { color: #0C447C; }
+    .wms-so-modal h2.is-danger  { color: #A32D2D; }
+    .wms-so-modal p.lead {
+        margin: 0 0 16px;
+        font-size: 13px;
+        color: var(--wmsd-text-secondary, #6B7280);
+    }
+    .wms-so-actions {
+        display: flex; justify-content: flex-end; gap: 8px;
+        margin-top: 16px;
+    }
+    .wms-so-btn {
+        padding: 8px 16px; font-size: 13px; font-weight: 500;
+        border-radius: 6px; border: 0.5px solid #D1D5DB;
+        background: #fff; color: #374151;
+        cursor: pointer; text-decoration: none; line-height: 1;
+    }
+    .wms-so-btn:hover { background: #F3F4F6; }
+    .wms-so-btn.is-info    { background: #0C447C; border-color: #0C447C; color: #fff; }
+    .wms-so-btn.is-info:hover    { background: #0A3760; }
+    .wms-so-btn.is-danger  { background: #A32D2D; border-color: #A32D2D; color: #fff; }
+    .wms-so-btn.is-danger:hover  { background: #8B2424; }
+</style>
+
+@if (ViewBag.CanSubmit is true)
+{
+    <div id="submit-modal" class="wms-so-overlay">
+        <div class="wms-so-modal" role="dialog">
+            <h2 class="is-info">
+                <i class="ti ti-send"></i> Submit sales order
+            </h2>
+            <p class="lead">
+                Moves to <strong>Open</strong>. Lines lock after submit —
+                cancel and recreate is the only path to change line shape
+                until Phase 14B's allocation-aware line edit ships.
+            </p>
+            <form asp-controller="SalesOrders" asp-action="Submit"
+                  asp-route-id="@ViewBag.HeaderId" method="post">
+                @Html.AntiForgeryToken()
+                <div class="wms-so-actions">
+                    <a href="#" class="wms-so-btn">Cancel</a>
+                    <button type="submit" class="wms-so-btn is-info">Confirm submit</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
+@if (ViewBag.CanCancel is true)
+{
+    <div id="cancel-modal" class="wms-so-overlay">
+        <div class="wms-so-modal" role="dialog">
+            <h2 class="is-danger">
+                <i class="ti ti-x"></i> Cancel sales order
+            </h2>
+            <p class="lead">
+                Terminates the sales order. Status flips to
+                <strong>Cancelled</strong>. No allocation reversal in MVP
+                (no allocation has happened yet — that's a 14B concern).
+                If you need to record context, edit Notes before cancelling.
+            </p>
+            <form asp-controller="SalesOrders" asp-action="Cancel"
+                  asp-route-id="@ViewBag.HeaderId" method="post">
+                @Html.AntiForgeryToken()
+                <div class="wms-so-actions">
+                    <a href="#" class="wms-so-btn">Keep SO</a>
+                    <button type="submit" class="wms-so-btn is-danger">Confirm cancellation</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
