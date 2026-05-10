@@ -1,221 +1,290 @@
-using Dapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WMS.BLL.Services.Inbound;
+using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
+using WMS.DAL.Repositories.Inbound;
+using WMS.DAL.Repositories.Master;
 using WMS.Web.Models.Inbound;
 
 namespace WMS.Web.Controllers;
 
-// Single-screen receive form — Receiving-ε. Resolves natural-key
-// codes (Product / Owner / Location / PO / PoLine) inline via Dapper
-// against the tenant DB so the form keeps a "what's on the paperwork"
-// shape and Phase 1 doesn't need new repo lookup methods. The actual
-// post is done by IReceivingHeaderService.PostReceivingAsync, which
-// orchestrates the four-step δ flow.
+// Phase 18 (replaces Phase 1's single-page Receiving-ε form) —
+// Mobile Receive PWA. Mirrors the Phase 16 mobile picker pattern:
+// queue → per-task page → submit/cancel → bounce-to-queue.
 //
-// [Authorize] only for now — RequirePermission gating comes when the
-// inbound function code rules are firmed up.
+// Surfaces:
+//   GET  /receive            — queue (POs with Open|Receiving status)
+//   GET  /receive/{poId}     — task page (per-line cards)
+//   POST /receive/submit/{poId} — same IReceivingHeaderService.PostReceivingAsync
+//                                  entry as desktop GoodsReceipt
+//   POST /receive/cancel/{poId} — operator backs out; no DB state to
+//                                  revert (receipts only land on submit)
+//
+// Manifest: /receive/manifest.json (scope=/receive/, start_url=/receive).
+// Layout: _MobileLayout via /receive _ViewStart (already in place from Phase 1).
+//
+// Design system: docs/mockups/mobile-specs/mobile-design-system.md
+// Phase spec: docs/mockups/mobile-specs/phase-18-mobile-receive-spec.md
+//
+// Serial-tracked products (TrackingMethod = 'LotAndSerial') show a
+// "use desktop for serial-tracked products" banner instead of the
+// serial entry mode — schema + per-line serial table land in
+// Phase 18.5 (TD).
 [Authorize]
 [Route("receive")]
-public sealed class ReceiveController : BaseController
+public sealed class ReceiveController : Controller
 {
-    private readonly IReceivingHeaderService _receivingHeaderService;
-    private readonly ITenantConnectionFactory _tenantConn;
+    private readonly IReceivingHeaderService _receivingService;
+    private readonly IPurchaseOrderRepositoryFactory _poRepos;
+    private readonly IProductRepositoryFactory _productRepos;
+    private readonly ITenantContext _tenant;
+    private readonly ICurrentUser _currentUser;
 
     public ReceiveController(
-        IReceivingHeaderService receivingHeaderService,
-        ITenantConnectionFactory tenantConn)
+        IReceivingHeaderService receivingService,
+        IPurchaseOrderRepositoryFactory poRepos,
+        IProductRepositoryFactory productRepos,
+        ITenantContext tenant,
+        ICurrentUser currentUser)
     {
-        _receivingHeaderService = receivingHeaderService;
-        _tenantConn = tenantConn;
+        _receivingService = receivingService;
+        _poRepos = poRepos;
+        _productRepos = productRepos;
+        _tenant = tenant;
+        _currentUser = currentUser;
     }
 
+    // GET /receive — queue. Two paged calls (Open FIFO + Receiving
+    // FIFO via the existing PurchaseOrderRepository) merged with
+    // Receiving on top — operator likely returning to a partially-
+    // received PO. Page size 50 per status — generous for a single
+    // receiver session.
     [HttpGet("")]
-    public IActionResult Index(string? sku = null)
+    public async Task<IActionResult> Index(CancellationToken ct)
     {
-        if (CurrentUser.WarehouseId is null)
+        if (_currentUser.WarehouseId is null)
             return RedirectToAction("SelectWarehouse", "Auth");
 
-        // TD-017 partial: when arriving via the Products Detail
-        // "Receive stock" Quick Action, prefill ProductCode so the
-        // operator doesn't re-key the SKU they already navigated from.
-        return View(new ReceiveFormModel
-        {
-            OwnerCode = "SELF",
-            Quantity = 1,
-            ProductCode = sku?.Trim() ?? string.Empty,
-        });
+        var tenantId = _tenant.RequireTenantId();
+        var repo = _poRepos.For(tenantId);
+
+        var open = await repo.GetPagedAsync(new PurchaseOrderFilter(
+            Page: 1, PageSize: 50,
+            Status: "Open",
+            SortBy: "expectedDate", SortDesc: false), ct);
+        var receiving = await repo.GetPagedAsync(new PurchaseOrderFilter(
+            Page: 1, PageSize: 50,
+            Status: "Receiving",
+            SortBy: "expectedDate", SortDesc: false), ct);
+
+        var rows = receiving.Items.Concat(open.Items).ToList();
+        return View(rows);
     }
 
-    [HttpPost("post")]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Post(ReceiveFormModel model, CancellationToken ct)
+    // GET /receive/{poId} — task page. Loads the PO header + lines
+    // and surfaces per-line cards keyed for entry. Closed/Cancelled
+    // POs render NotFound — operator shouldn't be entering receipts
+    // against them via this surface (desktop GoodsReceipt allows
+    // edge cases like blind receipts, mobile keeps it simple).
+    [HttpGet("{poId:guid}")]
+    public async Task<IActionResult> Task(Guid poId, CancellationToken ct)
     {
-        if (CurrentUser.WarehouseId is not { } warehouseId)
+        if (_currentUser.WarehouseId is null)
             return RedirectToAction("SelectWarehouse", "Auth");
 
-        if (!ModelState.IsValid)
-            return View(nameof(Index), model);
-
-        // PO number / line either both or neither.
-        if (!string.IsNullOrWhiteSpace(model.PoNumber) && model.PoLineNumber is null)
-        {
-            ModelState.AddModelError(nameof(model.PoLineNumber),
-                "PO Line is required when PO Number is given.");
-            return View(nameof(Index), model);
-        }
-        if (string.IsNullOrWhiteSpace(model.PoNumber) && model.PoLineNumber is not null)
-        {
-            ModelState.AddModelError(nameof(model.PoNumber),
-                "PO Number is required when PO Line is given.");
-            return View(nameof(Index), model);
-        }
-
-        var tenantId = TenantContext.RequireTenantId();
-        using var conn = _tenantConn.CreateConnection(tenantId);
-
-        // Resolve master-data codes → Ids. Each lookup is a tiny
-        // SELECT; failures are reported as field-level model errors
-        // so the operator sees exactly which code mistyped.
-        var (productId, baseUomId) =
-            await ResolveProductAsync(conn, model.ProductCode.Trim(), ct);
-        if (productId is null)
-            ModelState.AddModelError(nameof(model.ProductCode),
-                $"Product '{model.ProductCode}' not found or inactive.");
-
-        var ownerId = await ResolveOwnerAsync(conn, model.OwnerCode.Trim(), ct);
-        if (ownerId is null)
-            ModelState.AddModelError(nameof(model.OwnerCode),
-                $"Owner '{model.OwnerCode}' not found or inactive.");
-
-        var locationId = await ResolveLocationAsync(
-            conn, warehouseId, model.LocationCode.Trim(), ct);
-        if (locationId is null)
-            ModelState.AddModelError(nameof(model.LocationCode),
-                $"Location '{model.LocationCode}' not found in this warehouse.");
-
-        Guid? poId = null;
-        Guid? poLineId = null;
-        if (!string.IsNullOrWhiteSpace(model.PoNumber))
-        {
-            poId = await ResolvePoAsync(conn, model.PoNumber.Trim(), ct);
-            if (poId is null)
-                ModelState.AddModelError(nameof(model.PoNumber),
-                    $"PO '{model.PoNumber}' not found.");
-            else if (model.PoLineNumber is { } poLineNumber)
-            {
-                poLineId = await ResolvePoLineAsync(conn, poId.Value, poLineNumber, ct);
-                if (poLineId is null)
-                    ModelState.AddModelError(nameof(model.PoLineNumber),
-                        $"PO line {poLineNumber} not found on '{model.PoNumber}'.");
-            }
-        }
-
-        if (!ModelState.IsValid)
-            return View(nameof(Index), model);
-
-        // Build the request — single-line receive at this point. Future
-        // ε iterations may collect several lines on one receipt.
-        var lotInfo = string.IsNullOrWhiteSpace(model.LotNumber)
-            ? null
-            : new LotInfo(
-                model.LotNumber.Trim(),
-                DateOnly.FromDateTime(DateTime.UtcNow),
-                model.ExpiryDate);
-
-        var palletInfo = string.IsNullOrWhiteSpace(model.PalletNumber)
-            ? null
-            : new PalletInfo(model.PalletNumber.Trim());
-
-        var request = new PostReceivingRequest(
-            ReceivingNumber: model.ReceivingNumber.Trim(),
-            PurchaseOrderId: poId,
-            WarehouseId: warehouseId,
-            ReceivedAt: null,
-            Notes: model.Notes,
-            Lines: new[]
-            {
-                new PostReceivingLineRequest(
-                    LineNumber: 1,
-                    PurchaseOrderLineId: poLineId,
-                    ProductId: productId!.Value,
-                    UomId: baseUomId!.Value,
-                    OwnerId: ownerId!.Value,
-                    LocationId: locationId!.Value,
-                    ReceivedQuantity: model.Quantity,
-                    Lot: lotInfo,
-                    Pallet: palletInfo),
-            });
-
-        try
-        {
-            var detail = await _receivingHeaderService.PostReceivingAsync(
-                tenantId, request, CurrentUser.UserId, ct);
-            return RedirectToAction(nameof(Posted), new { id = detail.Header.Id });
-        }
-        catch (Exception ex)
-        {
-            // Catches DB-level violations (duplicate ReceivingNumber,
-            // FK orphans surfacing late). User sees the message inline.
-            ModelState.AddModelError(string.Empty, ex.Message);
-            Logger.LogWarning(ex, "Receive failed for {ReceivingNumber}", model.ReceivingNumber);
-            return View(nameof(Index), model);
-        }
-    }
-
-    [HttpGet("posted/{id:guid}")]
-    public async Task<IActionResult> Posted(Guid id, CancellationToken ct)
-    {
-        var detail = await _receivingHeaderService.GetByIdAsync(
-            TenantContext.RequireTenantId(), id, ct);
+        var tenantId = _tenant.RequireTenantId();
+        var detail = await _poRepos.For(tenantId).GetByIdAsync(poId, ct);
         if (detail is null) return NotFound();
+
+        if (detail.Header.Status is not "Open" and not "Receiving")
+            return NotFound();
+
+        // Bulk product metadata (Code + Name + TrackingMethod) for
+        // the per-line cards. One round-trip vs N per-line lookups.
+        var productMeta = await _productRepos.For(tenantId).GetMetaByIdsAsync(
+            detail.Lines.Select(l => l.ProductId), ct);
+
+        ViewBag.ProductMeta    = productMeta;
+        ViewBag.ReceiveMessage = TempData["ReceiveMessage"] as string;
+        ViewBag.ReceiveError   = TempData["ReceiveError"]   as string;
         return View(detail);
     }
 
-    // --- code resolvers ----------------------------------------------
-
-    private static async Task<(Guid? ProductId, Guid? BaseUomId)> ResolveProductAsync(
-        System.Data.IDbConnection conn, string code, CancellationToken ct)
+    // POST /receive/submit/{poId} — projects the form into a
+    // PostReceivingRequest and hits the same service entry as the
+    // desktop GoodsReceipt form. Lines with ReceivedQty=0 are dropped
+    // (operator left them blank; Phase 1's flat form already had
+    // this behavior). Lines pointing at LotAndSerial products get
+    // skipped with an error banner — serial entry is a Phase 18.5 TD.
+    [HttpPost("submit/{poId:guid}")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Submit(
+        Guid poId, MobileReceiveSubmitViewModel vm, CancellationToken ct)
     {
-        var row = await conn.QuerySingleOrDefaultAsync<(Guid Id, Guid BaseUomId)?>(
-            new CommandDefinition(
-                "SELECT Id, BaseUomId FROM master.Products " +
-                "WHERE Code = @code AND Status = 'Active'",
-                new { code },
-                cancellationToken: ct));
-        return row is null ? (null, null) : (row.Value.Id, row.Value.BaseUomId);
+        if (_currentUser.WarehouseId is not { } warehouseId)
+            return RedirectToAction("SelectWarehouse", "Auth");
+
+        var tenantId = _tenant.RequireTenantId();
+        var po = await _poRepos.For(tenantId).GetByIdAsync(poId, ct);
+        if (po is null) return NotFound();
+
+        // Resolve product TrackingMethods once so we can short-circuit
+        // submits that include serial-tracked lines (Phase 18.5 will
+        // accept them via a serial-aware service surface).
+        var productMeta = await _productRepos.For(tenantId).GetMetaByIdsAsync(
+            po.Lines.Select(l => l.ProductId), ct);
+
+        var requestLines = new List<PostReceivingLineRequest>();
+        var lineNumber = 1;
+
+        foreach (var entry in vm.Lines ?? Enumerable.Empty<MobileReceiveLineEntry>())
+        {
+            // Operator left this line blank — skip silently.
+            if (entry.ReceivedQuantity is null or <= 0) continue;
+
+            var poLine = po.Lines.FirstOrDefault(l => l.Id == entry.PoLineId);
+            if (poLine is null)
+            {
+                TempData["ReceiveError"] = $"Unknown line {entry.PoLineId} on PO.";
+                return RedirectToAction(nameof(Task), new { poId });
+            }
+
+            // Serial-tracked guard — service shape doesn't accept
+            // serials yet (TD-040). Reject the whole submit so the
+            // operator doesn't get a half-receipt; they finish on
+            // desktop instead.
+            if (productMeta.TryGetValue(poLine.ProductId, out var meta)
+                && meta.TrackingMethod == "LotAndSerial")
+            {
+                TempData["ReceiveError"] =
+                    $"Line {poLine.LineNumber} ({meta.Code}) is serial-tracked. " +
+                    "Use the desktop Goods Receipt form (mobile serial entry is Phase 18.5).";
+                return RedirectToAction(nameof(Task), new { poId });
+            }
+
+            var lotInfo = string.IsNullOrWhiteSpace(entry.LotNumber)
+                ? null
+                : new LotInfo(
+                    entry.LotNumber.Trim(),
+                    DateOnly.FromDateTime(DateTime.UtcNow),
+                    entry.ExpiryDate);
+
+            var palletInfo = string.IsNullOrWhiteSpace(entry.PalletNumber)
+                ? null
+                : new PalletInfo(entry.PalletNumber.Trim());
+
+            // Each receiving line lands at the PO line's product/uom
+            // pair. Location: operator's current warehouse default —
+            // the spec's MVP doesn't ask the operator to pick a
+            // location per line (defer to a future TD if needed).
+            // For now, use the warehouse's default receiving location
+            // by FK convention (same as Phase 1's resolveLocation
+            // path used "RECV" code lookup; here we punt to the PO's
+            // implied receiving zone via... actually we need a
+            // location). Fall back to operator-provided LocationCode
+            // resolved via product's expected put-zone. To keep MVP
+            // simple, require a non-null location code per line.
+            if (string.IsNullOrWhiteSpace(entry.LocationCode))
+            {
+                TempData["ReceiveError"] =
+                    $"Line {poLine.LineNumber}: location code is required.";
+                return RedirectToAction(nameof(Task), new { poId });
+            }
+
+            // Inline location resolution — small enough to keep here.
+            var locId = await ResolveLocationIdAsync(
+                tenantId, warehouseId, entry.LocationCode.Trim(), ct);
+            if (locId is null)
+            {
+                TempData["ReceiveError"] =
+                    $"Line {poLine.LineNumber}: location '{entry.LocationCode}' not found.";
+                return RedirectToAction(nameof(Task), new { poId });
+            }
+
+            requestLines.Add(new PostReceivingLineRequest(
+                LineNumber: lineNumber++,
+                PurchaseOrderLineId: poLine.Id,
+                ProductId: poLine.ProductId,
+                UomId: poLine.UomId,
+                OwnerId: po.Header.OwnerId,
+                LocationId: locId.Value,
+                ReceivedQuantity: entry.ReceivedQuantity.Value,
+                Lot: lotInfo,
+                Pallet: palletInfo));
+        }
+
+        if (requestLines.Count == 0)
+        {
+            TempData["ReceiveError"] = "Enter received quantity on at least one line.";
+            return RedirectToAction(nameof(Task), new { poId });
+        }
+
+        // Server-side ReceivingNumber assignment — operator doesn't
+        // pick one on mobile. RCV-YYYYMMDD-HHmmss-{poId8} is unique
+        // enough at single-warehouse cadence; the spec doesn't
+        // mandate the format (desktop GoodsReceipt assigns its own).
+        var receivingNumber = $"RCV-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{poId.ToString("N").Substring(0, 8)}";
+
+        var request = new PostReceivingRequest(
+            ReceivingNumber: receivingNumber,
+            PurchaseOrderId: poId,
+            WarehouseId: warehouseId,
+            ReceivedAt: null,
+            Notes: vm.Notes,
+            Lines: requestLines);
+
+        try
+        {
+            var result = await _receivingService.PostReceivingAsync(
+                tenantId, request, _currentUser.UserId, ct);
+            TempData["ReceiveMessage"] =
+                $"Received {requestLines.Count} line(s) on {result.Header.ReceivingNumber}.";
+            // Mobile UX: bounce to queue (operator grabs next PO).
+            return RedirectToAction(nameof(Index));
+        }
+        catch (Exception ex)
+        {
+            TempData["ReceiveError"] = ex.Message;
+            return RedirectToAction(nameof(Task), new { poId });
+        }
     }
 
-    private static Task<Guid?> ResolveOwnerAsync(
-        System.Data.IDbConnection conn, string code, CancellationToken ct) =>
-        conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
-            "SELECT Id FROM master.Owners WHERE Code = @code AND IsActive = 1",
-            new { code },
-            cancellationToken: ct));
+    // POST /receive/cancel/{poId} — operator backs out of the task
+    // page. No DB state to revert (receipts only persist on submit;
+    // pre-submit data is operator's local form state). The reason
+    // field is captured for future audit if a draft-receipt model
+    // lands. Idempotent.
+    [HttpPost("cancel/{poId:guid}")]
+    [ValidateAntiForgeryToken]
+    public IActionResult Cancel(Guid poId, string reason)
+    {
+        TempData["ReceiveMessage"] = string.IsNullOrWhiteSpace(reason)
+            ? "Receipt entry discarded."
+            : $"Receipt entry discarded: {reason.Trim()}";
+        return RedirectToAction(nameof(Index));
+    }
 
-    private static Task<Guid?> ResolveLocationAsync(
-        System.Data.IDbConnection conn, Guid warehouseId, string code, CancellationToken ct) =>
-        conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
-            "SELECT Id FROM master.Locations " +
-            "WHERE WarehouseId = @warehouseId AND Code = @code " +
-            "  AND IsActive = 1 AND Status = 'Active'",
-            new { warehouseId, code },
-            cancellationToken: ct));
-
-    private static Task<Guid?> ResolvePoAsync(
-        System.Data.IDbConnection conn, string poNumber, CancellationToken ct) =>
-        conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
-            "SELECT Id FROM inbound.PurchaseOrders " +
-            "WHERE PoNumber = @poNumber AND Status IN ('Open', 'Receiving')",
-            new { poNumber },
-            cancellationToken: ct));
-
-    private static Task<Guid?> ResolvePoLineAsync(
-        System.Data.IDbConnection conn, Guid poId, int lineNumber, CancellationToken ct) =>
-        conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
-            "SELECT Id FROM inbound.PurchaseOrderLines " +
-            "WHERE PurchaseOrderId = @poId AND LineNumber = @lineNumber",
-            new { poId, lineNumber },
-            cancellationToken: ct));
+    // Tiny inline location resolver — same shape as Phase 1's
+    // ResolveLocationAsync. Repo-method extraction would be cleaner
+    // but it's a one-call site; keeps the Phase 18 surface small.
+    private async Task<Guid?> ResolveLocationIdAsync(
+        Guid tenantId, Guid warehouseId, string code, CancellationToken ct)
+    {
+        // We don't have an injected ILocationRepository here yet (and
+        // the existing one's GetActiveByWarehouseAsync returns lookup
+        // items, not a per-code lookup). Delegate to the tenant
+        // connection for a single-row lookup — same pattern as Phase
+        // 1's inline resolvers.
+        var connFactory = HttpContext.RequestServices.GetRequiredService<ITenantConnectionFactory>();
+        using var conn = connFactory.CreateConnection(tenantId);
+        return await Dapper.SqlMapper.QuerySingleOrDefaultAsync<Guid?>(
+            conn,
+            new Dapper.CommandDefinition(
+                "SELECT Id FROM master.Locations " +
+                "WHERE WarehouseId = @warehouseId AND Code = @code " +
+                "  AND IsActive = 1 AND Status = 'Active'",
+                new { warehouseId, code },
+                cancellationToken: ct));
+    }
 }

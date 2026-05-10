@@ -56,4 +56,19 @@ public interface IProductRepository
     // — operator shouldn't add a discontinued SKU to a fresh order).
     // Ordered by Code ASC.
     Task<IReadOnlyList<LookupItem>> GetActiveAsync(CancellationToken ct = default);
+
+    // Phase 18 — bulk projection for the mobile Receive task page.
+    // Returns Code + Name + TrackingMethod for the given product ids
+    // so the per-line cards can render product labels + flag serial-
+    // tracked products without per-line round-trips.
+    // TrackingMethod ∈ {'None', 'Lot', 'LotAndSerial'} per migration 014.
+    Task<IReadOnlyDictionary<Guid, ProductLineMeta>> GetMetaByIdsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default);
 }
+
+// Phase 18 — projection returned by IProductRepository.GetMetaByIdsAsync.
+// Keeps the receive task page's per-line render to one bulk query.
+public sealed record ProductLineMeta(
+    string Code,
+    string Name,
+    string TrackingMethod);

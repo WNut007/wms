@@ -230,4 +230,25 @@ JOIN master.ProductCategories c ON c.Id = p.CategoryId
             TotalPages = (int)Math.Ceiling(total / (double)f.PageSize),
         };
     }
+
+    public async Task<IReadOnlyDictionary<Guid, ProductLineMeta>> GetMetaByIdsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var ids = productIds.Distinct().ToArray();
+        if (ids.Length == 0)
+            return new Dictionary<Guid, ProductLineMeta>();
+
+        // Dapper expands the @ids parameter to (@p0, @p1, …) — works
+        // up to ~2100 parameters, plenty for a single PO's line set.
+        const string sql = @"
+SELECT Id, Code, Name, TrackingMethod
+FROM master.Products
+WHERE Id IN @ids;";
+
+        var rows = await _connection.QueryAsync<(Guid Id, string Code, string Name, string TrackingMethod)>(
+            new CommandDefinition(sql, new { ids }, cancellationToken: ct));
+        return rows.ToDictionary(
+            r => r.Id,
+            r => new ProductLineMeta(r.Code, r.Name, r.TrackingMethod));
+    }
 }
