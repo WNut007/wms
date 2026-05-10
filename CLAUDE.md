@@ -346,11 +346,65 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone · **Outbound MVP chain closed end-to-end** (SO → Allocate → Pick → Pack → Ship)
-**Current Focus**: Phase 15 (post-MVP) candidates: list pages for /PickTasks + /PackTasks + /Shipments (TD-036/037/038); mobile picker PWA (was 14E in roadmap but desktop ship landed first); pack video (ADR-009 spec); carrier FK integration; manifest workflow.
-**Blockers**: none — migrations 20260510_029 through _031 already applied to dev tenant
+**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` · **Outbound MVP chain closed + browseable** (4 outbound list pages now in sidebar)
+**Current Focus**: Phase 15+ post-MVP candidates: mobile picker PWA (was 14E in original roadmap; same `IPickTaskService.SubmitAsync` entry point); pack video (ADR-009 spec); carrier FK integration; manifest workflow; post-Submit reversal flows.
+**Blockers**: none — no new schema in 15A (read-only DAL extensions only)
 
 Update this section weekly during standups.
+
+### Day 10 — Phase 15A (Outbound list pages — Pick / Pack / Ship)
+
+**Branch**: `feat/post-mvp-list-pages` → merged to `main` · **Tag**: `v2.1.0-list-pages` · **Closes**: TD-036 (PickTasks list) + TD-037 (PackTasks list) + Shipments list (sub-item of TD-038)
+
+First post-MVP phase. Three list pages, one per outbound execution surface, all mirroring the canonical SalesOrders Index template. The Outbound submenu is now complete — operator can browse Pick / Pack / Shipment queues without going through SO Detail's Generate redirect chain.
+
+**No schema changes** — purely read-only DAL extensions + new controller actions + Razor views + sidebar entries. 4 commits across 4 chunks (T1 Pick, T2 Pack, T3 Ship, T4 tests) + 1 doc commit + tag.
+
+**DAL pattern per surface** (3 records + 1 mapper + 2 repo methods):
+- `XxxListRow` record — read-projection JOINing `outbound.SalesOrders` + `master.Customers` for SoNumber + customer label, plus per-task aggregates (LineCount for Pick/Pack via CTE; CartonCount for Ship via filtered-index-friendly CTE on `outbound.Cartons WHERE ShipmentId IS NOT NULL`)
+- `XxxFilter` record — Page / PageSize / Search / Status / SortBy / SortDesc
+- `XxxStatusCounts` record — chip aggregate (5/4/4 fields for Pick/Pack/Ship per their state-machine widths)
+- `XxxSortMapper` — closed-set whitelist (SQL-injection defence; mirrors Phase 14A `SalesOrderSortMapper`)
+- `IXxxRepository.GetPagedAsync` + `GetStatusCountsAsync` — paged read with JOINs + chip-count single SUM(CASE) aggregate respecting Search but ignoring Status (so inactive chips still display totals)
+
+**Controller pattern per surface** (2 actions added to existing controllers):
+- `GET /Xxx` — `Index()` returns View
+- `GET /Xxx/Data` — JSON envelope `{ items, total, page, pageSize, totalPages, counts }` with status filter going through `XxxStatusMapper.FromWire` (case-insensitive) and `ToWire` on response. Sorted via `sortBy` query parameter (whitelist-validated).
+
+**View pattern per surface** (1 Razor file):
+- `Views/Xxx/Index.cshtml` — Alpine `xxxList()` state with debounced search + status chip strip + sortable table + Prev/Next pagination. Click row → `/Xxx/Detail/{id}`. `badgeClass` map matches `XxxStatusMapper` variant assignments. **No "New" button** for any of the 3 — pick / pack / ship tasks are generated from upstream entities, never created directly.
+
+**Per-surface specifics**:
+- **PickTasks** (T1): 5 chip states (Pending / In progress / Picked / Partial / Cancelled), 7-col table (Pick # / SO # / Customer / Status / Lines / Generated / By). Search matches PickNumber OR SoNumber.
+- **PackTasks** (T2): 3 chip states (Pending / Packed / Cancelled — same minimalism as 14D), 7-col table. Search matches PackNumber OR SoNumber.
+- **Shipments** (T3): 3 chip states (Pending / Shipped / Cancelled), **8-col table** (Shipment # / SO # / Customer / Status / **Carrier / Tracking** / Cartons / Generated). **Search matches THREE columns**: ShipmentNumber + SoNumber + TrackingNumber — operators commonly look up shipments by tracking when a customer calls; making it a first-class search target avoids "find the SO first" friction. Single-table (no per-line aggregate) but DOES carry a per-shipment carton count via CTE leveraging the Phase 14E `IX_Cartons_Shipment WHERE ShipmentId IS NOT NULL` filtered index.
+
+**Sidebar**: Outbound submenu walks forward chunk-by-chunk:
+- After T1: Sales Orders + Pick Tasks
+- After T2: Sales Orders + Pick Tasks + Pack Tasks
+- After T3: Sales Orders + Pick Tasks + Pack Tasks + Shipments (complete — every outbound surface reachable)
+
+**Tests** (T4, +9 net): 3 tests per controller × 3 surfaces. Tight pattern:
+- `Index_ReturnsView` — trivial guard
+- `GetData_Happy_ReturnsItemsAndCounts` — stub repo with 1 item + state counts; assert envelope shape + counts shape per surface
+- `GetData_StatusFilter_MappedToDb` — wire `'partiallypicked'`/`'packed'`/`'shipped'` (lowercase) → DB `'PartiallyPicked'`/`'Packed'`/`'Shipped'` via the relevant StatusMapper.FromWire; verifies the filter flows through the right `XxxFilter` shape.
+
+Test posture: **820 passing** (was 811 / +9). 288 unit + 527 integration + 5 skipped.
+
+**Out of scope** (still open from MVP TDs and untouched here):
+- Mobile picker PWA (was 14E in original roadmap)
+- Pack video (ADR-009 spec needed)
+- `master.Carriers` FK lookup integration (carriers seeded as Inactive blocks dropdown)
+- Multi-shipment per SO + multi-carton splitting (UNIQUE drops in future migrations)
+- Carrier API / label printing / tracking auto-assignment
+- Manifest workflow (Build → Seal → Handover with driver signature)
+- Tracking events ingestion
+- Post-Submit reversal ("return to stock") for any of pick/pack/ship
+- Post-Submit edit on shipment metadata (operator may want to add tracking number after dispatch)
+- ScanEach vs ScanAndQty per-product pack modes
+- Per-list saved filters / column customisation / CSV export
+
+**Notes on chunk-by-chunk hiccups**: None. Highest-reuse phase yet — T2 and T3 were near-mechanical translations of T1's pattern. Total time well under half-day estimate.
 
 ### Day 10 — Phase 14E (Ship Workflow — desktop dispatch form, MVP single-shipment)
 
@@ -1656,5 +1710,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-10 (Day 10 — v2.0.0-outbound-mvp milestone tag · Outbound MVP chain closed end-to-end)
-**Version**: 1.28
+**Last updated**: 2026-05-10 (Day 10 — Phase 15A list pages; v2.1.0-list-pages · Outbound submenu complete)
+**Version**: 1.29

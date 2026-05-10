@@ -2,6 +2,7 @@ using System.Data;
 using System.Transactions;
 using Dapper;
 using Microsoft.Data.SqlClient;
+using WMS.DAL.Common;
 using WMS.Domain.Entities.Outbound;
 
 namespace WMS.DAL.Repositories.Outbound;
@@ -276,4 +277,91 @@ WHERE Id = @Id AND Status = @FromStatus;";
               WHERE PickNumber LIKE @prefix + '%';",
             new { prefix = datePrefix },
             cancellationToken: ct));
+
+    public async Task<PagedResult<PickTaskListRow>> GetPagedAsync(
+        PickTaskFilter f, CancellationToken ct = default)
+    {
+        var orderBy = PickTaskSortMapper.ToOrderByClause(f.SortBy, f.SortDesc);
+        var skip = (f.Page - 1) * f.PageSize;
+        var take = f.PageSize;
+        var searchLike = string.IsNullOrWhiteSpace(f.Search) ? null : $"%{f.Search.Trim()}%";
+
+        const string whereClause = @"
+WHERE (@Status     IS NULL OR pt.Status = @Status)
+  AND (@SearchLike IS NULL OR pt.PickNumber LIKE @SearchLike OR so.SoNumber LIKE @SearchLike)";
+
+        var sql = $@"
+WITH agg AS (
+    SELECT PickTaskId, COUNT(*) AS LineCount
+    FROM outbound.PickTaskLines
+    GROUP BY PickTaskId
+)
+SELECT
+    pt.Id, pt.PickNumber,
+    pt.SalesOrderId, so.SoNumber,
+    c.Code AS CustomerCode, c.Name AS CustomerName,
+    pt.Status,
+    ISNULL(agg.LineCount, 0) AS LineCount,
+    pt.GeneratedAt,
+    COALESCE(u.FullName, u.Email, 'System') AS GeneratedByName,
+    pt.CompletedAt,
+    pt.CancelledAt
+FROM outbound.PickTasks pt
+JOIN outbound.SalesOrders so ON so.Id = pt.SalesOrderId
+JOIN master.Customers     c  ON c.Id  = so.CustomerId
+LEFT JOIN security.Users  u  ON u.Id  = pt.GeneratedBy
+LEFT JOIN agg ON agg.PickTaskId = pt.Id
+{whereClause}
+ORDER BY {orderBy}
+OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY;
+
+SELECT COUNT(*)
+FROM outbound.PickTasks pt
+JOIN outbound.SalesOrders so ON so.Id = pt.SalesOrderId
+{whereClause};";
+
+        var args = new
+        {
+            f.Status,
+            SearchLike = searchLike,
+            Skip = skip,
+            Take = take,
+        };
+
+        using var multi = await _connection.QueryMultipleAsync(new CommandDefinition(
+            sql, args, cancellationToken: ct));
+
+        var items = (await multi.ReadAsync<PickTaskListRow>()).AsList();
+        var total = await multi.ReadSingleAsync<int>();
+
+        return new PagedResult<PickTaskListRow>
+        {
+            Items = items,
+            Total = total,
+            Page = f.Page,
+            PageSize = f.PageSize,
+            TotalPages = (int)Math.Ceiling(total / (double)f.PageSize),
+        };
+    }
+
+    public async Task<PickTaskStatusCounts> GetStatusCountsAsync(
+        PickTaskFilter f, CancellationToken ct = default)
+    {
+        var searchLike = string.IsNullOrWhiteSpace(f.Search) ? null : $"%{f.Search.Trim()}%";
+
+        const string sql = @"
+SELECT
+    COUNT(*)                                                        AS [All],
+    SUM(CASE WHEN pt.Status = 'Pending'         THEN 1 ELSE 0 END)  AS Pending,
+    SUM(CASE WHEN pt.Status = 'InProgress'      THEN 1 ELSE 0 END)  AS InProgress,
+    SUM(CASE WHEN pt.Status = 'Picked'          THEN 1 ELSE 0 END)  AS Picked,
+    SUM(CASE WHEN pt.Status = 'PartiallyPicked' THEN 1 ELSE 0 END)  AS PartiallyPicked,
+    SUM(CASE WHEN pt.Status = 'Cancelled'       THEN 1 ELSE 0 END)  AS Cancelled
+FROM outbound.PickTasks pt
+JOIN outbound.SalesOrders so ON so.Id = pt.SalesOrderId
+WHERE (@SearchLike IS NULL OR pt.PickNumber LIKE @SearchLike OR so.SoNumber LIKE @SearchLike);";
+
+        return await _connection.QuerySingleAsync<PickTaskStatusCounts>(
+            new CommandDefinition(sql, new { SearchLike = searchLike }, cancellationToken: ct));
+    }
 }

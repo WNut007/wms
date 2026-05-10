@@ -13,13 +13,11 @@ using WMS.Web.ViewModels.Detail;
 namespace WMS.Web.Controllers;
 
 // Phase 14E — Shipment execution surface.
-//   GET  /Shipments/Detail/{id}   — _DetailLayout w/ inline submit form (Pending) or read-only summary (terminal)
-//   POST /Shipments/Submit/{id}   — TX-wrapped commit via ShipmentService.SubmitAsync
-//   POST /Shipments/Cancel/{id}   — pre-Submit reversal via ShipmentService.CancelAsync
-//
-// Index / GetData (list page + chip counts) deferred to a follow-up
-// chunk — operator reaches shipments via the GenerateShipment redirect
-// from /SalesOrders/Detail (mirrors 14C/14D).
+//   GET  /Shipments                — Phase 15A list page (chip counts + table + pagination)
+//   GET  /Shipments/Data           — Phase 15A JSON envelope for Alpine
+//   GET  /Shipments/Detail/{id}    — _DetailLayout w/ inline submit form (Pending) or read-only summary (terminal)
+//   POST /Shipments/Submit/{id}    — TX-wrapped commit via ShipmentService.SubmitAsync
+//   POST /Shipments/Cancel/{id}    — pre-Submit reversal via ShipmentService.CancelAsync
 [Authorize]
 [Route("Shipments")]
 public sealed class ShipmentsController : Controller
@@ -48,6 +46,64 @@ public sealed class ShipmentsController : Controller
         _tenant = tenant;
         _currentUser = currentUser;
         _cancelValidator = cancelValidator;
+    }
+
+    [HttpGet("")]
+    public IActionResult Index() => View();
+
+    [HttpGet("Data")]
+    public async Task<IActionResult> GetData(
+        int page = 1,
+        int pageSize = 20,
+        string? search = null,
+        string? status = null,
+        string sortBy = "generatedAt",
+        bool sortDesc = true,
+        CancellationToken ct = default)
+    {
+        var filter = new ShipmentFilter(
+            Page: page,
+            PageSize: pageSize,
+            Search: search,
+            Status: ShipmentStatusMapper.FromWire(status),
+            SortBy: sortBy,
+            SortDesc: sortDesc);
+
+        var repo = _shipmentRepos.For(_tenant.RequireTenantId());
+        var result = await repo.GetPagedAsync(filter, ct);
+        var counts = await repo.GetStatusCountsAsync(filter, ct);
+
+        return Json(new
+        {
+            items = result.Items.Select(r => new
+            {
+                id              = r.Id,
+                shipmentNumber  = r.ShipmentNumber,
+                salesOrderId    = r.SalesOrderId,
+                soNumber        = r.SoNumber,
+                customerCode    = r.CustomerCode,
+                customerName    = r.CustomerName,
+                status          = ShipmentStatusMapper.ToWire(r.Status),
+                statusLabel     = r.Status,
+                carrierName     = r.CarrierName,
+                trackingNumber  = r.TrackingNumber,
+                cartonCount     = r.CartonCount,
+                generatedAt     = r.GeneratedAt,
+                generatedRelative = RelativeTime.Format(r.GeneratedAt),
+                generatedByName = r.GeneratedByName,
+            }),
+            total      = result.Total,
+            page       = result.Page,
+            pageSize   = result.PageSize,
+            totalPages = result.TotalPages,
+            counts     = new
+            {
+                all       = counts.All,
+                pending   = counts.Pending,
+                shipped   = counts.Shipped,
+                cancelled = counts.Cancelled,
+            },
+        });
     }
 
     [HttpGet("Detail/{id:guid}")]

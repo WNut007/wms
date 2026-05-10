@@ -316,4 +316,69 @@ public class PackTasksControllerTests
         Assert.Contains("already cancelled",
             b.Controller.TempData["PackTaskMessage"]?.ToString() ?? "");
     }
+
+    // ================================================================
+    // Index + GetData (Phase 15A list page)
+    // ================================================================
+
+    [Fact]
+    public void Index_ReturnsView()
+    {
+        var b = BuildController();
+        var result = b.Controller.Index();
+        Assert.IsType<ViewResult>(result);
+    }
+
+    [Fact]
+    public async Task GetData_Happy_ReturnsItemsAndCounts()
+    {
+        var b = BuildController();
+        var rowId = Guid.NewGuid();
+        b.PackRepo.Setup(r => r.GetPagedAsync(
+                It.IsAny<PackTaskFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new WMS.DAL.Common.PagedResult<PackTaskListRow>
+            {
+                Items = new List<PackTaskListRow>
+                {
+                    new(rowId, "PACK-001", Guid.NewGuid(), "SO-001",
+                        "CUST-A", "Cust A", "Pending", 2,
+                        DateTime.UtcNow, "Maya", null, null),
+                },
+                Total = 1, Page = 1, PageSize = 20, TotalPages = 1,
+            });
+        b.PackRepo.Setup(r => r.GetStatusCountsAsync(
+                It.IsAny<PackTaskFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PackTaskStatusCounts(
+                All: 4, Pending: 2, Packed: 1, Cancelled: 1));
+
+        var result = Assert.IsType<JsonResult>(await b.Controller.GetData());
+        var envelope = result.Value!;
+        Assert.Equal(1, envelope.GetType().GetProperty("total")!.GetValue(envelope));
+
+        var counts = envelope.GetType().GetProperty("counts")!.GetValue(envelope)!;
+        Assert.Equal(4, counts.GetType().GetProperty("all")!.GetValue(counts));
+        Assert.Equal(1, counts.GetType().GetProperty("packed")!.GetValue(counts));
+    }
+
+    [Fact]
+    public async Task GetData_StatusFilter_MappedToDb()
+    {
+        var b = BuildController();
+        b.PackRepo.Setup(r => r.GetPagedAsync(
+                It.IsAny<PackTaskFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new WMS.DAL.Common.PagedResult<PackTaskListRow>
+            {
+                Items = new(), Total = 0, Page = 1, PageSize = 20, TotalPages = 0,
+            });
+        b.PackRepo.Setup(r => r.GetStatusCountsAsync(
+                It.IsAny<PackTaskFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PackTaskStatusCounts(0, 0, 0, 0));
+
+        await b.Controller.GetData(status: "packed");
+
+        b.PackRepo.Verify(r => r.GetPagedAsync(
+            It.Is<PackTaskFilter>(f => f.Status == "Packed"),
+            It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
 }

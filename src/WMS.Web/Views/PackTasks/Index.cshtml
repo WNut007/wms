@@ -1,0 +1,141 @@
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Pack Tasks";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Pack Tasks</p>
+        <div class="wms-breadcrumb">
+            <span>Operations</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span>Outbound</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Pack Tasks</span>
+        </div>
+    </div>
+</div>
+
+<div class="wms-card" style="padding: 0;" x-data="packTaskList()">
+    <div class="wms-filter-bar">
+        <div class="wms-filter-search">
+            <i class="ti ti-search wms-filter-search-icon" aria-hidden="true"></i>
+            <input type="text" class="wms-input"
+                   placeholder="Search by pack # or SO #..."
+                   x-model.debounce.250ms="search"
+                   @@input="reload()" />
+        </div>
+
+        <div class="wmsp-chips" style="margin-left: 8px;">
+            <template x-for="s in statuses" :key="s.value">
+                <button type="button"
+                        class="wmsp-chip"
+                        :class="{ 'is-active': status === s.value }"
+                        @@click="status = s.value; reload()">
+                    <span x-text="s.label"></span>
+                    <span class="wmsp-chip-count" x-text="counts[s.value] ?? 0"></span>
+                </button>
+            </template>
+        </div>
+
+        <span style="margin-left: auto; font-size: 11px; color: var(--wms-text-secondary);" x-text="totalLabel()"></span>
+    </div>
+
+    <div style="overflow-x: auto;">
+        <table class="wms-table" style="width: 100%;">
+            <thead>
+                <tr>
+                    <th>Pack #</th>
+                    <th>Sales order</th>
+                    <th>Customer</th>
+                    <th>Status</th>
+                    <th style="text-align: right;">Lines</th>
+                    <th>Generated</th>
+                    <th>By</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="row in rows" :key="row.id">
+                    <tr style="cursor: pointer;" @@click="navigate(row.id)">
+                        <td><span class="mono" x-text="row.packNumber"></span></td>
+                        <td><span class="mono" x-text="row.soNumber"></span></td>
+                        <td>
+                            <span class="mono" style="font-weight:500;" x-text="row.customerCode"></span>
+                            <span style="font-size: 11px; color: var(--wms-text-secondary); display: block;" x-text="row.customerName"></span>
+                        </td>
+                        <td>
+                            <span class="wmsd-badge" :class="badgeClass(row.status)" x-text="row.statusLabel"></span>
+                        </td>
+                        <td style="text-align: right;" x-text="row.lineCount"></td>
+                        <td x-text="row.generatedRelative"></td>
+                        <td style="font-size: 11px; color: var(--wms-text-secondary);" x-text="row.generatedByName"></td>
+                    </tr>
+                </template>
+                <tr x-show="!rows.length && !loading">
+                    <td colspan="7" style="padding: 36px; text-align: center; color: var(--wms-text-tertiary);">
+                        No pack tasks match the current filters.
+                    </td>
+                </tr>
+                <tr x-show="loading">
+                    <td colspan="7" style="padding: 24px; text-align: center; color: var(--wms-text-secondary);">
+                        Loading...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-top: 0.5px solid var(--wms-border); font-size: 12px;">
+        <span x-text="`Page ${page} of ${totalPages || 1}`"></span>
+        <div style="display: flex; gap: 6px;">
+            <button type="button" class="wms-btn" :disabled="page <= 1" @@click="page--; reload()">← Prev</button>
+            <button type="button" class="wms-btn" :disabled="page >= totalPages" @@click="page++; reload()">Next →</button>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function packTaskList() {
+            return {
+                rows: [], total: 0, totalPages: 1, page: 1, pageSize: 20,
+                search: '', status: 'all', loading: false,
+                counts: { all: 0, pending: 0, packed: 0, cancelled: 0 },
+                statuses: [
+                    { value: 'all',       label: 'All' },
+                    { value: 'pending',   label: 'Pending' },
+                    { value: 'packed',    label: 'Packed' },
+                    { value: 'cancelled', label: 'Cancelled' },
+                ],
+                async init() { await this.reload(); },
+                async reload() {
+                    this.loading = true;
+                    const url = new URL('/PackTasks/Data', window.location.origin);
+                    url.searchParams.set('page', this.page);
+                    url.searchParams.set('pageSize', this.pageSize);
+                    if (this.search.trim()) url.searchParams.set('search', this.search.trim());
+                    if (this.status !== 'all') url.searchParams.set('status', this.status);
+                    try {
+                        const r = await fetch(url);
+                        const data = await r.json();
+                        this.rows = data.items;
+                        this.total = data.total;
+                        this.totalPages = data.totalPages;
+                        if (data.counts) this.counts = data.counts;
+                    } finally { this.loading = false; }
+                },
+                navigate(id) { window.location.href = `/PackTasks/Detail/${id}`; },
+                totalLabel() {
+                    return this.total === 1 ? '1 task' : `${this.total} tasks`;
+                },
+                badgeClass(status) {
+                    return {
+                        'pending':   's-neutral',
+                        'packed':    's-success',
+                        'cancelled': 's-neutral',
+                    }[status] || 's-neutral';
+                },
+            };
+        }
+    </script>
+}

@@ -15,13 +15,11 @@ using WMS.Web.ViewModels.Detail;
 namespace WMS.Web.Controllers;
 
 // Phase 14D — Pack task execution surface.
-//   GET  /PackTasks/Detail/{id}   — _DetailLayout w/ inline submit form (Pending) or read-only table (terminal)
-//   POST /PackTasks/Submit/{id}   — TX-wrapped commit via PackTaskService.SubmitAsync
-//   POST /PackTasks/Cancel/{id}   — pre-Submit reversal via PackTaskService.CancelAsync
-//
-// Index / GetData (list page + chip counts) deferred to a follow-up
-// chunk — operator reaches pack tasks via the GeneratePack redirect
-// from /SalesOrders/Detail.
+//   GET  /PackTasks                — Phase 15A list page (chip counts + table + pagination)
+//   GET  /PackTasks/Data           — Phase 15A JSON envelope for Alpine
+//   GET  /PackTasks/Detail/{id}    — _DetailLayout w/ inline submit form (Pending) or read-only table (terminal)
+//   POST /PackTasks/Submit/{id}    — TX-wrapped commit via PackTaskService.SubmitAsync
+//   POST /PackTasks/Cancel/{id}    — pre-Submit reversal via PackTaskService.CancelAsync
 [Authorize]
 [Route("PackTasks")]
 public sealed class PackTasksController : Controller
@@ -50,6 +48,62 @@ public sealed class PackTasksController : Controller
         _tenant = tenant;
         _currentUser = currentUser;
         _cancelValidator = cancelValidator;
+    }
+
+    [HttpGet("")]
+    public IActionResult Index() => View();
+
+    [HttpGet("Data")]
+    public async Task<IActionResult> GetData(
+        int page = 1,
+        int pageSize = 20,
+        string? search = null,
+        string? status = null,
+        string sortBy = "generatedAt",
+        bool sortDesc = true,
+        CancellationToken ct = default)
+    {
+        var filter = new PackTaskFilter(
+            Page: page,
+            PageSize: pageSize,
+            Search: search,
+            Status: PackTaskStatusMapper.FromWire(status),
+            SortBy: sortBy,
+            SortDesc: sortDesc);
+
+        var repo = _packRepos.For(_tenant.RequireTenantId());
+        var result = await repo.GetPagedAsync(filter, ct);
+        var counts = await repo.GetStatusCountsAsync(filter, ct);
+
+        return Json(new
+        {
+            items = result.Items.Select(r => new
+            {
+                id              = r.Id,
+                packNumber      = r.PackNumber,
+                salesOrderId    = r.SalesOrderId,
+                soNumber        = r.SoNumber,
+                customerCode    = r.CustomerCode,
+                customerName    = r.CustomerName,
+                status          = PackTaskStatusMapper.ToWire(r.Status),
+                statusLabel     = r.Status,
+                lineCount       = r.LineCount,
+                generatedAt     = r.GeneratedAt,
+                generatedRelative = RelativeTime.Format(r.GeneratedAt),
+                generatedByName = r.GeneratedByName,
+            }),
+            total      = result.Total,
+            page       = result.Page,
+            pageSize   = result.PageSize,
+            totalPages = result.TotalPages,
+            counts     = new
+            {
+                all       = counts.All,
+                pending   = counts.Pending,
+                packed    = counts.Packed,
+                cancelled = counts.Cancelled,
+            },
+        });
     }
 
     [HttpGet("Detail/{id:guid}")]
