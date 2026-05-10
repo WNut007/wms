@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WMS.BLL.Services.Outbound;
+using WMS.Common.Auth;
+using WMS.Common.Multitenancy;
 using WMS.DAL.Repositories.Outbound;
 using WMS.Web.Models.Outbound;
 
@@ -21,20 +23,26 @@ namespace WMS.Web.Controllers;
 // Layout: _MobileLayout via /pick _ViewStart.
 [Authorize]
 [Route("pick")]
-public sealed class PickController : BaseController
+public sealed class PickController : Controller
 {
     private readonly IPickTaskRepositoryFactory _pickRepos;
     private readonly ISalesOrderRepositoryFactory _soRepos;
     private readonly IPickTaskService _service;
+    private readonly ITenantContext _tenant;
+    private readonly ICurrentUser _currentUser;
 
     public PickController(
         IPickTaskRepositoryFactory pickRepos,
         ISalesOrderRepositoryFactory soRepos,
-        IPickTaskService service)
+        IPickTaskService service,
+        ITenantContext tenant,
+        ICurrentUser currentUser)
     {
         _pickRepos = pickRepos;
         _soRepos = soRepos;
         _service = service;
+        _tenant = tenant;
+        _currentUser = currentUser;
     }
 
     // GET /pick — queue. Reuses the desktop list-page DAL but renders
@@ -43,10 +51,10 @@ public sealed class PickController : BaseController
     [HttpGet("")]
     public async Task<IActionResult> Index(CancellationToken ct)
     {
-        if (CurrentUser.WarehouseId is null)
+        if (_currentUser.WarehouseId is null)
             return RedirectToAction("SelectWarehouse", "Auth");
 
-        var tenantId = TenantContext.RequireTenantId();
+        var tenantId = _tenant.RequireTenantId();
         var repo = _pickRepos.For(tenantId);
 
         // Two paged calls — Pending FIFO + InProgress FIFO. Smaller
@@ -75,10 +83,10 @@ public sealed class PickController : BaseController
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Task(Guid id, CancellationToken ct)
     {
-        if (CurrentUser.WarehouseId is null)
+        if (_currentUser.WarehouseId is null)
             return RedirectToAction("SelectWarehouse", "Auth");
 
-        var tenantId = TenantContext.RequireTenantId();
+        var tenantId = _tenant.RequireTenantId();
         var detail = await _pickRepos.For(tenantId).GetByIdAsync(id, ct);
         if (detail is null) return NotFound();
 
@@ -100,7 +108,7 @@ public sealed class PickController : BaseController
     public async Task<IActionResult> Submit(
         Guid id, SubmitPickTaskViewModel vm, CancellationToken ct)
     {
-        var requesterId = CurrentUser.UserId
+        var requesterId = _currentUser.UserId
             ?? throw new InvalidOperationException("Authenticated user required.");
 
         try
@@ -119,7 +127,7 @@ public sealed class PickController : BaseController
                 PickTaskId: id, Lines: entries);
 
             var result = await _service.SubmitAsync(
-                TenantContext.RequireTenantId(), request, requesterId, ct);
+                _tenant.RequireTenantId(), request, requesterId, ct);
 
             TempData["PickMessage"] = result.TaskStatus == "Picked"
                 ? $"Submitted — full pick ({result.FullyPickedLineCount} lines)."
@@ -145,7 +153,7 @@ public sealed class PickController : BaseController
     public async Task<IActionResult> Cancel(
         Guid id, string reason, CancellationToken ct)
     {
-        var requesterId = CurrentUser.UserId
+        var requesterId = _currentUser.UserId
             ?? throw new InvalidOperationException("Authenticated user required.");
 
         if (string.IsNullOrWhiteSpace(reason) || reason.Trim().Length < 3)
@@ -157,7 +165,7 @@ public sealed class PickController : BaseController
         try
         {
             var changed = await _service.CancelAsync(
-                TenantContext.RequireTenantId(), id, reason.Trim(), requesterId, ct);
+                _tenant.RequireTenantId(), id, reason.Trim(), requesterId, ct);
             TempData["PickMessage"] = changed
                 ? "Pick task cancelled."
                 : "Pick task was already cancelled.";

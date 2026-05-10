@@ -346,11 +346,59 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` · **Outbound MVP chain closed + browseable** (4 outbound list pages now in sidebar)
-**Current Focus**: Phase 15+ post-MVP candidates: mobile picker PWA (was 14E in original roadmap; same `IPickTaskService.SubmitAsync` entry point); pack video (ADR-009 spec); carrier FK integration; manifest workflow; post-Submit reversal flows.
-**Blockers**: none — no new schema in 15A (read-only DAL extensions only)
+**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` + `v2.2.0-mobile-pick` · **Mobile picker PWA shipped** (single-page-per-task; same `IPickTaskService.SubmitAsync` entry as desktop)
+**Current Focus**: Phase 17+ post-MVP candidates: pack video (ADR-009 spec); carrier FK integration; manifest workflow; post-Submit reversal flows; 4-tier scan flow + SignalR + offline service worker for the mobile picker.
+**Blockers**: none — no new schema in 16 (mobile reuses Phase 14C entities + service)
 
 Update this section weekly during standups.
+
+### Day 10 — Phase 16 (Mobile Picker PWA — single-page-per-task MVP)
+
+**Branch**: `feat/mobile-picker-pwa` → merged to `main` · **Tag**: `v2.2.0-mobile-pick` · **Closes**: post-MVP gap from v2.0.0 callout (mobile picker PWA)
+
+Second post-MVP phase. Operator-facing mobile surface for picking. **Pragmatic single-page-per-task**, NOT the 4-tier scan-flow vision from `docs/01_WMS_Master_Design.md` (deferred TD). Mirrors Phase 1 ReceiveController precedent — operator-friendly flat form, not wizardry.
+
+**Zero schema changes, zero service changes** — reuses Phase 14C `IPickTaskService.SubmitAsync` + `CancelAsync` entry points and Phase 15A `IPickTaskRepository.GetPagedAsync`. Pure presentation-layer addition.
+
+**Surfaces**:
+- `/pick/manifest.json` — PWA manifest (scope `/pick/`, start_url `/pick`, standalone display, portrait orientation; no icons yet — TD)
+- `GET /pick` — queue. Mobile cards (one per task) listing Pending|InProgress pick tasks. Two paged calls (Pending FIFO + InProgress FIFO via existing `GetPagedAsync`); InProgress at top (returning operator), Pending below (queue order). Page size 50 per status — generous for a single picker session.
+- `GET /pick/{id}` — task page. Mobile-card-stacked form (one card per `PickTaskLine`). Per-card: Expected (read-only) + Picked qty input (large, `inputmode="decimal"` for mobile keyboard) + Status select (Picked|Skipped) + ShortPickReason (visible only when needed). Sticky-bottom submit card with live tally. Cancel button below uses native `window.prompt()` to collect the reason — mobile-friendlier than a CSS `:target` modal would be on small screens. Terminal status (Picked|PartiallyPicked|Cancelled) renders read-only summary cards instead.
+- `POST /pick/submit/{id}` — projects `SubmitPickTaskViewModel` (reused from desktop) into `SubmitPickTaskRequest`, hits `IPickTaskService.SubmitAsync` (zero service rework). Mobile UX: bounces back to queue on success so operator grabs the next task instead of staring at terminal page.
+- `POST /pick/cancel/{id}` — inline `reason` form field, calls `IPickTaskService.CancelAsync`. 3-char min reason validated at controller (mirrors the desktop validator).
+
+**Sidebar**: Outbound submenu now has 5 entries — added "Pick (mobile)" below Shipments. `outboundActive` Or-chain widened to highlight when on `/pick` routes. Same pattern as the existing "Receive (mobile)" sidebar entry under Inbound.
+
+**Auth + tenant**: Inherits the existing 3-step login + warehouse selection. `WarehouseId is null` guards the queue Index → redirects to `/Auth/SelectWarehouse` (matches Receive precedent).
+
+**Tests** (+9 net):
+- `Index_NoWarehouse_RedirectsToSelectWarehouse` — guard
+- `Index_Happy_MergesInProgressThenPending` — verifies the queue ordering invariant (returning operator's task at top)
+- `Task_NotFound_Returns404` + `Task_Happy_ReturnsViewWithSoNumber` — Detail GET, including SO# resolution into ViewBag
+- `Submit_Happy_RedirectsToQueue` — verifies route-id-wins-over-form-id + the bounce-to-queue UX (different from desktop which redirects to Detail)
+- `Submit_ServiceThrows_RedirectsToTaskWithError` — error path stays on the task page so operator can fix
+- `Cancel_BlankReason_RedirectsBackWithError_NoServiceCall` — controller-level reason guard (mobile bypasses FluentValidation since reason comes via prompt(), not a model-bound VM)
+- `Cancel_Happy_CallsService_RedirectsToQueue` + `Cancel_AlreadyCancelled_IdempotentMessage`
+
+Test posture: **829 passing** (was 820 / +9). 288 unit + 536 integration + 5 skipped.
+
+**Refactor along the way**: PickController initially inherited `BaseController` (mirroring Receive/Putaway) which resolves `CurrentUser`/`TenantContext` from `HttpContext.RequestServices`. Caught at T3 that this is the minority pattern (only 2-3 mobile controllers use it; none have tests). Refactored to constructor injection in the same chunk before writing tests — matches every other controller in the codebase + makes mocking trivial.
+
+**Out of scope** (logged as TDs):
+- 4-tier scan flow (Location → Pallet → SKU → Lot scan-then-validate) per design doc
+- Always-focused hidden barcode input
+- Vibration feedback (`navigator.vibrate`)
+- Real-time SignalR push (status updates while picker is on the floor)
+- Smart auto re-allocation if same product+lot found on alternate pallet
+- Per-line wizard ("show me ONE line at a time" instead of all-cards-stacked)
+- Service worker offline caching (manifest gives PWA install prompt but no offline behaviour yet)
+- Pack mobile + Receive mobile improvements
+- PWA icons (manifest's `icons: []` is empty — Chrome warns but install still works)
+- Mobile picker queue filters (currently shows all open tasks; future: filter to "assigned to me" once per-picker assignment lands)
+
+**Notes**: No phantom-edits, no chunk hiccups except the `BaseController` → constructor-injection refactor caught at T3. The view's `pickForm()` Alpine state mirrors the desktop `_PickTaskLinesPanel` form state shape exactly — same field names + same `needsReason`/`isValid` logic — so future operators flipping between desktop and mobile have the same mental model.
+
+### Day 10 — Phase 15A (Outbound list pages — Pick / Pack / Ship)
 
 ### Day 10 — Phase 15A (Outbound list pages — Pick / Pack / Ship)
 
@@ -1710,5 +1758,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-10 (Day 10 — Phase 15A list pages; v2.1.0-list-pages · Outbound submenu complete)
-**Version**: 1.29
+**Last updated**: 2026-05-10 (Day 10 — Phase 16 mobile picker PWA; v2.2.0-mobile-pick)
+**Version**: 1.30
