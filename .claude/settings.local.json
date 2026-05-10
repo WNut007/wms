@@ -10,7 +10,8 @@
       "Bash(git -C C:/dev/wms add src/WMS.sln tests/WMS.UnitTests tests/WMS.IntegrationTests)",
       "PowerShell(dotnet build *)",
       "Bash(curl -sf -w \"\\\\nHTTP_STATUS:%{http_code}\\\\n\" http://localhost:5044/ -o /tmp/wms-home.html)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(dotnet build *)"
     ]
   }
 }

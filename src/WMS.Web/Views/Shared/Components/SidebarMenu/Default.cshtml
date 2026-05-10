@@ -118,7 +118,7 @@
         var outboundActive = IsActive("OUTBOUND")
             || IsActive("SalesOrders") || IsActive("PickTasks")
             || IsActive("PackTasks") || IsActive("Shipments")
-            || IsActive("Pick");
+            || IsActive("Pick") || IsActive("Pack");
         <a href="@Url.Action("Index", "SalesOrders")"
            class="wms-sidebar-item @(outboundActive ? "active" : "")"
            title="@module.DisplayName">
@@ -146,6 +146,10 @@
             <a href="@Url.Action("Index", "Pick")"
                class="wms-sidebar-item @(IsActive("Pick") ? "active" : "")">
                 <span class="wms-sidebar-item-text">Pick (mobile)</span>
+            </a>
+            <a href="@Url.Action("Index", "Pack")"
+               class="wms-sidebar-item @(IsActive("Pack") ? "active" : "")">
+                <span class="wms-sidebar-item-text">Pack (mobile)</span>
             </a>
         </div>
     }

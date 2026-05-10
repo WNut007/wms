@@ -1,0 +1,115 @@
+@model IReadOnlyList<WMS.DAL.Repositories.Outbound.PackTaskListRow>
+@{
+    ViewData["Title"] = "Pack";
+
+    var okMsg = ViewBag.PackMessage as string ?? TempData["PackMessage"] as string;
+    var errMsg = ViewBag.PackError as string ?? TempData["PackError"] as string;
+}
+
+@* Phase 19 — Mobile Pack queue per design-system spec.
+   Mirrors Phase 18 receive shape (Path D — no urgency grouping,
+   no scan area; pure list of Pending tasks). *@
+<style>
+    .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+
+    .pk-page-pad { padding: 12px 14px 24px; }
+
+    .pk-banner {
+        padding: 8px 12px; border-radius: 8px;
+        font-size: 12px; margin-bottom: 10px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .pk-banner-ok { background: #E1F5EE; color: #0F6E56; }
+    .pk-banner-err { background: #FCEBEB; color: #A32D2D; }
+
+    .pk-header {
+        margin-bottom: 12px;
+    }
+    .pk-title {
+        font-size: 18px; font-weight: 500; color: #1f2937;
+    }
+    .pk-subtitle {
+        font-size: 11px; color: #6b7280; margin-top: 2px;
+    }
+
+    .pk-card {
+        display: block; text-decoration: none; color: inherit;
+        background: #ffffff; border: 0.5px solid #e5e7eb;
+        border-radius: 11px; padding: 11px 13px; margin-bottom: 8px;
+    }
+    .pk-card:active { background: #f9fafb; }
+
+    .pk-row {
+        display: flex; justify-content: space-between; align-items: flex-start;
+    }
+    .pk-pack-number {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 13px; font-weight: 500; color: #1f2937;
+    }
+    .pk-meta { font-size: 10px; color: #6b7280; margin-top: 2px; }
+    .pk-stats { font-size: 10px; color: #6b7280; margin-top: 8px; }
+
+    .pk-badge {
+        display: inline-flex; align-items: center;
+        font-size: 9px; font-weight: 500;
+        padding: 1px 6px; border-radius: 100px;
+        background: #EEEDFE; color: #534AB7;
+    }
+
+    .pk-empty {
+        text-align: center; padding: 48px 16px;
+        color: #9ca3af; font-size: 12px;
+    }
+    .pk-empty-icon { font-size: 32px; opacity: 0.4; }
+</style>
+
+<div class="pk-page-pad">
+    @if (!string.IsNullOrEmpty(okMsg))
+    {
+        <div class="pk-banner pk-banner-ok">
+            <i class="ti ti-check"></i> @okMsg
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(errMsg))
+    {
+        <div class="pk-banner pk-banner-err">
+            <i class="ti ti-alert-circle"></i> @errMsg
+        </div>
+    }
+
+    <div class="pk-header">
+        <div class="pk-title">Pack tasks</div>
+        <div class="pk-subtitle">@Model.Count pending</div>
+    </div>
+
+    @if (Model.Count == 0)
+    {
+        <div class="pk-empty">
+            <div class="pk-empty-icon"><i class="ti ti-package-off"></i></div>
+            <p class="m-0 mt-2">No pending pack tasks.</p>
+            <p class="m-0 small">All caught up!</p>
+        </div>
+    }
+    else
+    {
+        @foreach (var task in Model)
+        {
+            <a href="/pack/@task.Id" class="pk-card">
+                <div class="pk-row">
+                    <div>
+                        <div class="pk-pack-number">@task.PackNumber</div>
+                        <div class="pk-meta">
+                            <span class="mono">@task.SoNumber</span> · @task.CustomerName
+                        </div>
+                    </div>
+                    <span class="pk-badge">Pending</span>
+                </div>
+                <div class="pk-stats">
+                    <i class="ti ti-list"></i> @task.LineCount line@(task.LineCount == 1 ? "" : "s")
+                    · <i class="ti ti-user"></i> @task.GeneratedByName
+                </div>
+            </a>
+        }
+    }
+</div>
