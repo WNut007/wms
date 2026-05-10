@@ -1,0 +1,256 @@
+@model WMS.DAL.Repositories.Outbound.PickTaskDetail
+@{
+    ViewData["Title"] = $"Pick {Model.Header.PickNumber}";
+    var canSubmit = Model.Header.Status is "Pending" or "InProgress";
+    var soNumber = ViewBag.SoNumber as string ?? "—";
+
+    // Initial state for the Alpine form. Each line carries the
+    // operator-editable {pickedQuantity, lineStatus, shortPickReason,
+    // notes}; defaults to a full pick at the picked quantity.
+    var initialJson = System.Text.Json.JsonSerializer.Serialize(
+        Model.Lines.Select(l => new {
+            id              = l.Id,
+            lineNumber      = l.LineNumber,
+            expectedQuantity = l.ExpectedQuantity,
+            pickedQuantity   = l.PickedQuantity ?? l.ExpectedQuantity,
+            lineStatus       = string.IsNullOrEmpty(l.LineStatus) || l.LineStatus == "Pending"
+                                ? "Picked"
+                                : l.LineStatus,
+            shortPickReason  = l.ShortPickReason ?? "",
+            notes            = l.Notes ?? "",
+        }));
+}
+
+@if (ViewBag.PickMessage is string okMsg && !string.IsNullOrEmpty(okMsg))
+{
+    <div class="alert alert-success py-2 small mb-2">
+        <i class="ti ti-check"></i> @okMsg
+    </div>
+}
+@if (ViewBag.PickError is string errMsg && !string.IsNullOrEmpty(errMsg))
+{
+    <div class="alert alert-danger py-2 small mb-2">
+        <i class="ti ti-alert-circle"></i> @errMsg
+    </div>
+}
+
+<div class="d-flex align-items-center mb-2">
+    <a href="/pick" class="btn btn-sm btn-link text-decoration-none p-0 me-2">
+        <i class="ti ti-arrow-left"></i> Queue
+    </a>
+    <div class="flex-grow-1"></div>
+    @{
+        var statusClass = Model.Header.Status switch
+        {
+            "Pending"         => "bg-secondary",
+            "InProgress"      => "bg-warning text-dark",
+            "Picked"          => "bg-success",
+            "PartiallyPicked" => "bg-warning text-dark",
+            "Cancelled"       => "bg-secondary",
+            _                 => "bg-secondary",
+        };
+    }
+    <span class="badge @statusClass">@Model.Header.Status</span>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="fw-semibold mono">@Model.Header.PickNumber</div>
+        <div class="small text-secondary mono">SO @soNumber</div>
+    </div>
+</div>
+
+@if (Model.Lines.Count == 0)
+{
+    <div class="card">
+        <div class="card-body text-center py-4 text-muted small">
+            No lines on this pick task.
+        </div>
+    </div>
+}
+else if (canSubmit)
+{
+    <form asp-controller="Pick" asp-action="Submit"
+          asp-route-id="@Model.Header.Id" method="post"
+          x-data="pickForm({ initialLines: @Html.Raw(initialJson) })">
+        @Html.AntiForgeryToken()
+
+        @for (var i = 0; i < Model.Lines.Count; i++)
+        {
+            var l = Model.Lines[i];
+            <div class="card mb-2"
+                 :class="lines[@i].lineStatus === 'Skipped' ? 'border-danger' : (lines[@i].pickedQuantity < lines[@i].expectedQuantity ? 'border-warning' : '')">
+                <div class="card-body py-3">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="fw-semibold">Line @l.LineNumber</div>
+                        <div class="small text-secondary mono">@l.LocationId.ToString().Substring(0, 8)</div>
+                    </div>
+
+                    <div class="mb-2">
+                        <span class="text-secondary small">Expected:</span>
+                        <span class="fw-semibold">@l.ExpectedQuantity.ToString("N2")</span>
+                    </div>
+
+                    <input type="hidden" name="Lines[@i].LineId" value="@l.Id" />
+
+                    <div class="mb-2">
+                        <label class="form-label small mb-1">Picked qty</label>
+                        <input type="number" step="0.0001" min="0" max="@l.ExpectedQuantity"
+                               class="form-control form-control-lg"
+                               name="Lines[@i].PickedQuantity"
+                               x-model.number="lines[@i].pickedQuantity"
+                               :disabled="lines[@i].lineStatus === 'Skipped'"
+                               inputmode="decimal" />
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label small mb-1">Status</label>
+                        <select class="form-select"
+                                name="Lines[@i].LineStatus"
+                                x-model="lines[@i].lineStatus"
+                                @@change="onStatusChanged(@i)">
+                            <option value="Picked">Picked</option>
+                            <option value="Skipped">Skipped</option>
+                        </select>
+                    </div>
+
+                    <div x-show="needsReason(@i)">
+                        <label class="form-label small mb-1 text-danger">Short reason (required)</label>
+                        <input type="text" class="form-control"
+                               name="Lines[@i].ShortPickReason"
+                               x-model="lines[@i].shortPickReason"
+                               maxlength="500" />
+                    </div>
+                    <div x-show="!needsReason(@i)">
+                        <input type="hidden" name="Lines[@i].ShortPickReason"
+                               x-model="lines[@i].shortPickReason" />
+                    </div>
+
+                    <input type="hidden" name="Lines[@i].Notes"
+                           x-model="lines[@i].notes" />
+                </div>
+            </div>
+        }
+
+        <div class="card mb-2 sticky-bottom" style="bottom: 8px;">
+            <div class="card-body py-3">
+                <div class="d-flex justify-content-between align-items-center mb-2 small text-secondary">
+                    <span><strong x-text="fullCount()"></strong> full · <strong x-text="shortCount()"></strong> short · <strong x-text="skipCount()"></strong> skip</span>
+                </div>
+                <button type="submit" class="btn btn-primary btn-lg w-100"
+                        :disabled="!isValid()">
+                    <i class="ti ti-check"></i> Submit pick
+                </button>
+            </div>
+        </div>
+    </form>
+
+    @* Cancel — separate form so it doesn't collide with the submit
+       form. Native confirm() instead of a CSS modal for mobile UX. *@
+    <form asp-controller="Pick" asp-action="Cancel"
+          asp-route-id="@Model.Header.Id" method="post"
+          onsubmit="return promptCancelReason(this);">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="reason" value="" />
+        <button type="submit" class="btn btn-outline-danger w-100 mt-2">
+            <i class="ti ti-x"></i> Cancel task
+        </button>
+    </form>
+
+    @section Scripts {
+        <script>
+            function pickForm(opts) {
+                return {
+                    lines: opts.initialLines || [],
+                    onStatusChanged(idx) {
+                        const line = this.lines[idx];
+                        if (line.lineStatus === 'Skipped') {
+                            line.pickedQuantity = 0;
+                        } else if (line.lineStatus === 'Picked' && (line.pickedQuantity === 0 || line.pickedQuantity === null)) {
+                            line.pickedQuantity = line.expectedQuantity;
+                        }
+                    },
+                    needsReason(idx) {
+                        const line = this.lines[idx];
+                        if (line.lineStatus === 'Skipped') return true;
+                        return line.lineStatus === 'Picked'
+                            && line.pickedQuantity != null
+                            && line.pickedQuantity < line.expectedQuantity;
+                    },
+                    fullCount() {
+                        return this.lines.filter(l => l.lineStatus === 'Picked' && l.pickedQuantity === l.expectedQuantity).length;
+                    },
+                    shortCount() {
+                        return this.lines.filter(l => l.lineStatus === 'Picked' && l.pickedQuantity < l.expectedQuantity).length;
+                    },
+                    skipCount() {
+                        return this.lines.filter(l => l.lineStatus === 'Skipped').length;
+                    },
+                    isValid() {
+                        return this.lines.every(l => !this.needsReasonRow(l) || (l.shortPickReason || '').trim().length >= 3);
+                    },
+                    needsReasonRow(line) {
+                        if (line.lineStatus === 'Skipped') return true;
+                        return line.lineStatus === 'Picked'
+                            && line.pickedQuantity != null
+                            && line.pickedQuantity < line.expectedQuantity;
+                    },
+                };
+            }
+
+            function promptCancelReason(form) {
+                const reason = window.prompt('Cancel reason (3+ chars):', '');
+                if (!reason || reason.trim().length < 3) {
+                    return false;
+                }
+                form.querySelector('input[name="reason"]').value = reason.trim();
+                return true;
+            }
+        </script>
+    }
+}
+else
+{
+    @* Terminal — Picked / PartiallyPicked / Cancelled. Read-only. *@
+    @foreach (var l in Model.Lines)
+    {
+        var packedVal = l.PickedQuantity ?? 0m;
+        var (rowColor, rowLabel) = l.LineStatus switch
+        {
+            "Picked" when packedVal == l.ExpectedQuantity => ("text-success", "Picked"),
+            "Picked"                                       => ("text-warning", "Short"),
+            "Skipped"                                      => ("text-danger",  "Skipped"),
+            _                                              => ("text-muted",   l.LineStatus),
+        };
+        <div class="card mb-2">
+            <div class="card-body py-3">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="fw-semibold">Line @l.LineNumber</div>
+                        <div class="small text-secondary">
+                            Expected @l.ExpectedQuantity.ToString("N2")
+                            · Picked
+                            <span class="@rowColor fw-semibold">
+                                @(l.PickedQuantity?.ToString("N2") ?? "—")
+                            </span>
+                        </div>
+                    </div>
+                    <span class="badge bg-light text-dark">@rowLabel</span>
+                </div>
+                @if (!string.IsNullOrEmpty(l.ShortPickReason))
+                {
+                    <div class="small text-secondary mt-2">
+                        <em>@l.ShortPickReason</em>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @if (Model.Header.Status == "Cancelled" && !string.IsNullOrEmpty(Model.Header.CancelReason))
+    {
+        <div class="alert alert-secondary py-2 small mt-3">
+            <strong>Cancel reason:</strong> @Model.Header.CancelReason
+        </div>
+    }
+}
