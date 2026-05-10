@@ -346,11 +346,86 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 + 17 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` + `v2.2.0-mobile-pick` + `v2.3.0-pack-video` · **Hangfire foundation shipped + Pack video MVP** (record + store + auto-cleanup at 10 days)
-**Current Focus**: Phase 18+ candidates: carrier FK integration; manifest workflow; post-Submit reversal flows; 4-tier scan flow + SignalR + offline service worker for the mobile picker; pack video next-iteration (Safari support, PDPA access log, per-station/channel policy).
-**Blockers**: none — Hangfire schema auto-prepared on first run via PrepareSchemaIfNecessary=true
+**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 + 17 + 18 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` + `v2.2.0-mobile-pick` + `v2.3.0-pack-video` + `v2.4.0-mobile-receive` · **Mobile suite expansion started** (mobile picker + mobile receive both shipped)
+**Current Focus**: Phase 19+ candidates: Mobile Pack PWA (`/pack/`, spec ready), Mobile Putaway (`/putaway/`, spec ready), Mobile Cycle Count, Mobile Locate (specs ready, design system in place); pack-video Phase 18.5 (serial entry on mobile receive — TD-040); carrier FK integration; manifest workflow; post-Submit reversal flows.
+**Blockers**: none
 
 Update this section weekly during standups.
+
+### Day 10 — Phase 18 (Mobile Receive PWA — first mobile-suite spec-driven build)
+
+**Branch**: `feat/mobile-receive-pwa` → merged to `main` · **Tag**: `v2.4.0-mobile-receive` · **Replaces**: Phase 1 single-page ReceiveController · **Spec**: `docs/mockups/mobile-specs/phase-18-mobile-receive-spec.md` (380 lines) + `docs/mockups/mobile-specs/mobile-design-system.md` (450 lines, foundation for Phase 18-22+)
+
+First mobile phase implemented from a pre-written spec. The spec set both the design language (purple #534AB7 primary, semantic colors, 38-44px touch targets, .no-scrollbar utility, etc.) and the per-screen layout. Phase 16 mobile picker established the implementation pattern; Phase 18 follows it ~80% and adds spec-driven components.
+
+**Audit findings (resolved before T1)**:
+- `master.Products.IsSerialTracked` — **doesn't exist as named**. Schema has `TrackingMethod` enum: `None | Lot | LotAndSerial`. Decision 1B: read `TrackingMethod == "LotAndSerial"` as the serial trigger; no migration needed.
+- `PostReceivingLineRequest` has no serial field. Decision 2B: defer serial entry UI to Phase 18.5; submit-time guard rejects serial-tracked lines with a "use desktop" banner. Logged as TD-040.
+- Phase 1 `ReceiveController` already exists at `/receive` (single-page form). Decision 3A: replace entirely. The Phase 1 single-page UX is retired; new queue+task is the production target. Posted.cshtml + ReceiveFormModel deleted.
+
+**No new schema, no new service code** — pure presentation-layer addition reusing `IReceivingHeaderService.PostReceivingAsync` from Phase 9 + `IPurchaseOrderRepository.GetPagedAsync` from Phase 9A + new `IProductRepository.GetMetaByIdsAsync` (the only DAL extension — bulk product lookup for the per-line render).
+
+**Surfaces (4 actions on the new ReceiveController)**:
+- `GET /receive` — queue. Two paged calls (Open FIFO + Receiving FIFO). Receiving on top (returning operator), Open below.
+- `GET /receive/{poId}` — task page. Loads PO detail + bulk product meta (one round-trip via `GetMetaByIdsAsync`). Closed/Cancelled POs return 404.
+- `POST /receive/submit/{poId}` — projects `MobileReceiveSubmitViewModel` into `PostReceivingRequest`. Server-side ReceivingNumber assignment (`RCV-YYYYMMDD-HHmmss-{poId8}`). Bounce-to-queue on success. Lines with qty=0/null silently dropped. Serial-tracked lines reject the whole submit with field-pointing error.
+- `POST /receive/cancel/{poId}` — operator backs out, no DB state to revert (receipts only persist on submit). Reason captured for future audit. Idempotent.
+
+**DAL extension**:
+- `IProductRepository.GetMetaByIdsAsync(ids)` → `IReadOnlyDictionary<Guid, ProductLineMeta(Code, Name, TrackingMethod)>`. Bulk projection for the per-line render — one round-trip vs N per-line lookups. Uses Dapper `@ids` list expansion (good up to ~2100 params).
+
+**UI**:
+- `Receive/Index.cshtml` — queue. Filter chips (All/Open/Receiving with counts) per design-system spec. PO cards with monospace number + status badge (Open=primary-light, Receiving=warning-light) + vendor meta + stats row. Tap → /receive/{poId}. Empty state with `ti-inbox` icon. TempData banners.
+- `Receive/Task.cshtml` — per-line cards. Each card: line number + product code (mono) + product name. Stats grid: Expected (gray=system) | Received (purple input). Already-received hint when `ReceivedQuantity > 0`. Quick-adjust row (-10/-1/+1/+10, 32px tap targets). Live variance indicator (green ✓ Matches / amber ↓ N under / red ↑ N over). Collapsible fields below: Location code (required) + Lot (optional) + Pallet (optional). **Serial-tracked banner** (`TrackingMethod=='LotAndSerial'`): amber callout, qty input + quick-adjust + collapsible fields all disabled, "use desktop" message. Sticky bottom: Submit + Cancel (window.prompt for reason). Default Received qty = Outstanding (Expected − ReceivedSoFar) so common case is zero-click.
+- Both views: pure CSS (no Bootstrap reliance for the receive-specific chrome — keeps the mobile look pixel-true to the spec without fighting Tabler defaults).
+- Manifest: `/receive/manifest.json` updated to design-system theme color #534AB7 + name "WMS Receive".
+
+**Sidebar**: "Receive (mobile)" entry under Inbound was already in place from Phase 1 — no change needed.
+
+**Tests** (+12 net):
+- `Index_NoWarehouse_RedirectsToSelectWarehouse` — guard
+- `Index_Happy_MergesReceivingThenOpen` — verifies queue ordering invariant
+- `Task_NotFound_Returns404` + `Task_TerminalStatus_Returns404` Theory (Closed/Cancelled both → 404) + `Task_Happy_LoadsProductMetadata`
+- `Cancel_BlankReason_RedirectsWithDiscardedMessage` + `Cancel_WithReason_IncludesReasonInMessage`
+- `Submit_NoWarehouse_RedirectsToSelectWarehouse` + `Submit_PoNotFound_Returns404` + `Submit_AllLinesBlank_RedirectsBackWithError` + `Submit_SerialTrackedLine_RejectedWithUseDesktopMessage` (verifies the TD-040 guard fires + service is NOT called)
+
+Submit happy path is **NOT** exercised end-to-end — the inline location resolver uses `HttpContext.RequestServices.GetRequiredService<ITenantConnectionFactory>` which can't be cleanly mocked without a service-provider fixture. Logged as **TD-041** (same family as TD-006 SQL fixture).
+
+Test posture: **850 passing** (was 838 / +12). 288 unit + 557 integration + 5 skipped.
+
+**Out of scope** (logged as TD-040 family — also see ADR-009 TD-039 family for related mobile pack notes):
+- Mobile receive — serial entry mode (per spec section §"Serial-tracked Sub-state"; needs `PostReceivingLineRequest.SerialNumbers` + a `inventory.LotSerials` table). **TD-040** = Phase 18.5.
+- Mobile receive — controller submit happy-path test (needs service-provider fixture for inline location resolver). **TD-041**.
+- Mobile receive — always-focused hidden barcode input
+- Mobile receive — `navigator.vibrate` feedback on scan
+- Mobile receive — service worker offline caching
+- Mobile receive — PWA icons (manifest's `icons:[]` empty)
+- Mobile receive — per-line wizard (one-line-at-a-time)
+- Mobile receive — 4-tier scan flow (Location → Pallet → SKU → Lot)
+- Mobile receive — multi-receipt session (combining multiple POs)
+- Mobile receive — auto-resolve location from product's expected put-zone (currently operator types it)
+
+**Spec compliance check**:
+- ✅ Queue with chip filters (All / Open / Receiving) + counts
+- ✅ PO cards per spec (status badges, mono PO number, vendor meta, stats row)
+- ✅ Task page breadcrumb + vendor info bar + per-line cards
+- ✅ Stats grid (Expected vs Received with semantic colors)
+- ✅ Quick-adjust buttons (-10/-1/+1/+10)
+- ✅ Live variance indicator (Match/Under/Over color-coded)
+- ✅ Sticky-bottom submit + cancel
+- ✅ Native `window.prompt()` for cancel reason
+- ✅ `.no-scrollbar` applied throughout
+- ✅ Touch targets ≥ 38px (chip 26px is borderline but spec allows; quick-adjust 32px; submit 46px)
+- ✅ Bounce-to-queue UX on submit
+- ✅ PWA manifest with design-system theme color
+- ⚠️ "Serial-tracked products show serial entry mode" → ships as "show desktop redirect banner" (TD-040)
+
+**Notes**:
+- Pattern reuse hit ~80% as predicted — Phase 16's PickController shape ported almost line-for-line.
+- The Phase 1 single-page form retirement was a clean swap; no orphan references after deleting `ReceiveFormModel.cs` + `Posted.cshtml`.
+- Pre-written spec was a major velocity multiplier — design decisions (colors, components, behavior) were already locked, freeing the chunk to focus on plumbing.
+
+### Day 10 — Phase 17 (Hangfire + Pack Video MVP — ADR-009)
 
 ### Day 10 — Phase 17 (Hangfire + Pack Video MVP — ADR-009)
 
@@ -1843,5 +1918,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-10 (Day 10 — Phase 17 Hangfire + Pack Video MVP; v2.3.0-pack-video · ADR-009 published)
-**Version**: 1.31
+**Last updated**: 2026-05-10 (Day 10 — Phase 18 Mobile Receive PWA; v2.4.0-mobile-receive · spec-driven build)
+**Version**: 1.32
