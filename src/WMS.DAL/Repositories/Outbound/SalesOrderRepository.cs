@@ -22,7 +22,7 @@ internal sealed class SalesOrderRepository : ISalesOrderRepository
     private const string LineColumns = @"
         Id, SalesOrderId, LineNumber,
         ProductId, OwnerId, UomId,
-        OrderedQuantity, UnitPrice, Notes,
+        OrderedQuantity, AllocatedQuantity, UnitPrice, Notes,
         CreatedAt, UpdatedAt, CreatedBy, UpdatedBy, Version
         FROM outbound.SalesOrderLines";
 
@@ -244,6 +244,7 @@ SELECT
     ow.Code AS OwnerCode,
     u.Code  AS UomCode,
     sol.OrderedQuantity,
+    sol.AllocatedQuantity,
     sol.UnitPrice,
     sol.Notes
 FROM outbound.SalesOrderLines sol
@@ -378,5 +379,20 @@ WHERE Id = @Id AND Status = @FromStatus;";
             @"SELECT COUNT(*) FROM outbound.SalesOrders
               WHERE SoNumber LIKE @prefix + '%';",
             new { prefix = datePrefix },
+            cancellationToken: ct));
+
+    public Task AdjustLineAllocatedQuantityAsync(
+        Guid salesOrderLineId,
+        decimal delta,
+        Guid? userId,
+        CancellationToken ct = default) =>
+        _connection.ExecuteAsync(new CommandDefinition(
+            @"UPDATE outbound.SalesOrderLines
+              SET AllocatedQuantity = AllocatedQuantity + @Delta,
+                  UpdatedAt         = SYSUTCDATETIME(),
+                  UpdatedBy         = @UserId,
+                  Version           = Version + 1
+              WHERE Id = @LineId;",
+            new { LineId = salesOrderLineId, Delta = delta, UserId = userId },
             cancellationToken: ct));
 }

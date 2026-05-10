@@ -49,6 +49,10 @@ public sealed record SalesOrderStatusCounts(
 // Phase 14A — read-projection for the Detail Lines tab. Resolved
 // Product code/name + Owner code + UoM code via JOIN, single round-
 // trip. Shape parallel to PurchaseOrderLineRow + TransferOrderLineRow.
+//
+// Phase 14B added: AllocatedQuantity (between OrderedQuantity and
+// UnitPrice) — denormalized aggregate of the line's Active
+// OrderAllocations rows.
 public sealed record SalesOrderLineRow(
     Guid Id,
     int LineNumber,
@@ -58,5 +62,6 @@ public sealed record SalesOrderLineRow(
     string OwnerCode,
     string UomCode,
     decimal OrderedQuantity,
+    decimal AllocatedQuantity,
     decimal? UnitPrice,
     string? Notes);
