@@ -494,3 +494,54 @@ If serial inventory table **missing**:
 - **Desktop equivalent**: `/PackTasks/Detail/{id}`
 - **Service**: `IPackTaskService.SubmitAsync`
 - **Smart scan precedent**: User-designed mockup (3 scenarios) during Phase 14D wait
+
+---
+
+## 📋 Implementation Notes (Path D — shipped 2026-05-10, tag v2.5.0-mobile-pack)
+
+> Added post-implementation. Documents what was built vs spec.
+
+Pre-implementation audit caught material spec-vs-backend mismatches; user picked **Path D** (per-line card pattern, no scan UI). Built in ~1.5h vs 5h spec estimate.
+
+### Audit findings & locked decisions
+
+1. **Serial inventory table missing** — no `master.ProductSerials`, no `inventory.LotSerials`. Smart-scan-by-serial cannot exist without ~2-3h schema add. **Decision**: Defer to Phase 19.5 (TD-043). Bundle with TD-040 (mobile receive serial entry) + TD-042 (scan-incremental UX) when serial schema lands.
+2. **PackTask is 3-state, not 5-state** — `Pending → Packed | Cancelled` only (no `Packing` intermediate). Spec's queue chip "[Pack {N}]", progress bar, and "Resume" CTA assume an InProgress state that doesn't exist. **Decision**: Drop Packing chip + progress bar + Resume. Queue shows Pending only.
+3. **TrackingMethod value is `'Lot'`, not `'LotOnly'`** — applied silently.
+4. **Pack workflow is batch-submit, not scan-incremental** — `IPackTaskService.SubmitAsync` takes `IReadOnlyList<PackedLineEntry>` + carton metadata in one shot. **Decision**: Mirror Phase 18 receive's per-line card pattern.
+5. **Single-carton MVP** per `UX_Cartons_PackTask` UNIQUE — already noted in spec's deferred section.
+
+### Deviations from spec
+
+| Spec said | Built | Why |
+|---|---|---|
+| Smart scan endpoint + scenarios A/B/C | Not built | Serial schema missing (TD-043) |
+| Carton hero card with gradient | Carton metadata strip (green-accent border) | No per-carton state to highlight pre-Submit |
+| Active session card with progress | Not built | No "Packing" state (3-state machine) |
+| Scan area as primary input | Not built | Scan-incremental UX requires backend (TD-042) |
+| Multi-scenario validation chain | Not built | Belongs with smart scan (TD-043) |
+| Packed/Pending items lists | Per-line cards instead | Backend is batch-submit not scan-incremental |
+| GREEN submit pack button | PURPLE (#534AB7) | Per user direction — matches Phase 18 mobile shell |
+| Urgency grouping in queue | Flat FIFO list | No per-task priority/ship-date data |
+
+### Built per spec
+- `/pack/` PWA route + manifest with #534AB7 theme
+- Queue page (Pending tasks)
+- Per-task page with per-line cards
+- Carton metadata section
+- Sticky-bottom Submit + Cancel
+- Native `window.prompt()` for cancel reason
+- `.no-scrollbar` throughout
+- Bounce-to-queue UX
+- Touch targets ≥ 38px (32px quick-adjust borderline same as Phase 18)
+- Serial-tracked products show desktop redirect banner (mirrors Phase 18 TD-040)
+- "Pack (mobile)" sidebar entry under Outbound
+
+### Tests
+
+15 PackControllerTests cover queue / task page / submit guards / cancel reason gate. Submit happy path IS exercised end-to-end (PackController has no inline service-locator, unlike Phase 18 ReceiveController per TD-041).
+
+### Phase 19.5 candidates (bundle when serial schema lands)
+- **TD-040** — Mobile receive serial entry (needs `inventory.LotSerials`)
+- **TD-042** — Mobile pack scan-incremental UX
+- **TD-043** — Mobile pack smart-scan with serial detection
