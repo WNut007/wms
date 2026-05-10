@@ -145,6 +145,10 @@ builder.Services.AddScoped<ICartonRepositoryFactory, CartonRepositoryFactory>();
 builder.Services.AddScoped<IBoxTypeRepositoryFactory, BoxTypeRepositoryFactory>();
 builder.Services.AddScoped<IPackTaskService, PackTaskService>();
 
+// Phase 14E — Ship workflow. Service registration arrives in T4;
+// T3 wires the repo factory only.
+builder.Services.AddScoped<IShipmentRepositoryFactory, ShipmentRepositoryFactory>();
+
 // PermissionService — Scoped to match the (Scoped) factory dep. The
 // cache itself lives on IMemoryCache (Singleton), so per-request
 // instances cost nothing and survive the captive-dependency check.

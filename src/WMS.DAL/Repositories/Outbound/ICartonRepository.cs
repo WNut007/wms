@@ -17,6 +17,22 @@ public interface ICartonRepository
     // CTN-YYYYMMDD-NNNN — count of cartons with CartonNumber LIKE prefix.
     Task<int> CountForDatePrefixAsync(
         string datePrefix, CancellationToken ct = default);
+
+    // Phase 14E — bulk stamp ShipmentId on every carton belonging to
+    // the SO (resolved via PackTask.SalesOrderId join). Single UPDATE.
+    // Composes inside ambient TX from ShipmentService.SubmitAsync.
+    // Returns count of cartons stamped (typically 1 for MVP single-
+    // carton-per-task; useful for telemetry).
+    Task<int> StampShipmentForSalesOrderAsync(
+        Guid salesOrderId,
+        Guid shipmentId,
+        Guid? userId,
+        CancellationToken ct = default);
+
+    // Phase 14E — read-side for shipment Detail page. Lists every
+    // carton claimed by the given shipment (sorted by CartonNumber).
+    Task<IReadOnlyList<Carton>> GetByShipmentIdAsync(
+        Guid shipmentId, CancellationToken ct = default);
 }
 
 public interface ICartonRepositoryFactory
