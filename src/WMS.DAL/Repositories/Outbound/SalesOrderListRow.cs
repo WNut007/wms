@@ -40,10 +40,14 @@ public sealed record SalesOrderFilter(
 // Phase 14A — chip-count aggregate for /SalesOrders list. Counts
 // respect Customer + Warehouse + Search filter; ignore Status so
 // inactive chips still display their totals.
+//
+// Phase 14B added Allocating + Allocated counts.
 public sealed record SalesOrderStatusCounts(
     int All,
     int Draft,
     int Open,
+    int Allocating,
+    int Allocated,
     int Cancelled);
 
 // Phase 14A — read-projection for the Detail Lines tab. Resolved

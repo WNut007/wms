@@ -213,10 +213,12 @@ JOIN master.Warehouses  wh ON wh.Id = so.WarehouseId
 
         const string sql = @"
 SELECT
-    COUNT(*)                                                  AS [All],
-    SUM(CASE WHEN so.Status = 'Draft'     THEN 1 ELSE 0 END)  AS Draft,
-    SUM(CASE WHEN so.Status = 'Open'      THEN 1 ELSE 0 END)  AS [Open],
-    SUM(CASE WHEN so.Status = 'Cancelled' THEN 1 ELSE 0 END)  AS Cancelled
+    COUNT(*)                                                   AS [All],
+    SUM(CASE WHEN so.Status = 'Draft'      THEN 1 ELSE 0 END)  AS Draft,
+    SUM(CASE WHEN so.Status = 'Open'       THEN 1 ELSE 0 END)  AS [Open],
+    SUM(CASE WHEN so.Status = 'Allocating' THEN 1 ELSE 0 END)  AS Allocating,
+    SUM(CASE WHEN so.Status = 'Allocated'  THEN 1 ELSE 0 END)  AS Allocated,
+    SUM(CASE WHEN so.Status = 'Cancelled'  THEN 1 ELSE 0 END)  AS Cancelled
 FROM outbound.SalesOrders so
 JOIN master.Customers  c  ON c.Id  = so.CustomerId
 JOIN master.Warehouses wh ON wh.Id = so.WarehouseId
