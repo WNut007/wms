@@ -1,0 +1,12 @@
+{
+  "name": "WMS Pack",
+  "short_name": "Pack",
+  "description": "Warehouse pack-to-carton mobile",
+  "start_url": "/pack/",
+  "scope": "/pack/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f9fafb",
+  "theme_color": "#534AB7",
+  "icons": []
+}

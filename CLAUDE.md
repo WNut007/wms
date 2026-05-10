@@ -346,11 +346,81 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 + 17 + 18 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` + `v2.2.0-mobile-pick` + `v2.3.0-pack-video` + `v2.4.0-mobile-receive` · **Mobile suite expansion started** (mobile picker + mobile receive both shipped)
-**Current Focus**: Phase 19+ candidates: Mobile Pack PWA (`/pack/`, spec ready), Mobile Putaway (`/putaway/`, spec ready), Mobile Cycle Count, Mobile Locate (specs ready, design system in place); pack-video Phase 18.5 (serial entry on mobile receive — TD-040); carrier FK integration; manifest workflow; post-Submit reversal flows.
+**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 + 17 + 18 + 19 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` + `v2.2.0-mobile-pick` + `v2.3.0-pack-video` + `v2.4.0-mobile-receive` + `v2.5.0-mobile-pack` · **Mobile suite expansion** (picker + receive + pack — 3 of 5 specs implemented)
+**Current Focus**: Phase 20+ candidates: Mobile Putaway (`/putaway/`, spec ready), Mobile Cycle Count + Mobile Locate (specs ready); Phase 19.5 serial-aware mobile (TD-040 + TD-042 + TD-043 — bundle when serial schema lands); carrier FK integration; manifest workflow; post-Submit reversal flows.
 **Blockers**: none
 
 Update this section weekly during standups.
+
+### Day 10 — Phase 19 (Mobile Pack PWA — Path D per spec audit)
+
+**Branch**: `feat/mobile-pack-pwa` → merged to `main` · **Tag**: `v2.5.0-mobile-pack` · **Spec**: `docs/mockups/mobile-specs/phase-19-mobile-pack-spec.md` (497 lines) + Path D corrections appended in T3
+
+Second mobile-suite expansion (third mobile PWA after Phase 16 picker + Phase 18 receive). Pre-implementation audit caught material spec-vs-backend mismatches; user picked **Path D** (per-line card pattern, no scan UI, mirror Phase 18 receive ~70%). Shipped in ~1.5h vs 5h spec estimate — pattern reuse + dropping smart scan = bigger savings than Phase 18.
+
+**Audit findings (resolved before T1, all locked decisions)**:
+1. **Serial inventory table missing.** No `master.ProductSerials`, no `inventory.LotSerials`, no schema for serial inventory anywhere. Spec's smart-scan-by-serial cannot exist without ~2-3h schema add. **Decision D-A**: Defer all serial logic to Phase 19.5 (TD-043). Bundle with TD-040 (mobile receive serial entry) and TD-042 (scan-incremental UX) when the serial schema lands.
+2. **PackTask state is 3-state, not 5-state.** Per `IPackTaskService.cs` lines 4-13 + memory `feedback_state_machine_minimalism.md`: `Pending → Packed | Cancelled` only. No `Packing` intermediate state. Spec's queue chip "[Pack {N}]", progress bar, and "Resume" CTA assume an InProgress state that doesn't exist. **Decision D-B**: Drop Packing chip + progress bar + Resume. Queue shows Pending only. Same shape as Phase 18 receive's "Open + Receiving" active queue.
+3. **TrackingMethod value: `'Lot'` not `'LotOnly'`.** Spec used the wrong enum string. Applied silently (Phase 18 already used `LotAndSerial` correctly).
+4. **Pack workflow is batch-submit, not scan-incremental.** `IPackTaskService.SubmitAsync` takes `IReadOnlyList<PackedLineEntry>` + carton metadata in **one shot**. Spec's "scan items into carton one at a time" UX implies an iterative service that doesn't exist. **Decision D-C**: Mirror Phase 18 receive's per-line card pattern. Each PackTaskLine gets Picked (read-only) + Packed input + quick-adjust + variance, carton metadata strip at bottom, single Submit.
+5. **Single-carton MVP** per `UX_Cartons_PackTask` UNIQUE (memory `feedback_one_to_one_via_unique_for_future_n_to_m.md`). Already noted in spec's deferred section.
+
+**Path D scope**: Per-line cards (Expected = PickedQuantity, Packed input). Quick-adjust -10/-1/+1/+10. Variance indicator (Match / Short / Skipped — color-coded). Status select (Packed | Skipped) — Skipped zeros qty + flips reason required. ShortPackReason input. Carton metadata strip (BoxType + Weight + Notes) at bottom. Single Submit button (purple #534AB7 — matches Phase 18 mobile shell + sidebar, **NOT** spec's GREEN per user direction). Cancel via `window.prompt()` with required 3-char reason. Bounce-to-queue on submit.
+
+**Zero new schema, zero new service code, zero new DAL** — pure presentation-layer addition reusing `IPackTaskService.SubmitAsync` + `CancelAsync` from Phase 14D, `IPackTaskRepository.GetPagedAsync` from Phase 15A, and the existing desktop `SubmitPackTaskViewModel` + `PackedLineRow` for model binding.
+
+**Surfaces (4 actions on the new PackController)**:
+- `GET /pack` — queue. Single paged call (Pending FIFO). Page size 50. Empty state with `ti-package-off` icon. Tap → /pack/{id}.
+- `GET /pack/{taskId}` — task page. Loads `PackTaskDetail` + bulk product meta (`GetMetaByIdsAsync`) + BoxType lookup. Non-Pending tasks return 404 — operator hits desktop `/PackTasks/Detail/{id}` for terminal tasks.
+- `POST /pack/submit/{taskId}` — projects `SubmitPackTaskViewModel` into `SubmitPackTaskRequest`, hits `IPackTaskService.SubmitAsync`. Bounce-to-queue on success. Serial-tracked guard rejects whole submit with "use desktop / TD-043" banner. Service exceptions (state violations) → bounce back to task with error.
+- `POST /pack/cancel/{taskId}` — `window.prompt`-driven reason capture. Controller-level 3-char min reason gate (mobile bypasses FluentValidation since reason comes via prompt(), not a model-bound VM — same shape as Phase 16 picker cancel). Idempotent on already-Cancelled.
+
+**UI**:
+- `Pack/Index.cshtml` — pure CSS, `.pk-*` token namespace, `.no-scrollbar` utility. Mobile-card list with PackNumber (mono) + SoNumber + customer + LineCount + GeneratedByName. Empty state.
+- `Pack/Task.cshtml` — per-line cards. Each card: line number + product code (mono) + product name + Picked/Packed stats grid + quick-adjust row + live variance indicator + collapsible Status select / Reason / Notes fields. Carton metadata strip below all lines (green-accent border, BoxType select + Weight number input + Notes textarea). Sticky bottom Submit (purple) + Cancel button (separate form, prompt-driven). Default Packed = PickedQuantity (zero-click submit when everything matches).
+- **Serial-tracked banner** (`TrackingMethod=='LotAndSerial'`): amber callout, qty input + quick-adjust + collapsible fields all disabled, "use desktop / TD-043" message — same shape as Phase 18 receive.
+
+**Sidebar**: "Pack (mobile)" entry under Outbound, after "Pick (mobile)". `outboundActive` Or-chain widened to include "Pack" route highlighting.
+
+**Tests** (+15 net):
+- `Index_NoWarehouse_RedirectsToSelectWarehouse` — guard
+- `Index_Happy_ReturnsViewWithPendingTasks` — verifies Pending-only filter + view binds list
+- `Task_NotFound_Returns404` + `Task_TerminalStatus_Returns404` Theory (Packed/Cancelled both → 404) + `Task_Happy_LoadsViewWithMetadata` — confirms ViewBag.SoNumber + ProductMeta plumbing
+- `Submit_NoWarehouse_RedirectsToSelectWarehouse` + `Submit_TaskNotFound_Returns404` + `Submit_SerialTrackedLine_RejectedWithUseDesktopMessage` (verifies TD-043 guard fires + service NOT called) + `Submit_Happy_BouncesToQueue` (verifies Index redirect + carton number in success message) + `Submit_ServiceThrows_RedirectsToTaskWithError` (state-violation surface)
+- `Cancel_BlankReason_RedirectsToTaskWithError_NoServiceCall` + `Cancel_TooShortReason_Rejected` (≥3-char gate) + `Cancel_Happy_BouncesToQueue` + `Cancel_AlreadyCancelled_IdempotentMessage`
+
+Submit happy path **IS** exercised end-to-end (unlike Phase 18's TD-041) because PackController has zero inline service-locators — every dep is constructor-injected. Lesson learned from TD-041: don't reach into `HttpContext.RequestServices` even for one-off helpers; the test friction outweighs the injection ceremony savings.
+
+Test posture: **865 passing** (was 850 / +15). 288 unit + 572 integration + 5 skipped.
+
+**Out of scope** (logged as TD-042 + TD-043 — same Phase 19.5 family as TD-040):
+- **TD-042**: Mobile pack — scan-incremental UX (operator scans item → appends to active carton → close carton). Needs either (a) backend service rework for incremental writes, or (b) frontend session that accumulates scans then converts to per-line PackedQuantity at Submit.
+- **TD-043**: Mobile pack — smart-scan with serial detection (auto-detect product code vs serial number, validation chain UI). Blocked on serial inventory schema — bundle with TD-040 + TD-042.
+- Multi-carton splitting (UNIQUE drops in future migration; spec already noted).
+- Carton hero card with gradient + real-time weight estimate (spec's aesthetic; carton strip is sufficient for MVP).
+- Urgency grouping in queue (spec's UX; data model has no priority/ship-date on PackTask itself, would need denormalization).
+- "Scan SO/carton to start" bottom action (no scanner integration).
+- Always-focused barcode input.
+- Service worker offline caching.
+- PWA icons (manifest's `icons:[]` empty).
+
+**Spec compliance check** (Path D corrections applied):
+- ✅ Queue page (Pending tasks)
+- ✅ Task page with per-line cards
+- ✅ Carton metadata section (strip, not gradient hero)
+- ✅ Sticky-bottom submit + cancel
+- ✅ Native `window.prompt()` for cancel reason
+- ✅ `.no-scrollbar` applied throughout
+- ✅ Touch targets ≥ 38px (quick-adjust 32px borderline same as Phase 18)
+- ✅ Bounce-to-queue UX on submit
+- ✅ PWA manifest with design-system theme color
+- ✅ Serial-tracked products show desktop redirect banner (mirrors Phase 18 TD-040)
+- ⚠️ Smart scan endpoint (spec §"Smart Scan Detection") → deferred TD-043
+- ⚠️ Carton hero card with gradient → simplified to carton metadata strip
+- ⚠️ Urgency grouping in queue → flat FIFO list (no per-task priority data)
+- ⚠️ GREEN submit button → PURPLE per user direction (matches Phase 18 mobile shell)
+
+**Notes on chunk-by-chunk hiccups**: None. Pre-implementation audit ran ~15 min and avoided the entire serial-table rabbit hole. Pattern reuse from Phase 18 receive hit ~80% as predicted (Task.cshtml structure ports almost line-for-line; only adaptation was Status select + ShortPackReason flow). Constructor injection from the start kept all 13 test methods covering every endpoint.
 
 ### Day 10 — Phase 18 (Mobile Receive PWA — first mobile-suite spec-driven build)
 
@@ -1918,5 +1988,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-10 (Day 10 — Phase 18 Mobile Receive PWA; v2.4.0-mobile-receive · spec-driven build)
-**Version**: 1.32
+**Last updated**: 2026-05-10 (Day 10 — Phase 19 Mobile Pack PWA; v2.5.0-mobile-pack · Path D per spec audit)
+**Version**: 1.33
