@@ -221,6 +221,7 @@ SELECT
     SUM(CASE WHEN so.Status = 'Picking'         THEN 1 ELSE 0 END)  AS Picking,
     SUM(CASE WHEN so.Status = 'Picked'          THEN 1 ELSE 0 END)  AS Picked,
     SUM(CASE WHEN so.Status = 'PartiallyPicked' THEN 1 ELSE 0 END)  AS PartiallyPicked,
+    SUM(CASE WHEN so.Status = 'Packed'          THEN 1 ELSE 0 END)  AS Packed,
     SUM(CASE WHEN so.Status = 'Cancelled'       THEN 1 ELSE 0 END)  AS Cancelled
 FROM outbound.SalesOrders so
 JOIN master.Customers  c  ON c.Id  = so.CustomerId

@@ -139,6 +139,12 @@ builder.Services.AddScoped<IAllocationStrategyResolver, AllocationStrategyResolv
 builder.Services.AddScoped<IPickTaskRepositoryFactory, PickTaskRepositoryFactory>();
 builder.Services.AddScoped<IPickTaskService, PickTaskService>();
 
+// Phase 14D — Pack task workflow.
+builder.Services.AddScoped<IPackTaskRepositoryFactory, PackTaskRepositoryFactory>();
+builder.Services.AddScoped<ICartonRepositoryFactory, CartonRepositoryFactory>();
+builder.Services.AddScoped<IBoxTypeRepositoryFactory, BoxTypeRepositoryFactory>();
+builder.Services.AddScoped<IPackTaskService, PackTaskService>();
+
 // PermissionService — Scoped to match the (Scoped) factory dep. The
 // cache itself lives on IMemoryCache (Singleton), so per-request
 // instances cost nothing and survive the captive-dependency check.

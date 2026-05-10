@@ -30,6 +30,7 @@ public class SalesOrdersControllerTests
         Mock<ISalesOrderService> Service,
         Mock<IAllocationService> AllocationService,
         Mock<IPickTaskService> PickTaskService,
+        Mock<IPackTaskService> PackTaskService,
         Mock<ICustomerRepository> CustomerRepo,
         Mock<IValidator<SalesOrderCreateViewModel>> CreateValidator,
         Mock<IValidator<SalesOrderEditViewModel>> EditValidator,
@@ -43,7 +44,7 @@ public class SalesOrdersControllerTests
 
         repo.Setup(r => r.GetStatusCountsAsync(
                 It.IsAny<SalesOrderFilter>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new SalesOrderStatusCounts(0, 0, 0, 0, 0, 0, 0, 0, 0));
+            .ReturnsAsync(new SalesOrderStatusCounts(0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
         repo.Setup(r => r.GetLineRowsByIdAsync(
                 It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<SalesOrderLineRow>());
@@ -121,9 +122,13 @@ public class SalesOrdersControllerTests
         // Default-mocked internally — same convention as 14B above.
         var pickTaskService = new Mock<IPickTaskService>();
 
+        // Phase 14D added IPackTaskService dep (GeneratePack POST endpoint).
+        var packTaskService = new Mock<IPackTaskService>();
+
         var ctrl = new SalesOrdersController(
             factory.Object, service.Object,
-            allocationService.Object, pickTaskService.Object, allocFactory.Object,
+            allocationService.Object, pickTaskService.Object, packTaskService.Object,
+            allocFactory.Object,
             customerFactory.Object, warehouseFactory.Object,
             productFactory.Object, ownerFactory.Object, uomFactory.Object,
             tenant.Object, currentUser.Object,
@@ -133,7 +138,7 @@ public class SalesOrdersControllerTests
         ctrl.TempData = new TempDataDictionary(new DefaultHttpContext(), tempDataProvider.Object);
 
         return new Build(ctrl, repo, service, allocationService, pickTaskService,
-            customerRepo, createValidator, editValidator, currentUserId);
+            packTaskService, customerRepo, createValidator, editValidator, currentUserId);
     }
 
     private static SalesOrder SampleHeader(string status = "Draft") => new()
@@ -171,7 +176,7 @@ public class SalesOrdersControllerTests
                 It.IsAny<SalesOrderFilter>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SalesOrderStatusCounts(
                 All: 7, Draft: 2, Open: 4, Allocating: 0, Allocated: 0,
-                Picking: 0, Picked: 0, PartiallyPicked: 0, Cancelled: 1));
+                Picking: 0, Picked: 0, PartiallyPicked: 0, Packed: 0, Cancelled: 1));
 
         var json = Assert.IsType<JsonResult>(await b.Controller.GetData());
         var envelope = json.Value!;
@@ -491,7 +496,7 @@ public class SalesOrdersControllerTests
                 It.IsAny<SalesOrderFilter>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SalesOrderStatusCounts(
                 All: 10, Draft: 1, Open: 2, Allocating: 3, Allocated: 3,
-                Picking: 0, Picked: 0, PartiallyPicked: 0, Cancelled: 1));
+                Picking: 0, Picked: 0, PartiallyPicked: 0, Packed: 0, Cancelled: 1));
 
         var json = Assert.IsType<JsonResult>(await b.Controller.GetData());
         var counts = json.Value!.GetType().GetProperty("counts")!.GetValue(json.Value)!;
@@ -598,5 +603,54 @@ public class SalesOrdersControllerTests
         Assert.Null(redirect.ControllerName);   // same controller (SalesOrders)
         Assert.Equal(soId, redirect.RouteValues!["id"]);
         Assert.Equal("SO not in Allocated state", b.Controller.TempData["SalesOrderError"]);
+    }
+
+    // ================================================================
+    // GeneratePack (Phase 14D)
+    // ================================================================
+
+    [Fact]
+    public async Task GeneratePack_Happy_RedirectsToPackTaskDetail_WithTempDataMessage()
+    {
+        var b = BuildController();
+        var soId = Guid.NewGuid();
+        var newPackId = Guid.NewGuid();
+        b.PackTaskService.Setup(s => s.GenerateAsync(
+                TenantId, soId, b.CurrentUserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PackTaskGenerationResult(
+                PackTaskId: newPackId,
+                PackNumber: "PACK-20260510-0001",
+                LineCount: 2,
+                TotalPickedQuantity: 17m));
+
+        var result = await b.Controller.GeneratePack(soId, default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Detail", redirect.ActionName);
+        Assert.Equal("PackTasks", redirect.ControllerName);
+        Assert.Equal(newPackId, redirect.RouteValues!["id"]);
+
+        var msg = b.Controller.TempData["PackTaskMessage"] as string;
+        Assert.NotNull(msg);
+        Assert.Contains("PACK-20260510-0001", msg);
+        Assert.Contains("2 line", msg);
+    }
+
+    [Fact]
+    public async Task GeneratePack_ServiceThrows_RedirectsToSoDetail_WithError()
+    {
+        var b = BuildController();
+        var soId = Guid.NewGuid();
+        b.PackTaskService.Setup(s => s.GenerateAsync(
+                It.IsAny<Guid>(), soId, It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("no positively-picked lines"));
+
+        var result = await b.Controller.GeneratePack(soId, default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Detail", redirect.ActionName);
+        Assert.Null(redirect.ControllerName);
+        Assert.Equal(soId, redirect.RouteValues!["id"]);
+        Assert.Equal("no positively-picked lines", b.Controller.TempData["SalesOrderError"]);
     }
 }

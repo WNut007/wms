@@ -1,0 +1,247 @@
+@model WMS.Web.ViewModels.Detail.DetailPageViewModel
+@{
+    var lines = ViewBag.LineRows as IReadOnlyList<WMS.Domain.Entities.Outbound.PackTaskLine>
+                ?? new List<WMS.Domain.Entities.Outbound.PackTaskLine>();
+    var headerId = (Guid)ViewBag.HeaderId;
+    var canSubmit = ViewBag.CanSubmit is true;
+    var boxTypes = ViewBag.BoxTypes as IReadOnlyList<WMS.DAL.Common.LookupItem>
+                   ?? new List<WMS.DAL.Common.LookupItem>();
+
+    // Initial state for the Alpine submit form. Each line carries the
+    // operator-editable {packedQuantity, lineStatus, shortPackReason,
+    // notes}; PickedQuantity is read-only (snapshot at gen).
+    var initialJson = System.Text.Json.JsonSerializer.Serialize(
+        lines.Select(l => new {
+            id              = l.Id,
+            lineNumber      = l.LineNumber,
+            pickedQuantity  = l.PickedQuantity,
+            packedQuantity  = l.PackedQuantity ?? l.PickedQuantity, // default to full picked
+            lineStatus      = string.IsNullOrEmpty(l.LineStatus) || l.LineStatus == "Pending"
+                                ? "Packed"
+                                : l.LineStatus,
+            shortPackReason = l.ShortPackReason ?? "",
+            notes           = l.Notes ?? "",
+        }));
+}
+
+<section class="wmsd-section"
+         x-data="packTaskForm({ initialLines: @Html.Raw(initialJson), canSubmit: @(canSubmit ? "true" : "false") })">
+    <p class="wmsd-section-eyebrow">— Lines</p>
+    <h2>@(canSubmit ? "Pack entry" : "Pack lines")</h2>
+
+    @if (canSubmit)
+    {
+        <p style="font-size:12px;color:var(--wms-text-secondary);margin-bottom:12px;">
+            Enter actual packed quantities. Defaults to the full picked qty (the common "everything goes in the carton" shortcut). Lower for short packs (reason required); switch to <strong>Skipped</strong> when an item couldn't be packed at all (e.g., damaged in transit).
+        </p>
+    }
+
+    @if (lines.Count == 0)
+    {
+        <p style="text-align:center;padding:40px;color:var(--wms-text-tertiary);font-size:12px;">
+            No lines on this pack task.
+        </p>
+    }
+    else if (canSubmit)
+    {
+        <form asp-controller="PackTasks" asp-action="Submit"
+              asp-route-id="@headerId" method="post">
+            @Html.AntiForgeryToken()
+
+            <div style="overflow-x:auto;">
+                <table class="wms-table" style="width:100%;">
+                    <thead>
+                        <tr>
+                            <th style="width:50px;">#</th>
+                            <th style="width:100px;text-align:right;">Picked</th>
+                            <th style="width:130px;">Packed</th>
+                            <th style="width:120px;">Status</th>
+                            <th>Short reason</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (var i = 0; i < lines.Count; i++)
+                        {
+                            var l = lines[i];
+                            <tr>
+                                <td><span class="mono">@l.LineNumber</span></td>
+                                <td style="text-align:right;">@l.PickedQuantity.ToString("N2")</td>
+                                <td>
+                                    <input type="hidden" name="Lines[@i].LineId" value="@l.Id" />
+                                    <input type="number" step="0.0001" min="0" max="@l.PickedQuantity"
+                                           class="wms-input" style="text-align:right;"
+                                           name="Lines[@i].PackedQuantity"
+                                           x-model.number="lines[@i].packedQuantity"
+                                           :disabled="lines[@i].lineStatus === 'Skipped'" />
+                                </td>
+                                <td>
+                                    <select class="wms-input"
+                                            name="Lines[@i].LineStatus"
+                                            x-model="lines[@i].lineStatus"
+                                            @@change="onStatusChanged(@i)">
+                                        <option value="Packed">Packed</option>
+                                        <option value="Skipped">Skipped</option>
+                                    </select>
+                                </td>
+                                <td>
+                                    <input type="text" class="wms-input"
+                                           name="Lines[@i].ShortPackReason"
+                                           x-model="lines[@i].shortPackReason"
+                                           maxlength="500"
+                                           :placeholder="needsReason(@i) ? 'Required' : '(optional)'"
+                                           :class="{ 'wms-input-required': needsReason(@i) && !lines[@i].shortPackReason }" />
+                                </td>
+                                <td>
+                                    <input type="text" class="wms-input"
+                                           name="Lines[@i].Notes"
+                                           x-model="lines[@i].notes"
+                                           maxlength="500"
+                                           placeholder="(optional)" />
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @* Carton metadata — 1:1 with task for MVP *@
+            <div style="margin-top:24px;padding:16px;border:1px solid var(--wmsd-border, #E5E7EB);border-radius:8px;background:#FAFAFA;">
+                <p class="wmsd-section-eyebrow" style="margin:0 0 8px;">— Carton</p>
+                <p style="font-size:12px;color:var(--wms-text-secondary);margin:0 0 12px;">
+                    One carton per pack task for MVP. Carton number stamped server-side as <span class="mono">CTN-YYYYMMDD-NNNN</span>.
+                </p>
+                <div style="display:grid;grid-template-columns:1fr 160px 2fr;gap:12px;align-items:start;">
+                    <label style="display:flex;flex-direction:column;gap:4px;">
+                        <span style="font-size:12px;font-weight:500;color:#374151;">Box type</span>
+                        <select class="wms-input" name="BoxTypeId">
+                            <option value="">(unspecified)</option>
+                            @foreach (var b in boxTypes)
+                            {
+                                <option value="@b.Id">@b.Code — @b.Name</option>
+                            }
+                        </select>
+                    </label>
+                    <label style="display:flex;flex-direction:column;gap:4px;">
+                        <span style="font-size:12px;font-weight:500;color:#374151;">Weight (kg)</span>
+                        <input type="number" step="0.001" min="0" class="wms-input"
+                               name="WeightKg" placeholder="(optional)" />
+                    </label>
+                    <label style="display:flex;flex-direction:column;gap:4px;">
+                        <span style="font-size:12px;font-weight:500;color:#374151;">Carton notes</span>
+                        <input type="text" class="wms-input"
+                               name="CartonNotes" maxlength="500" placeholder="(optional)" />
+                    </label>
+                </div>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0 4px;">
+                <span style="font-size:12px;color:var(--wms-text-secondary);">
+                    <strong x-text="fullCount()"></strong> full ·
+                    <strong x-text="shortCount()"></strong> short ·
+                    <strong x-text="skipCount()"></strong> skipped
+                </span>
+                <button type="submit" class="wms-btn wms-btn-purple"
+                        :disabled="!isValid()">
+                    <i class="ti ti-package" style="margin-right:6px;"></i>
+                    Submit pack
+                </button>
+            </div>
+        </form>
+    }
+    else
+    {
+        @* Terminal — Packed / Cancelled. Read-only with packed vs picked highlight. *@
+        <div style="overflow-x:auto;">
+            <table class="wms-table" style="width:100%;">
+                <thead>
+                    <tr>
+                        <th style="width:50px;">#</th>
+                        <th style="width:100px;text-align:right;">Picked</th>
+                        <th style="width:100px;text-align:right;">Packed</th>
+                        <th style="width:120px;">Status</th>
+                        <th>Short reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var l in lines)
+                    {
+                        var packedVal = l.PackedQuantity ?? 0m;
+                        var packedColor = l.LineStatus switch
+                        {
+                            "Packed"  when packedVal == l.PickedQuantity => "#0F6E56",
+                            "Packed"  when packedVal < l.PickedQuantity  => "#854F0B",
+                            "Skipped" => "#A32D2D",
+                            _         => "var(--wms-text-tertiary)",
+                        };
+                        var statusVariant = l.LineStatus switch
+                        {
+                            "Packed"  when packedVal == l.PickedQuantity => "s-success",
+                            "Packed"                                     => "s-warning",
+                            "Skipped"                                    => "s-danger",
+                            _                                            => "s-neutral",
+                        };
+                        <tr>
+                            <td><span class="mono">@l.LineNumber</span></td>
+                            <td style="text-align:right;">@l.PickedQuantity.ToString("N2")</td>
+                            <td style="text-align:right;font-weight:500;color:@packedColor;">
+                                @(l.PackedQuantity?.ToString("N2") ?? "—")
+                            </td>
+                            <td><span class="wmsd-badge @statusVariant">@l.LineStatus</span></td>
+                            <td style="font-size:11px;color:var(--wms-text-secondary);">
+                                @(l.ShortPackReason ?? "—")
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@if (canSubmit)
+{
+    <script>
+        function packTaskForm(opts) {
+            return {
+                lines: opts.initialLines || [],
+                canSubmit: opts.canSubmit,
+                onStatusChanged(idx) {
+                    const line = this.lines[idx];
+                    if (line.lineStatus === 'Skipped') {
+                        line.packedQuantity = 0;
+                    } else if (line.lineStatus === 'Packed' && (line.packedQuantity === 0 || line.packedQuantity === null)) {
+                        line.packedQuantity = line.pickedQuantity;
+                    }
+                },
+                needsReason(idx) {
+                    const line = this.lines[idx];
+                    if (line.lineStatus === 'Skipped') return true;
+                    return line.lineStatus === 'Packed'
+                        && line.packedQuantity != null
+                        && line.packedQuantity < line.pickedQuantity;
+                },
+                fullCount() {
+                    return this.lines.filter(l =>
+                        l.lineStatus === 'Packed' && l.packedQuantity === l.pickedQuantity).length;
+                },
+                shortCount() {
+                    return this.lines.filter(l =>
+                        l.lineStatus === 'Packed' && l.packedQuantity < l.pickedQuantity).length;
+                },
+                skipCount() {
+                    return this.lines.filter(l => l.lineStatus === 'Skipped').length;
+                },
+                isValid() {
+                    return this.lines.every(l => !this.needsReasonRow(l) || (l.shortPackReason || '').trim().length >= 3);
+                },
+                needsReasonRow(line) {
+                    if (line.lineStatus === 'Skipped') return true;
+                    return line.lineStatus === 'Packed'
+                        && line.packedQuantity != null
+                        && line.packedQuantity < line.pickedQuantity;
+                },
+            };
+        }
+    </script>
+}

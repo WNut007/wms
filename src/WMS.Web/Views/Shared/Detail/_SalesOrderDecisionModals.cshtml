@@ -142,6 +142,34 @@
     </div>
 }
 
+@if (ViewBag.CanGeneratePack is true)
+{
+    <div id="generate-pack-modal" class="wms-so-overlay">
+        <div class="wms-so-modal" role="dialog">
+            <h2 class="is-info">
+                <i class="ti ti-package"></i> Generate pack task
+            </h2>
+            <p class="lead">
+                Snapshots the SO's positively-picked lines into a new
+                pack task. <strong>No SO state change</strong> on
+                generate — the SO stays in its current state while the
+                pack is in flight; flips to <strong>Packed</strong>
+                only when the operator submits the carton at
+                <em>/PackTasks/Detail</em>. Idempotent on already-
+                Pending pack tasks (returns the existing one).
+            </p>
+            <form asp-controller="SalesOrders" asp-action="GeneratePack"
+                  asp-route-id="@ViewBag.HeaderId" method="post">
+                @Html.AntiForgeryToken()
+                <div class="wms-so-actions">
+                    <a href="#" class="wms-so-btn">Cancel</a>
+                    <button type="submit" class="wms-so-btn is-info">Confirm generate</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
 @if (ViewBag.CanCancel is true)
 {
     <div id="cancel-modal" class="wms-so-overlay">

@@ -110,7 +110,7 @@
                 search: '', status: 'all', loading: false,
                 counts: {
                     all: 0, draft: 0, open: 0, allocating: 0, allocated: 0,
-                    picking: 0, picked: 0, partiallypicked: 0, cancelled: 0,
+                    picking: 0, picked: 0, partiallypicked: 0, packed: 0, cancelled: 0,
                 },
                 statuses: [
                     { value: 'all',             label: 'All' },
@@ -121,6 +121,7 @@
                     { value: 'picking',         label: 'Picking' },
                     { value: 'picked',          label: 'Picked' },
                     { value: 'partiallypicked', label: 'Partial' },
+                    { value: 'packed',          label: 'Packed' },
                     { value: 'cancelled',       label: 'Cancelled' },
                 ],
                 async init() { await this.reload(); },
@@ -161,6 +162,7 @@
                         'picking':         's-warning',
                         'picked':          's-success',
                         'partiallypicked': 's-warning',
+                        'packed':          's-info',
                         'cancelled':       's-neutral',
                     }[status] || 's-neutral';
                 },
