@@ -116,9 +116,13 @@ public class SalesOrdersControllerTests
         var allocFactory = new Mock<IOrderAllocationRepositoryFactory>();
         allocFactory.Setup(f => f.For(It.IsAny<Guid>())).Returns(allocRepo.Object);
 
+        // Phase 14C added IPickTaskService dep (Generate POST endpoint).
+        // Default-mocked internally — same convention as 14B above.
+        var pickTaskService = new Mock<IPickTaskService>();
+
         var ctrl = new SalesOrdersController(
             factory.Object, service.Object,
-            allocationService.Object, allocFactory.Object,
+            allocationService.Object, pickTaskService.Object, allocFactory.Object,
             customerFactory.Object, warehouseFactory.Object,
             productFactory.Object, ownerFactory.Object, uomFactory.Object,
             tenant.Object, currentUser.Object,
