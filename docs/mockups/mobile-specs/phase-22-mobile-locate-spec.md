@@ -468,3 +468,63 @@ After this phase:
 = Full mobile WMS for warehouse staff
 = Tag pipeline complete to v2.8.0
 = Ready for v3.0.0 SaaS launch features
+
+---
+
+## 📋 Implementation Notes (Scenario A — shipped 2026-05-11, tag v2.8.0-mobile-locate)
+
+> Added post-implementation. Documents what was built vs spec.
+
+Pre-implementation audit confirmed clean **Scenario A**. Read-only utility — simplest of the 5 mobile phases. Pure presentation-layer addition with two new JOIN-rich read methods on existing `IStockRepository`. **No spec rename triggered** (5th-instance audit clean).
+
+Built in ~1h vs 3-4h spec estimate.
+
+### Audit findings & locked decisions
+
+1. ✅ `IStockRepository.GetByProductAsync` + `GetByLocationAsync` exist — added new JOIN-rich row DTOs for the rich projection mobile views need.
+2. ✅ `inventory.Lots.ReceivedDate` + `ExpiryDate` drive lot-age display via `DATEDIFF`.
+3. ✅ `master.Zones.Type` drives status badge color (Storage = purple, Receiving/Staging = blue, Picking = green) — same enum pattern from Phase 20.
+4. ❌ **No serial schema** → smart search drops serial detection. **TD-043 family deferral** — product OR location only.
+5. ❌ No favorites/recent backend → client-side localStorage only per brief.
+
+### Smart search algorithm (built)
+
+1. Try `Product.Code` exact match (Active products only) → 302 to `/locate/item/{id}`
+2. Try `Location.Code` exact match (current warehouse, Active+IsActive) → 302 to `/locate/loc/{id}`
+3. Skip serial detection (TD-043)
+4. Not found → bounce to `/locate` with TempData banner including TD-043 reference
+
+### Deviations from spec
+
+| Spec said | Built | Why |
+|---|---|---|
+| Smart search auto-detects serial | Product OR location only | No `inventory.LotSerials` schema (TD-043 — Phase 19.5 bundle) |
+| Native barcode scanner integration | Manual entry only | Camera/Barcode API integration is future TD; spec explicitly defers |
+| Favorites/saved searches per user | Deferred (TD) | Per brief — recent via client-side localStorage suffices for MVP |
+| "View movement history" action | Deferred (TD) | No mobile movement history surface yet |
+| "Start cycle count here" action on Loc page | Deferred (TD) | Cross-link to Phase 21 — would pre-populate location filter |
+| GREEN submit button | PURPLE (#534AB7) | Per Phase 19 user direction across all mobile phases |
+
+### Built per spec
+- `/locate/` PWA route + manifest with #534AB7 theme
+- Search entry with autofocused input + scan area HERO + recent list
+- Smart search server-side detection (product OR location)
+- Multi-location view per product with stat tiles + per-location cards
+- Items-at-location view with HERO card + per-item cards
+- Lot age display with traffic-light coloring (fresh/aged/stale)
+- Status badges by Zone.Type
+- Recent searches via client-side localStorage (dedup, cap 10 entries, relative time)
+- "Locate (mobile)" sidebar entry under Inventory
+
+### Tests
+
+6 LocateControllerTests cover NoWarehouse guards on all 4 actions + Index Happy + Search BlankQuery early-bail-out. Smart-search routing happy path + Item/Loc inline-header-lookup paths use inline `ITenantConnectionFactory` (TD-041 family) and are not unit-tested. The header lookups are 5 lines each — risk acceptable as a trade-off for lightweight controller.
+
+### TD candidates
+- **TD-043 family** — Smart-scan with serial detection (Phase 19.5 bundle: TD-040 + TD-042 + TD-043)
+- Movement history view per item/location
+- "Start cycle count from location" cross-link to Phase 21
+- Favorites/saved searches (per-user backend table)
+- Native barcode scanner integration
+- Service worker offline caching
+- PWA icons
