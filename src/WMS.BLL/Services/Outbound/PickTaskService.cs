@@ -1,13 +1,15 @@
 using System.Transactions;
 using Microsoft.Extensions.Logging;
+using WMS.Common.Inventory;
 using WMS.DAL.Repositories.Inventory;
 using WMS.DAL.Repositories.Outbound;
 using WMS.Domain.Entities.Outbound;
 
 namespace WMS.BLL.Services.Outbound;
 
-// Phase 14C — pick task orchestration. T4 ships GenerateAsync only;
-// SubmitAsync (T5) and CancelAsync (T6) plug onto this service.
+// Phase 14C — pick task orchestration. T4 ships GenerateAsync; T5
+// adds SubmitAsync (the headline TX-wrapped commit). CancelAsync
+// arrives in T6.
 //
 // Generate is the lightest of the three lifecycle methods: no Stock
 // writes, no allocation flips. Just inserts the task header + lines
@@ -159,5 +161,267 @@ public sealed class PickTaskService : IPickTaskService
 
         return new PickTaskGenerationResult(
             pickTaskId, pickNumber, lines.Count, totalExpected);
+    }
+
+    public async Task<PickTaskSubmissionResult> SubmitAsync(
+        Guid tenantId,
+        SubmitPickTaskRequest request,
+        Guid currentUserId,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var pickRepo = _pickRepoFactory.For(tenantId);
+        var allocRepo = _allocRepoFactory.For(tenantId);
+        var stockRepo = _stockRepoFactory.For(tenantId);
+        var soRepo = _soRepoFactory.For(tenantId);
+
+        var detail = await pickRepo.GetByIdAsync(request.PickTaskId, ct)
+            ?? throw new InvalidOperationException(
+                $"PickTask {request.PickTaskId} not found.");
+
+        var taskStatus = detail.Header.Status;
+        if (taskStatus is not "Pending" and not "InProgress")
+            throw new InvalidOperationException(
+                $"Cannot submit pick task in '{taskStatus}' state — only Pending or InProgress allowed.");
+
+        var entriesByLineId = ValidateRequestShape(request, detail.Lines);
+
+        // Resolve SalesOrderLineId per allocation (PickTaskLine doesn't
+        // carry it — snapshot intentionally narrow). One read covers
+        // every allocation on the SO.
+        var allocations = await allocRepo.GetActiveEntitiesBySalesOrderIdAsync(
+            detail.Header.SalesOrderId, ct);
+        var allocById = allocations.ToDictionary(a => a.Id);
+
+        // Per-SO-line accumulators for the post-pick aggregate (used to
+        // compute SO target status without re-reading SO lines).
+        var pickedBySoLine = new Dictionary<Guid, decimal>();
+        var releasedBySoLine = new Dictionary<Guid, decimal>();
+
+        int fullyPickedLines = 0;
+        int shortPickedLines = 0;
+        int skippedLines = 0;
+        decimal totalPicked = 0m;
+
+        using var scope = new TransactionScope(
+            TransactionScopeOption.Required,
+            new TransactionOptions { IsolationLevel = System.Transactions.IsolationLevel.ReadCommitted },
+            TransactionScopeAsyncFlowOption.Enabled);
+
+        foreach (var line in detail.Lines)
+        {
+            var entry = entriesByLineId[line.Id];
+
+            // ValidateRequestShape already enforced the per-line input
+            // contract — pickedQty derived directly off the validated
+            // entry shape.
+            var pickedQty = entry.LineStatus == "Picked"
+                ? entry.PickedQuantity!.Value
+                : 0m;
+
+            if (entry.LineStatus == "Skipped")
+                skippedLines++;
+            else if (pickedQty < line.ExpectedQuantity)
+                shortPickedLines++;
+            else
+                fullyPickedLines++;
+
+            totalPicked += pickedQty;
+
+            // 1. PickTaskLine update — qty + status + reason + notes.
+            await pickRepo.UpdateLinePickedAsync(
+                line.Id,
+                entry.LineStatus == "Picked" ? entry.PickedQuantity : null,
+                entry.LineStatus,
+                entry.ShortPickReason,
+                entry.Notes,
+                currentUserId,
+                ct);
+
+            // 2. Stock.OnHand decrement — only when something was
+            // actually picked. CK_Stock_OnHand_NonNegative throws on
+            // concurrent drain → TX rolls back.
+            if (pickedQty > 0m)
+            {
+                var stockKey = new StockKey(
+                    line.LocationId,
+                    line.ProductId,
+                    line.LotId,
+                    line.PalletId,
+                    line.OwnerId,
+                    line.UomId);
+
+                var movementCtx = new StockMovementContext(
+                    StockMovementType.Pick,
+                    currentUserId,
+                    ReferenceType: "PickTaskLine",
+                    ReferenceId: line.Id,
+                    Notes: $"Pick {detail.Header.PickNumber}");
+
+                await stockRepo.UpsertOnHandAsync(stockKey, -pickedQty, movementCtx, ct);
+            }
+
+            // 3. Stock.QuantityAllocated decrement — release the FULL
+            // expected reservation. The picked portion left via OnHand
+            // above; the unfilled portion is now free for re-allocation.
+            await stockRepo.AdjustQuantityAllocatedAsync(
+                line.StockId, -line.ExpectedQuantity, currentUserId, ct);
+
+            // 4. OrderAllocation Active → Picked.
+            if (!allocById.TryGetValue(line.OrderAllocationId, out var alloc))
+                throw new InvalidOperationException(
+                    $"OrderAllocation {line.OrderAllocationId} for pick line {line.Id} not Active — concurrent state change?");
+
+            var pickedFlipped = await allocRepo.MarkPickedAsync(
+                alloc.Id, currentUserId, ct);
+            if (!pickedFlipped)
+                throw new InvalidOperationException(
+                    $"OrderAllocation {alloc.Id} no longer Active — concurrent cancel or pick?");
+
+            // Per-SO-line bookkeeping (one allocation may share an SO
+            // line with siblings — sum on the way through).
+            pickedBySoLine[alloc.SalesOrderLineId] =
+                pickedBySoLine.GetValueOrDefault(alloc.SalesOrderLineId, 0m) + pickedQty;
+            releasedBySoLine[alloc.SalesOrderLineId] =
+                releasedBySoLine.GetValueOrDefault(alloc.SalesOrderLineId, 0m) + line.ExpectedQuantity;
+        }
+
+        // 5. SO line aggregates — one UPDATE per affected line for both
+        // PickedQuantity bump + AllocatedQuantity decrement.
+        foreach (var (soLineId, pickedDelta) in pickedBySoLine)
+        {
+            if (pickedDelta > 0m)
+                await soRepo.AdjustLinePickedQuantityAsync(
+                    soLineId, pickedDelta, currentUserId, ct);
+        }
+        foreach (var (soLineId, releasedDelta) in releasedBySoLine)
+        {
+            await soRepo.AdjustLineAllocatedQuantityAsync(
+                soLineId, -releasedDelta, currentUserId, ct);
+        }
+
+        // 6. Task header — Pending→InProgress→Completed in one
+        // round-trip pair. SetStartedAsync no-ops when already
+        // InProgress (idempotent via WHERE Status='Pending').
+        if (taskStatus == "Pending")
+        {
+            var started = await pickRepo.SetStartedAsync(
+                request.PickTaskId, currentUserId, ct);
+            if (!started)
+                throw new InvalidOperationException(
+                    $"Failed to advance pick task {request.PickTaskId} to InProgress — concurrent state change?");
+        }
+
+        // Target status: any short or skipped line → PartiallyPicked,
+        // else Picked.
+        var targetTaskStatus = (shortPickedLines + skippedLines) > 0
+            ? "PartiallyPicked"
+            : "Picked";
+
+        var completed = await pickRepo.SetCompletedAsync(
+            request.PickTaskId, targetTaskStatus, currentUserId, ct);
+        if (!completed)
+            throw new InvalidOperationException(
+                $"Failed to flip pick task {request.PickTaskId} to '{targetTaskStatus}' — concurrent state change?");
+
+        // 7. SO header status. Re-read lines to capture the post-pick
+        // PickedQuantity per line (denormalized aggregate). MVP:
+        // one pick task per SO, so PickedQuantity == pickedBySoLine
+        // delta for every line — but a fresh read keeps the logic
+        // robust against future multi-task SOs without rewriting.
+        var soDetail = await soRepo.GetByIdAsync(detail.Header.SalesOrderId, ct)
+            ?? throw new InvalidOperationException(
+                $"SO {detail.Header.SalesOrderId} disappeared mid-submit.");
+
+        var allLinesFullyPicked = soDetail.Lines.All(l =>
+            l.PickedQuantity >= l.OrderedQuantity);
+        var targetSoStatus = allLinesFullyPicked ? "Picked" : "PartiallyPicked";
+
+        var soChanged = await soRepo.SetStatusAsync(
+            detail.Header.SalesOrderId, "Picking", targetSoStatus, currentUserId, ct);
+        if (!soChanged)
+            throw new InvalidOperationException(
+                $"Failed to flip SO {detail.Header.SalesOrderId} Picking→'{targetSoStatus}' — concurrent state change?");
+
+        scope.Complete();
+
+        _logger.LogInformation(
+            "Submitted pick task {PickNumber} ({PickId}) — task={TaskStatus} so={SoStatus} full={Full} short={Short} skip={Skip} totalPicked={Total}",
+            detail.Header.PickNumber, request.PickTaskId,
+            targetTaskStatus, targetSoStatus,
+            fullyPickedLines, shortPickedLines, skippedLines, totalPicked);
+
+        return new PickTaskSubmissionResult(
+            TaskStatus: targetTaskStatus,
+            SalesOrderStatus: targetSoStatus,
+            FullyPickedLineCount: fullyPickedLines,
+            ShortPickedLineCount: shortPickedLines,
+            SkippedLineCount: skippedLines,
+            TotalPickedQuantity: totalPicked);
+    }
+
+    // Verifies the request covers exactly the task's lines (no missing,
+    // no extras, no duplicates) and each entry's per-line shape is
+    // valid. Returns LineId → entry lookup for the orchestrating loop.
+    private static Dictionary<Guid, PickedLineEntry> ValidateRequestShape(
+        SubmitPickTaskRequest request,
+        IReadOnlyList<PickTaskLine> taskLines)
+    {
+        if (request.Lines.Count == 0)
+            throw new InvalidOperationException("Submission has no lines.");
+
+        var dict = new Dictionary<Guid, PickedLineEntry>(request.Lines.Count);
+        foreach (var entry in request.Lines)
+        {
+            if (!dict.TryAdd(entry.LineId, entry))
+                throw new InvalidOperationException(
+                    $"Duplicate LineId {entry.LineId} in submission.");
+        }
+
+        var taskLineIds = taskLines.Select(l => l.Id).ToHashSet();
+        var missing = taskLineIds.Except(dict.Keys).ToList();
+        if (missing.Count > 0)
+            throw new InvalidOperationException(
+                $"Submission missing lines: {string.Join(", ", missing)}.");
+        var extras = dict.Keys.Except(taskLineIds).ToList();
+        if (extras.Count > 0)
+            throw new InvalidOperationException(
+                $"Submission has unknown lines: {string.Join(", ", extras)}.");
+
+        // Per-entry shape — closed enum, qty range, reason required.
+        foreach (var line in taskLines)
+        {
+            var entry = dict[line.Id];
+
+            if (entry.LineStatus is not "Picked" and not "Skipped")
+                throw new InvalidOperationException(
+                    $"Line {line.Id} status '{entry.LineStatus}' invalid — must be 'Picked' or 'Skipped'.");
+
+            if (entry.LineStatus == "Picked")
+            {
+                if (entry.PickedQuantity is null)
+                    throw new InvalidOperationException(
+                        $"Line {line.Id} marked Picked but has no PickedQuantity.");
+                if (entry.PickedQuantity < 0m || entry.PickedQuantity > line.ExpectedQuantity)
+                    throw new InvalidOperationException(
+                        $"Line {line.Id} PickedQuantity {entry.PickedQuantity} outside [0, {line.ExpectedQuantity}].");
+                if (entry.PickedQuantity < line.ExpectedQuantity
+                    && string.IsNullOrWhiteSpace(entry.ShortPickReason))
+                    throw new InvalidOperationException(
+                        $"Line {line.Id} short-picked ({entry.PickedQuantity} < {line.ExpectedQuantity}) — ShortPickReason required.");
+            }
+            else // Skipped
+            {
+                if (entry.PickedQuantity is not null)
+                    throw new InvalidOperationException(
+                        $"Line {line.Id} marked Skipped must have null PickedQuantity.");
+                if (string.IsNullOrWhiteSpace(entry.ShortPickReason))
+                    throw new InvalidOperationException(
+                        $"Line {line.Id} skipped — ShortPickReason required.");
+            }
+        }
+
+        return dict;
     }
 }

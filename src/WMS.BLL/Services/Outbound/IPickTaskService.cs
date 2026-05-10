@@ -40,6 +40,39 @@ public interface IPickTaskService
         Guid salesOrderId,
         Guid currentUserId,
         CancellationToken ct = default);
+
+    // Phase 14C — final commit. Operator-supplied per-line picked
+    // quantities flow through here in one TransactionScope:
+    //   - PickTaskLines: PickedQuantity + LineStatus + ShortPickReason
+    //     + Notes (per-line UPDATE)
+    //   - Stock: OnHand decrement (per Pick movement, only when picked
+    //     qty > 0); QuantityAllocated decrement by the full Expected
+    //     (the entire reservation is consumed — picked portion went
+    //     out via OnHand, unfilled portion is freed back to available)
+    //   - SalesOrderLines: PickedQuantity bump (+ picked qty);
+    //     AllocatedQuantity decrement (- Expected qty)
+    //   - OrderAllocations: Active → Picked (audit stamped)
+    //   - PickTask: Pending|InProgress → Picked | PartiallyPicked
+    //   - SalesOrders: Picking → Picked (every line picked at full
+    //     OrderedQty) | PartiallyPicked (any line short or skipped)
+    //
+    // Validation:
+    //   - Task in Pending or InProgress state
+    //   - Every task line present in request, no extras, no dups
+    //   - LineStatus ∈ {'Picked','Skipped'}
+    //   - Picked: PickedQuantity in 0..Expected; ShortPickReason
+    //     required when PickedQty < Expected
+    //   - Skipped: PickedQuantity must be null; ShortPickReason
+    //     required (Skipped IS a short — full)
+    //
+    // Throws InvalidOperationException on state / shape violations.
+    // CK_Stock_OnHand_NonNegative throws if a parallel pick already
+    // drained the stock — TX rolls back, caller surfaces the error.
+    Task<PickTaskSubmissionResult> SubmitAsync(
+        Guid tenantId,
+        SubmitPickTaskRequest request,
+        Guid currentUserId,
+        CancellationToken ct = default);
 }
 
 // Phase 14C — return shape for GenerateAsync. Carries enough for the
@@ -50,3 +83,29 @@ public sealed record PickTaskGenerationResult(
     string PickNumber,
     int LineCount,
     decimal TotalExpectedQuantity);
+
+// Phase 14C — input shape for SubmitAsync. One PickedLineEntry per
+// PickTaskLine in the task; the service rejects missing or extra
+// LineIds.
+public sealed record SubmitPickTaskRequest(
+    Guid PickTaskId,
+    IReadOnlyList<PickedLineEntry> Lines);
+
+public sealed record PickedLineEntry(
+    Guid LineId,
+    decimal? PickedQuantity,
+    string LineStatus,         // 'Picked' | 'Skipped'
+    string? ShortPickReason,
+    string? Notes);
+
+// Phase 14C — return shape for SubmitAsync. Surfaces the resolved
+// terminal task + SO statuses + per-line outcome counts so the
+// controller can render a one-line "{n} short, {m} skipped" banner
+// without re-querying.
+public sealed record PickTaskSubmissionResult(
+    string TaskStatus,             // 'Picked' | 'PartiallyPicked'
+    string SalesOrderStatus,       // 'Picked' | 'PartiallyPicked'
+    int FullyPickedLineCount,
+    int ShortPickedLineCount,
+    int SkippedLineCount,
+    decimal TotalPickedQuantity);
