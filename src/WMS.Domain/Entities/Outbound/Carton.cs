@@ -12,6 +12,10 @@ namespace WMS.Domain.Entities.Outbound;
 // No Version on cartons — appended once at submit and never edited;
 // if metadata needs changing the operator cancels (when pre-Submit) +
 // regenerates.
+//
+// Phase 14E added ShipmentId nullable FK — stamped on every carton
+// belonging to the SO during ShipmentService.SubmitAsync (resolved
+// via PackTask.SalesOrderId).
 public sealed class Carton
 {
     public Guid Id { get; set; }
@@ -20,6 +24,8 @@ public sealed class Carton
 
     public Guid? BoxTypeId { get; set; }              // nullable — operator may skip
     public decimal? WeightKg { get; set; }            // nullable — scale integration is a future TD
+
+    public Guid? ShipmentId { get; set; }             // populated on ShipmentService.SubmitAsync
 
     public string? Notes { get; set; }
 
