@@ -289,6 +289,13 @@
     {
         @await Html.PartialAsync("Detail/_PackTaskDecisionModals")
     }
+    @* Phase 14E — Cancel modal for Shipment Detail. Submit lives
+       inline in the Dispatch panel (needs the carrier + tracking +
+       notes inputs in scope). *@
+    @if (ViewBag.HeaderId is Guid && Model.EntityType == "Shipment")
+    {
+        @await Html.PartialAsync("Detail/_ShipmentDecisionModals")
+    }
 </div>
 
 @section Scripts {
