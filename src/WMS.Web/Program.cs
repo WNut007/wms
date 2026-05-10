@@ -135,9 +135,9 @@ builder.Services.AddScoped<IAllocationService, AllocationService>();
 builder.Services.AddScoped<IAllocationStrategy, FifoAllocationStrategy>();
 builder.Services.AddScoped<IAllocationStrategyResolver, AllocationStrategyResolver>();
 
-// Phase 14C — Pick task generation + execution. Service registration
-// arrives in T5; T3 wires the repo factory only.
+// Phase 14C — Pick task generation + execution.
 builder.Services.AddScoped<IPickTaskRepositoryFactory, PickTaskRepositoryFactory>();
+builder.Services.AddScoped<IPickTaskService, PickTaskService>();
 
 // PermissionService — Scoped to match the (Scoped) factory dep. The
 // cache itself lives on IMemoryCache (Singleton), so per-request
