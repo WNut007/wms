@@ -31,6 +31,33 @@ public interface IShipmentService
         Guid salesOrderId,
         Guid currentUserId,
         CancellationToken ct = default);
+
+    // Phase 14E — final commit. Operator-supplied dispatch metadata
+    // (CarrierName, TrackingNumber, Notes) flows through here in one
+    // TransactionScope:
+    //   - Shipment: Pending → Shipped + stamp dispatch metadata + audit
+    //   - Cartons: bulk UPDATE SET ShipmentId for every carton
+    //     belonging to the SO (resolved via PackTask.SalesOrderId)
+    //   - SalesOrders: Packed → Shipped
+    //
+    // No Stock writes — ship is post-stock; the qty already left
+    // inventory at pick submit (Phase 14C). Pack recorded the package
+    // (Phase 14D); ship records the dispatch.
+    //
+    // Validation:
+    //   - Shipment in Pending state
+    //   - CarrierName + TrackingNumber + Notes are all optional (the
+    //     deferred-default carrier pattern — operator may not have
+    //     them at ship time)
+    //   - CarrierName trimmed to ≤50 chars / TrackingNumber to ≤100
+    //     (matches column widths)
+    //
+    // Throws InvalidOperationException on state violations.
+    Task<ShipmentSubmissionResult> SubmitAsync(
+        Guid tenantId,
+        SubmitShipmentRequest request,
+        Guid currentUserId,
+        CancellationToken ct = default);
 }
 
 // Phase 14E — return shape for GenerateAsync. Carries enough for the
@@ -39,3 +66,17 @@ public interface IShipmentService
 public sealed record ShipmentGenerationResult(
     Guid ShipmentId,
     string ShipmentNumber);
+
+// Phase 14E — input shape for SubmitAsync. Single-shipment per SO for
+// MVP, so no per-line breakdown.
+public sealed record SubmitShipmentRequest(
+    Guid ShipmentId,
+    string? CarrierName,
+    string? TrackingNumber,
+    string? Notes);
+
+// Phase 14E — return shape for SubmitAsync.
+public sealed record ShipmentSubmissionResult(
+    string ShipmentStatus,         // always 'Shipped' on success
+    string SalesOrderStatus,       // 'Shipped'
+    int CartonCount);              // cartons stamped with this ShipmentId

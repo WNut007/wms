@@ -1,11 +1,12 @@
+using System.Transactions;
 using Microsoft.Extensions.Logging;
 using WMS.DAL.Repositories.Outbound;
 using WMS.Domain.Entities.Outbound;
 
 namespace WMS.BLL.Services.Outbound;
 
-// Phase 14E — shipment orchestration. T4 ships GenerateAsync only;
-// SubmitAsync (T5) and CancelAsync (T6) plug onto this service.
+// Phase 14E — shipment orchestration. T4 ships GenerateAsync; T5
+// adds SubmitAsync (TX-wrapped commit). CancelAsync arrives in T6.
 //
 // Generate is the lightest of the three lifecycle methods: no Stock
 // writes, no SO state flip, no carton stamping. Just inserts the
@@ -76,4 +77,74 @@ public sealed class ShipmentService : IShipmentService
 
         return new ShipmentGenerationResult(shipmentId, shipmentNumber);
     }
+
+    public async Task<ShipmentSubmissionResult> SubmitAsync(
+        Guid tenantId,
+        SubmitShipmentRequest request,
+        Guid currentUserId,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var shipmentRepo = _shipmentRepoFactory.For(tenantId);
+        var cartonRepo = _cartonRepoFactory.For(tenantId);
+        var soRepo = _soRepoFactory.For(tenantId);
+
+        var shipment = await shipmentRepo.GetByIdAsync(request.ShipmentId, ct)
+            ?? throw new InvalidOperationException(
+                $"Shipment {request.ShipmentId} not found.");
+
+        if (shipment.Status != "Pending")
+            throw new InvalidOperationException(
+                $"Cannot submit shipment in '{shipment.Status}' state — only Pending allowed.");
+
+        // Trim + cap operator inputs to match column widths. Empty
+        // strings normalised to null (so downstream displays render
+        // "—" instead of an empty cell).
+        var carrierName = string.IsNullOrWhiteSpace(request.CarrierName)
+            ? null : Trunc(request.CarrierName.Trim(), 50);
+        var trackingNumber = string.IsNullOrWhiteSpace(request.TrackingNumber)
+            ? null : Trunc(request.TrackingNumber.Trim(), 100);
+        var notes = string.IsNullOrWhiteSpace(request.Notes)
+            ? null : request.Notes.Trim();
+
+        using var scope = new TransactionScope(
+            TransactionScopeOption.Required,
+            new TransactionOptions { IsolationLevel = System.Transactions.IsolationLevel.ReadCommitted },
+            TransactionScopeAsyncFlowOption.Enabled);
+
+        // 1. Shipment Pending → Shipped + stamp dispatch metadata.
+        var shipFlipped = await shipmentRepo.SetShippedAsync(
+            request.ShipmentId, carrierName, trackingNumber, notes,
+            currentUserId, ct);
+        if (!shipFlipped)
+            throw new InvalidOperationException(
+                $"Failed to flip shipment {request.ShipmentId} Pending→Shipped — concurrent state change?");
+
+        // 2. Stamp ShipmentId on every carton belonging to the SO.
+        var cartonCount = await cartonRepo.StampShipmentForSalesOrderAsync(
+            shipment.SalesOrderId, request.ShipmentId, currentUserId, ct);
+
+        // 3. SO Packed → Shipped.
+        var soChanged = await soRepo.SetStatusAsync(
+            shipment.SalesOrderId, "Packed", "Shipped", currentUserId, ct);
+        if (!soChanged)
+            throw new InvalidOperationException(
+                $"Failed to flip SO {shipment.SalesOrderId} Packed→Shipped — concurrent state change?");
+
+        scope.Complete();
+
+        _logger.LogInformation(
+            "Submitted shipment {ShipmentNumber} ({ShipmentId}) — carrier={Carrier} tracking={Tracking} cartons={Cartons}",
+            shipment.ShipmentNumber, request.ShipmentId,
+            carrierName ?? "(none)", trackingNumber ?? "(none)", cartonCount);
+
+        return new ShipmentSubmissionResult(
+            ShipmentStatus: "Shipped",
+            SalesOrderStatus: "Shipped",
+            CartonCount: cartonCount);
+    }
+
+    private static string Trunc(string s, int max) =>
+        s.Length <= max ? s : s.Substring(0, max);
 }
