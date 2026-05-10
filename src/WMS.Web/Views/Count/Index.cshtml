@@ -1,0 +1,177 @@
+@model IReadOnlyList<WMS.DAL.Repositories.Counts.CycleCountListRow>
+@{
+    ViewData["Title"] = "Cycle Count";
+    var reviewRows = ViewBag.ReviewRows as IReadOnlyList<WMS.DAL.Repositories.Counts.CycleCountListRow>
+                     ?? new List<WMS.DAL.Repositories.Counts.CycleCountListRow>();
+    var okMsg = ViewBag.CountMessage as string;
+    var errMsg = ViewBag.CountError as string;
+}
+
+<style>
+    .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+
+    .cn-page-pad { padding: 12px 14px 24px; }
+
+    .cn-banner {
+        padding: 8px 12px; border-radius: 8px;
+        font-size: 12px; margin-bottom: 10px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .cn-banner-ok { background: #E1F5EE; color: #0F6E56; }
+    .cn-banner-err { background: #FCEBEB; color: #A32D2D; }
+
+    .cn-header { margin-bottom: 12px; }
+    .cn-title  { font-size: 18px; font-weight: 500; color: #1f2937; }
+    .cn-subtitle { font-size: 11px; color: #6b7280; margin-top: 2px; }
+
+    .cn-section-title {
+        font-size: 9px; font-weight: 600; color: #6b7280;
+        text-transform: uppercase; letter-spacing: 0.5px;
+        margin: 14px 0 6px;
+    }
+
+    .cn-card {
+        display: block; text-decoration: none; color: inherit;
+        background: #ffffff; border: 0.5px solid #e5e7eb;
+        border-radius: 11px; padding: 11px 13px; margin-bottom: 8px;
+    }
+    .cn-card.is-counting { border-left: 3px solid #534AB7; }
+    .cn-card.is-review   { border-left: 3px solid #EF9F27; }
+    .cn-card:active      { background: #f9fafb; }
+
+    .cn-row {
+        display: flex; justify-content: space-between; align-items: flex-start;
+    }
+    .cn-cyc-number {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 12px; font-weight: 500; color: #1f2937;
+    }
+    .cn-meta { font-size: 10px; color: #6b7280; margin-top: 2px; }
+    .cn-stats { font-size: 10px; color: #6b7280; margin-top: 8px;
+                display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+    .cn-progress {
+        flex: 1; height: 4px; background: #f3f4f6; border-radius: 100px;
+        overflow: hidden;
+    }
+    .cn-progress-fill {
+        height: 100%; background: #534AB7; border-radius: 100px;
+    }
+
+    .cn-badge {
+        display: inline-flex; align-items: center;
+        font-size: 9px; font-weight: 500;
+        padding: 1px 6px; border-radius: 100px;
+    }
+    .cn-badge-counting { background: #EEEDFE; color: #534AB7; }
+    .cn-badge-review   { background: #FAEEDA; color: #854F0B; }
+
+    .cn-variance-chip {
+        display: inline-flex; align-items: center; gap: 3px;
+        font-size: 9px; font-weight: 500;
+        padding: 1px 6px; border-radius: 100px;
+    }
+    .cn-variance-chip.is-short { background: #FCEBEB; color: #A32D2D; }
+    .cn-variance-chip.is-over  { background: #FAEEDA; color: #854F0B; }
+    .cn-variance-chip.is-match { background: #E1F5EE; color: #0F6E56; }
+
+    .cn-empty {
+        text-align: center; padding: 32px 16px;
+        color: #9ca3af; font-size: 12px;
+    }
+    .cn-empty-icon { font-size: 32px; opacity: 0.4; }
+</style>
+
+<div class="cn-page-pad">
+    @if (!string.IsNullOrEmpty(okMsg))
+    {
+        <div class="cn-banner cn-banner-ok">
+            <i class="ti ti-check"></i> @okMsg
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(errMsg))
+    {
+        <div class="cn-banner cn-banner-err">
+            <i class="ti ti-alert-circle"></i> @errMsg
+        </div>
+    }
+
+    <div class="cn-header">
+        <div class="cn-title">Cycle counts</div>
+        <div class="cn-subtitle">@Model.Count active · @reviewRows.Count pending review</div>
+    </div>
+
+    @if (Model.Count == 0 && reviewRows.Count == 0)
+    {
+        <div class="cn-empty">
+            <div class="cn-empty-icon"><i class="ti ti-clipboard-check"></i></div>
+            <p class="m-0 mt-2">No cycle count sessions.</p>
+            <p class="m-0 small">Start one from the desktop /CycleCounts page.</p>
+        </div>
+    }
+
+    @if (Model.Count > 0)
+    {
+        <div class="cn-section-title">Active sessions</div>
+        @foreach (var row in Model)
+        {
+            var pct = row.LineCount > 0 ? row.CountedLineCount * 100 / row.LineCount : 0;
+            <a href="/count/@row.Id" class="cn-card is-counting">
+                <div class="cn-row">
+                    <div>
+                        <div class="cn-cyc-number">@row.CountNumber</div>
+                        <div class="cn-meta">
+                            @row.WarehouseCode@(row.LocationFilterCode is null ? "" : $" · {row.LocationFilterCode}")
+                            · @row.LineCount location@(row.LineCount == 1 ? "" : "s")
+                        </div>
+                    </div>
+                    <span class="cn-badge cn-badge-counting">Counting</span>
+                </div>
+                <div class="cn-stats">
+                    <span>@row.CountedLineCount of @row.LineCount</span>
+                    <div class="cn-progress">
+                        <div class="cn-progress-fill" style="width: @pct%"></div>
+                    </div>
+                    <span>@pct%</span>
+                </div>
+                <div class="cn-stats">
+                    <i class="ti ti-user"></i> @row.StartedByName
+                </div>
+            </a>
+        }
+    }
+
+    @if (reviewRows.Count > 0)
+    {
+        <div class="cn-section-title">Pending approval (desktop)</div>
+        @foreach (var row in reviewRows)
+        {
+            <a href="/count/@row.Id" class="cn-card is-review">
+                <div class="cn-row">
+                    <div>
+                        <div class="cn-cyc-number">@row.CountNumber</div>
+                        <div class="cn-meta">
+                            @row.WarehouseCode · @row.LineCount location@(row.LineCount == 1 ? "" : "s")
+                        </div>
+                    </div>
+                    <span class="cn-badge cn-badge-review">Review</span>
+                </div>
+                <div class="cn-stats">
+                    @if (row.VarianceLineCount > 0)
+                    {
+                        <span class="cn-variance-chip is-short">
+                            <i class="ti ti-arrow-down-right"></i> @row.VarianceLineCount variance@(row.VarianceLineCount == 1 ? "" : "s")
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="cn-variance-chip is-match">
+                            <i class="ti ti-check"></i> All match
+                        </span>
+                    }
+                </div>
+            </a>
+        }
+    }
+</div>

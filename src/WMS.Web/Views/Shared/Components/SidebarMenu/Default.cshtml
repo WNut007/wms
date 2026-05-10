@@ -74,8 +74,9 @@
     }
     else if (string.Equals(module.Code, "COUNTS", StringComparison.OrdinalIgnoreCase))
     {
-        // Phase 12 — Counts module currently has Cycle Counts only.
-        var countsActive = IsActive("COUNTS") || IsActive("CycleCounts");
+        // Phase 12 — Cycle Counts (desktop). Phase 21 — Cycle Count
+        // (mobile): /count/ PWA queue + per-session count entry.
+        var countsActive = IsActive("COUNTS") || IsActive("CycleCounts") || IsActive("Count");
         <a href="@Url.Action("Index", "CycleCounts")"
            class="wms-sidebar-item @(countsActive ? "active" : "")"
            title="@module.DisplayName">
@@ -87,6 +88,10 @@
             <a href="@Url.Action("Index", "CycleCounts")"
                class="wms-sidebar-item @(IsActive("CycleCounts") ? "active" : "")">
                 <span class="wms-sidebar-item-text">Cycle Counts</span>
+            </a>
+            <a href="@Url.Action("Index", "Count")"
+               class="wms-sidebar-item @(IsActive("Count") ? "active" : "")">
+                <span class="wms-sidebar-item-text">Cycle Count (mobile)</span>
             </a>
         </div>
     }

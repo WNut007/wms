@@ -1,0 +1,12 @@
+{
+  "name": "WMS Cycle Count",
+  "short_name": "Count",
+  "description": "Warehouse cycle count mobile",
+  "start_url": "/count/",
+  "scope": "/count/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f9fafb",
+  "theme_color": "#534AB7",
+  "icons": []
+}
