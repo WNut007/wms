@@ -117,7 +117,8 @@
         // T1/T2/T3 chunk-by-chunk as each list lands.
         var outboundActive = IsActive("OUTBOUND")
             || IsActive("SalesOrders") || IsActive("PickTasks")
-            || IsActive("PackTasks") || IsActive("Shipments");
+            || IsActive("PackTasks") || IsActive("Shipments")
+            || IsActive("Pick");
         <a href="@Url.Action("Index", "SalesOrders")"
            class="wms-sidebar-item @(outboundActive ? "active" : "")"
            title="@module.DisplayName">
@@ -141,6 +142,10 @@
             <a href="@Url.Action("Index", "Shipments")"
                class="wms-sidebar-item @(IsActive("Shipments") ? "active" : "")">
                 <span class="wms-sidebar-item-text">Shipments</span>
+            </a>
+            <a href="@Url.Action("Index", "Pick")"
+               class="wms-sidebar-item @(IsActive("Pick") ? "active" : "")">
+                <span class="wms-sidebar-item-text">Pick (mobile)</span>
             </a>
         </div>
     }

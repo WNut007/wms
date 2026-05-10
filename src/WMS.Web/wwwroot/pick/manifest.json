@@ -1,0 +1,12 @@
+{
+  "name": "WMS Picker",
+  "short_name": "Picker",
+  "description": "Warehouse pick-task execution",
+  "start_url": "/pick",
+  "scope": "/pick/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f9fafb",
+  "theme_color": "#1f2937",
+  "icons": []
+}

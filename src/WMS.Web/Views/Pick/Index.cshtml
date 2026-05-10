@@ -1,0 +1,53 @@
+@model IReadOnlyList<WMS.DAL.Repositories.Outbound.PickTaskListRow>
+@{
+    ViewData["Title"] = "Pick queue";
+}
+
+@if (Model.Count == 0)
+{
+    <div class="card">
+        <div class="card-body text-center py-5 text-muted">
+            <i class="ti ti-package-off" style="font-size: 32px; opacity: 0.4;"></i>
+            <p class="mb-0 mt-2 small">No active pick tasks.</p>
+            <p class="small text-secondary">Generate one from a Sales Order Detail page on desktop.</p>
+        </div>
+    </div>
+}
+else
+{
+    <p class="small text-secondary mb-2">
+        @Model.Count active task@(Model.Count == 1 ? "" : "s") · oldest first
+    </p>
+
+    @foreach (var t in Model)
+    {
+        var statusClass = t.Status switch
+        {
+            "InProgress" => "bg-warning text-dark",
+            "Pending"    => "bg-secondary",
+            _            => "bg-secondary",
+        };
+        <a href="/pick/@t.Id"
+           class="card mb-2 text-decoration-none text-reset"
+           style="display: block;">
+            <div class="card-body py-3">
+                <div class="d-flex justify-content-between align-items-start mb-1">
+                    <div>
+                        <div class="fw-semibold mono">@t.PickNumber</div>
+                        <div class="small text-secondary mono">SO @t.SoNumber</div>
+                    </div>
+                    <span class="badge @statusClass">@t.Status</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-end mt-2">
+                    <div class="small text-secondary">
+                        <i class="ti ti-list-details" style="font-size: 13px;"></i>
+                        @t.LineCount line@(t.LineCount == 1 ? "" : "s")
+                    </div>
+                    <div class="small text-secondary text-end">
+                        @t.CustomerCode
+                    </div>
+                </div>
+            </div>
+        </a>
+    }
+}
