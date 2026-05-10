@@ -499,10 +499,8 @@ public sealed class SalesOrdersController : Controller
 
     // Phase 14C — generates a pick task from the SO's Active
     // OrderAllocations and flips SO Allocated → Picking. Idempotent on
-    // already-Picking (returns the existing task; controller falls
-    // through to the same redirect). Pick-tasks list / detail surfaces
-    // arrive in T8; for now the redirect lands back on SO Detail with
-    // the pick number in the success banner.
+    // already-Picking (returns the existing task; the redirect lands on
+    // its Detail page either way).
     [HttpPost("Generate/{id:guid}")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Generate(Guid id, CancellationToken ct)
@@ -516,15 +514,15 @@ public sealed class SalesOrdersController : Controller
             var result = await _pickTaskService.GenerateAsync(
                 tenantId, id, requesterId, ct);
 
-            TempData["SalesOrderMessage"] =
+            TempData["PickTaskMessage"] =
                 $"Pick task {result.PickNumber} generated — {result.LineCount} line(s), total expected {result.TotalExpectedQuantity:N2}.";
+            return RedirectToAction("Detail", "PickTasks", new { id = result.PickTaskId });
         }
         catch (InvalidOperationException ex)
         {
             TempData["SalesOrderError"] = ex.Message;
+            return RedirectToAction(nameof(Detail), new { id });
         }
-
-        return RedirectToAction(nameof(Detail), new { id });
     }
 
     [HttpPost("Cancel/{id:guid}")]
