@@ -22,11 +22,12 @@
                     <tr>
                         <th style="width:50px;">#</th>
                         <th>Product</th>
-                        <th style="width:120px;">Owner</th>
-                        <th style="width:60px;">UoM</th>
-                        <th style="width:100px;text-align:right;">Qty</th>
-                        <th style="width:120px;text-align:right;">Unit price</th>
-                        <th style="width:120px;text-align:right;">Line total</th>
+                        <th style="width:90px;">Owner</th>
+                        <th style="width:50px;">UoM</th>
+                        <th style="width:90px;text-align:right;">Ordered</th>
+                        <th style="width:130px;text-align:right;">Allocated</th>
+                        <th style="width:90px;text-align:right;">Unit price</th>
+                        <th style="width:100px;text-align:right;">Line total</th>
                         <th>Notes</th>
                     </tr>
                 </thead>
@@ -34,6 +35,13 @@
                     @foreach (var line in lines)
                     {
                         var lineTotal = (line.UnitPrice ?? 0m) * line.OrderedQuantity;
+                        var shortfall = line.OrderedQuantity - line.AllocatedQuantity;
+                        var allocColor = shortfall <= 0m && line.OrderedQuantity > 0m
+                            ? "#0F6E56"     // fully allocated — green
+                            : (line.AllocatedQuantity > 0m ? "#854F0B" : "var(--wms-text-tertiary)");
+                        var allocPct = line.OrderedQuantity > 0m
+                            ? (int)Math.Min(100, Math.Round(line.AllocatedQuantity / line.OrderedQuantity * 100m))
+                            : 0;
                         <tr>
                             <td><span class="mono">@line.LineNumber</span></td>
                             <td>
@@ -43,6 +51,12 @@
                             <td><span class="mono">@line.OwnerCode</span></td>
                             <td><span class="mono">@line.UomCode</span></td>
                             <td style="text-align:right;">@line.OrderedQuantity.ToString("N2")</td>
+                            <td style="text-align:right;font-weight:500;color:@allocColor;">
+                                @line.AllocatedQuantity.ToString("N2")
+                                <span style="font-size:10px;font-weight:400;display:block;color:var(--wms-text-secondary);">
+                                    @allocPct% filled
+                                </span>
+                            </td>
                             <td style="text-align:right;">@(line.UnitPrice?.ToString("N2") ?? "—")</td>
                             <td style="text-align:right;">
                                 @(line.UnitPrice.HasValue ? lineTotal.ToString("N2") : "—")
