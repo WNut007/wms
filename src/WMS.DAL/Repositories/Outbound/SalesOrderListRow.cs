@@ -42,12 +42,18 @@ public sealed record SalesOrderFilter(
 // inactive chips still display their totals.
 //
 // Phase 14B added Allocating + Allocated counts.
+// Phase 14C added Picking + Picked + PartiallyPicked counts. Order
+// matches the workflow chronology so the chip strip renders left-
+// to-right in pipeline order.
 public sealed record SalesOrderStatusCounts(
     int All,
     int Draft,
     int Open,
     int Allocating,
     int Allocated,
+    int Picking,
+    int Picked,
+    int PartiallyPicked,
     int Cancelled);
 
 // Phase 14A — read-projection for the Detail Lines tab. Resolved
@@ -57,6 +63,9 @@ public sealed record SalesOrderStatusCounts(
 // Phase 14B added: AllocatedQuantity (between OrderedQuantity and
 // UnitPrice) — denormalized aggregate of the line's Active
 // OrderAllocations rows.
+// Phase 14C added: PickedQuantity (after AllocatedQuantity) —
+// denormalized aggregate of the line's pick-task line PickedQty
+// (bumped inside SubmitAsync's TX).
 public sealed record SalesOrderLineRow(
     Guid Id,
     int LineNumber,
@@ -67,5 +76,6 @@ public sealed record SalesOrderLineRow(
     string UomCode,
     decimal OrderedQuantity,
     decimal AllocatedQuantity,
+    decimal PickedQuantity,
     decimal? UnitPrice,
     string? Notes);

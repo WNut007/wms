@@ -42,7 +42,7 @@ public class SalesOrdersControllerTests
 
         repo.Setup(r => r.GetStatusCountsAsync(
                 It.IsAny<SalesOrderFilter>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new SalesOrderStatusCounts(0, 0, 0, 0, 0, 0));
+            .ReturnsAsync(new SalesOrderStatusCounts(0, 0, 0, 0, 0, 0, 0, 0, 0));
         repo.Setup(r => r.GetLineRowsByIdAsync(
                 It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<SalesOrderLineRow>());
@@ -165,7 +165,8 @@ public class SalesOrdersControllerTests
         b.Repo.Setup(r => r.GetStatusCountsAsync(
                 It.IsAny<SalesOrderFilter>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SalesOrderStatusCounts(
-                All: 7, Draft: 2, Open: 4, Allocating: 0, Allocated: 0, Cancelled: 1));
+                All: 7, Draft: 2, Open: 4, Allocating: 0, Allocated: 0,
+                Picking: 0, Picked: 0, PartiallyPicked: 0, Cancelled: 1));
 
         var json = Assert.IsType<JsonResult>(await b.Controller.GetData());
         var envelope = json.Value!;
@@ -484,7 +485,8 @@ public class SalesOrdersControllerTests
         b.Repo.Setup(r => r.GetStatusCountsAsync(
                 It.IsAny<SalesOrderFilter>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SalesOrderStatusCounts(
-                All: 10, Draft: 1, Open: 2, Allocating: 3, Allocated: 3, Cancelled: 1));
+                All: 10, Draft: 1, Open: 2, Allocating: 3, Allocated: 3,
+                Picking: 0, Picked: 0, PartiallyPicked: 0, Cancelled: 1));
 
         var json = Assert.IsType<JsonResult>(await b.Controller.GetData());
         var counts = json.Value!.GetType().GetProperty("counts")!.GetValue(json.Value)!;
