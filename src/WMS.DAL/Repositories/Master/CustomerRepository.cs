@@ -152,6 +152,19 @@ WHERE Id = @Id;";
         return rows > 0;
     }
 
+    public async Task<IReadOnlyList<LookupItem>> GetActiveAsync(CancellationToken ct = default)
+    {
+        // Phase 14A — populates the Customer dropdown on SO Create.
+        // Active-only; sorted by Code for predictable picker ordering.
+        var rows = await _connection.QueryAsync<LookupItem>(new CommandDefinition(
+            @"SELECT Id, Code, Name
+              FROM master.Customers
+              WHERE Status = 'Active'
+              ORDER BY Code",
+            cancellationToken: ct));
+        return rows.AsList();
+    }
+
     public async Task<PagedResult<CustomerListRow>> GetPagedAsync(
         CustomerFilter f, CancellationToken ct = default)
     {

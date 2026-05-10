@@ -109,6 +109,25 @@
             </a>
         </div>
     }
+    else if (string.Equals(module.Code, "OUTBOUND", StringComparison.OrdinalIgnoreCase))
+    {
+        // Phase 14A — Outbound currently expands to Sales Orders only.
+        // 14B/C/D will add Waves, Picks, Packs, Shipments submenu entries.
+        var outboundActive = IsActive("OUTBOUND") || IsActive("SalesOrders");
+        <a href="@Url.Action("Index", "SalesOrders")"
+           class="wms-sidebar-item @(outboundActive ? "active" : "")"
+           title="@module.DisplayName">
+            <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
+            <span class="wms-sidebar-item-text">@module.DisplayName</span>
+            <i class="ti ti-chevron-down wms-sidebar-item-chevron"></i>
+        </a>
+        <div class="wms-sidebar-submenu">
+            <a href="@Url.Action("Index", "SalesOrders")"
+               class="wms-sidebar-item @(IsActive("SalesOrders") ? "active" : "")">
+                <span class="wms-sidebar-item-text">Sales Orders</span>
+            </a>
+        </div>
+    }
     else
     {
         <a href="@module.Url"

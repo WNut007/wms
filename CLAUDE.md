@@ -317,11 +317,47 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers`
-**Current Focus**: Phase 14 direction TBD — Outbound MVP (sales orders → pick → pack) most likely candidate now that all inventory-management surfaces are complete (Adjustment, Cycle Count, inter-warehouse Transfer)
-**Blockers**: none — migrations 20260510_008 through _014 already applied to dev tenant
+**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud`
+**Current Focus**: Phase 14B — Sales Order allocation + Pick task generation (parallel to Phase 9B's GR work for Inbound). Foundation now in place; allocation strategy resolver + line-status fields the next layer up.
+**Blockers**: none — migrations 20260510_008 through _017 already applied to dev tenant
 
 Update this section weekly during standups.
+
+### Day 10 — Phase 14A (Sales Order Admin CRUD — Outbound MVP foundation)
+
+**Branch**: `feat/outbound-mvp` → merged to `main` · **Tag**: `v1.4.0-so-crud` · **Foundation for**: Phase 14B (allocation/pick) + 14C (pack) + 14D (ship)
+
+First slice of Outbound. Parallel of Phase 9A's role for Inbound: pure admin CRUD on Sales Orders, with the line shape, validation, and Detail/Edit/Index surfaces sized so 14B's allocation logic plugs in cleanly.
+
+**Schema** (3 migrations):
+- `20260510_015` — `outbound` schema (CREATE SCHEMA IF NOT EXISTS pattern, mirrors counts schema migration 010).
+- `20260510_016` — `outbound.SalesOrders` header. SoNumber unique; CustomerId/WarehouseId NOT NULL FKs; OrderDate (DATE, default today); RequestedShipDate? (DATE, nullable); Status enum trimmed to `Draft|Open|Cancelled` for MVP (allocation/pick/pack states arrive in 14B's ALTER); audit + Version. 3 indexes (Status+OrderDate DESC, Customer+OrderDate DESC, Warehouse+Status). 1 CHECK on Status.
+- `20260510_017` — `outbound.SalesOrderLines`. CASCADE on SO delete; Product/Owner/UoM FKs; OrderedQuantity DECIMAL(18,4); UnitPrice nullable (free-text MVP); audit + Version. UQ(SO, LineNumber); IX(Product). 2 CHECKs (qty>0, UnitPrice IS NULL OR ≥0). **Owner per LINE per ADR-007** (a single SO can mix owner-keyed stock when the customer orders through a channel that consolidates suppliers).
+
+**Service** (`ISalesOrderService`):
+- `CreateAsync` — validates header + lines (per-line: ProductId/OwnerId/UomId non-empty, LineNumber positive + unique, OrderedQuantity > 0, UnitPrice ≥ 0 when not null). Assigns `SO-YYYYMMDD-NNNN` server-side via repo's `CountForDatePrefixAsync` (matches Adjustment / CycleCount / Transfer pattern; diverges from PO's caller-supplied PoNumber). Lands as `Draft`.
+- `UpdateAsync` — header-only edit always allowed (non-Cancelled). `ReplaceLines=true` gated on `Status='Draft'` — once Open, lines lock pending allocation reversal in 14B. Cancelled SOs reject any update outright.
+- `SubmitAsync` — `Draft → Open`. Idempotent on already-Open. Rejects zero-line SO (defensive against programmatic callers; UI wouldn't normally allow).
+- `CancelAsync` — `Draft|Open → Cancelled`. **No reason field for MVP** — operator can edit Notes pre-cancel for context (CancelReason column deferred to 14B+ if allocation-driven cancellation needs it). Idempotent.
+- **No TransactionScope wrapping** — MVP foundation has zero Stock-touching ops. 14B will wrap allocation-aware operations following Phase 11A/12/13 precedent.
+
+**UI** (5 surfaces):
+- `/SalesOrders` — Alpine list with chip counts (`All / Draft / Open / Cancelled`). 8-col table (SO# / Customer / Warehouse / OrderDate / ShipDate / Status / Lines / Qty).
+- `/SalesOrders/Create` — multi-line Alpine grid. Header: Customer + Warehouse + OrderDate + RequestedShipDate + Notes. Lines: Product/Owner/UoM/Qty/UnitPrice/Notes/Remove. Workflow + reason guide sidebar.
+- `/SalesOrders/Edit/{id}` — read-only header strip (SoNumber/Status/Customer/Warehouse) + editable fields. **Opt-in `Replace lines on save` checkbox** controls whether the lines section is sent to ReplaceLines. **`LinesLocked` banner** when `Status != 'Draft'`. Single Razor template handles three states (locked / editable-not-replacing / editable-replacing) via Alpine reactive `:disabled` + opacity hint.
+- `/SalesOrders/Detail/{id}` — `_DetailLayout` with custom Lines tab (`_SalesOrderLinesPanel` — read-only table with `UnitPrice * OrderedQuantity` line totals). Quick Actions state-gated: Edit (non-Cancelled), Submit (Draft only), Cancel (non-Cancelled).
+- Decision modals — `_SalesOrderDecisionModals` partial reuses Phase 11A/12/13 CSS-only `:target` pattern. 2 modals: Submit + Cancel (both no-payload).
+- Sidebar — Outbound module now expands to a submenu with Sales Orders entry (superseding the auto-generated single-link fallback that pointed to '#'). 14B/C/D will add Waves/Picks/Packs/Shipments rows.
+
+**TempData generalization**: `_DetailLayout` banner block now coalesces FIVE sets of TempData keys (`Cancel*`, `Adjustment*`, `CycleCount*`, `Transfer*`, `SalesOrder*`). Pattern continues to scale linearly.
+
+**DAL extension**: `ICustomerRepository.GetActiveAsync()` (new) — returns `IReadOnlyList<LookupItem>` for the SO Create form's Customer dropdown. Mirrors Product/Owner/Uom shape; filters `Status='Active'`; sorted by Code.
+
+**Tests**: +37 net (18 service unit + 19 controller integration including 3-case status mapper Theory). Test posture: **550 passing** (was 513). 181 unit + 369 integration + 5 skipped. Service-side tests cover Create validation (6 paths), Submit state-gating + zero-line guard, Cancel idempotency + chain attempt, Update ReplaceLines gating on non-Draft, happy-path SO-NNNN assignment. Controller covers all 9 endpoints + state-driven Quick Action gating across all 3 statuses + LinesLocked GET state + Cancel-redirect Edit-GET path.
+
+**Out of scope** (logged as TD-034): per-line allocation/pick/ship qty columns, Status states beyond MVP set (Allocating/Allocated/Picking/Picked/Packed/Shipped/Closed), CancelReason audit column, B2B-vs-B2C distinguisher (SalesOrderDetails table from design doc), OrderSource/Channel FKs, customer-tier allocation priority, allocation strategy resolver, allocation reversal flow on Cancel-after-Open, Order Activity tab. Each independent and lands across 14B/C/D.
+
+**Permission**: `OUTBOUND.ORDERS` already seeded by migration 042; baseline role grants by 044. No additional perm migration needed.
 
 ### Day 10 — Phase 13 (Inter-warehouse Transfer Workflow — ADR-012)
 
@@ -1349,5 +1385,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-10 (Day 10 — Phase 13 Inter-warehouse Transfer Workflow; v1.3.0-transfers)
-**Version**: 1.22
+**Last updated**: 2026-05-10 (Day 10 — Phase 14A Sales Order Admin CRUD; v1.4.0-so-crud)
+**Version**: 1.23

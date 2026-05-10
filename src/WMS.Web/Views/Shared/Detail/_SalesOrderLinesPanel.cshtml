@@ -1,0 +1,57 @@
+@model WMS.Web.ViewModels.Detail.DetailPageViewModel
+@{
+    var lines = ViewBag.LineRows as IReadOnlyList<WMS.DAL.Repositories.Outbound.SalesOrderLineRow>
+                ?? new List<WMS.DAL.Repositories.Outbound.SalesOrderLineRow>();
+}
+
+<section class="wmsd-section">
+    <p class="wmsd-section-eyebrow">— Lines</p>
+    <h2>Sales-order lines</h2>
+
+    @if (lines.Count == 0)
+    {
+        <p style="text-align:center;padding:40px;color:var(--wms-text-tertiary);font-size:12px;">
+            No lines on this sales order.
+        </p>
+    }
+    else
+    {
+        <div style="overflow-x:auto;">
+            <table class="wms-table" style="width:100%;">
+                <thead>
+                    <tr>
+                        <th style="width:50px;">#</th>
+                        <th>Product</th>
+                        <th style="width:120px;">Owner</th>
+                        <th style="width:60px;">UoM</th>
+                        <th style="width:100px;text-align:right;">Qty</th>
+                        <th style="width:120px;text-align:right;">Unit price</th>
+                        <th style="width:120px;text-align:right;">Line total</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var line in lines)
+                    {
+                        var lineTotal = (line.UnitPrice ?? 0m) * line.OrderedQuantity;
+                        <tr>
+                            <td><span class="mono">@line.LineNumber</span></td>
+                            <td>
+                                <span class="mono" style="font-weight:500;">@line.ProductCode</span>
+                                <span style="font-size:11px;color:var(--wms-text-secondary);display:block;">@line.ProductName</span>
+                            </td>
+                            <td><span class="mono">@line.OwnerCode</span></td>
+                            <td><span class="mono">@line.UomCode</span></td>
+                            <td style="text-align:right;">@line.OrderedQuantity.ToString("N2")</td>
+                            <td style="text-align:right;">@(line.UnitPrice?.ToString("N2") ?? "—")</td>
+                            <td style="text-align:right;">
+                                @(line.UnitPrice.HasValue ? lineTotal.ToString("N2") : "—")
+                            </td>
+                            <td style="font-size:11px;color:var(--wms-text-secondary);">@(line.Notes ?? "")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>

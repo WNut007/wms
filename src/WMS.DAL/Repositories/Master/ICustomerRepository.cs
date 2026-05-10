@@ -33,4 +33,9 @@ public interface ICustomerRepository
     // Updates a customer. Code + CustomerType NOT in SET — see interface
     // comment. Returns rows-affected > 0.
     Task<bool> UpdateAsync(Customer entity, Guid? userId, CancellationToken ct = default);
+
+    // Phase 14A — flat lookup (Id/Code/Name) of customers in 'Active'
+    // status. Used to populate the Customer dropdown on SO Create.
+    // Mirrors ProductRepository.GetActiveAsync.
+    Task<IReadOnlyList<LookupItem>> GetActiveAsync(CancellationToken ct = default);
 }

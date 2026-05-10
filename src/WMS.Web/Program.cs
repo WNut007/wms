@@ -8,12 +8,14 @@ using WMS.Common.Multitenancy;
 using WMS.BLL.Services.Counts;
 using WMS.BLL.Services.Inbound;
 using WMS.BLL.Services.Inventory;
+using WMS.BLL.Services.Outbound;
 using WMS.DAL.Repositories.Counts;
 using WMS.DAL.Multitenancy;
 using WMS.DAL.Repositories.Documents;
 using WMS.DAL.Repositories.Inbound;
 using WMS.DAL.Repositories.Inventory;
 using WMS.DAL.Repositories.Master;
+using WMS.DAL.Repositories.Outbound;
 using WMS.DAL.Repositories.Security;
 using WMS.Web.Auth;
 using WMS.Web.Multitenancy;
@@ -118,6 +120,10 @@ builder.Services.AddScoped<ICycleCountService, CycleCountService>();
 // Phase 13 — Inter-warehouse Transfers (ADR-012).
 builder.Services.AddScoped<ITransferOrderRepositoryFactory, TransferOrderRepositoryFactory>();
 builder.Services.AddScoped<ITransferOrderService, TransferOrderService>();
+
+// Phase 14A — Outbound Sales Orders (MVP foundation).
+builder.Services.AddScoped<ISalesOrderRepositoryFactory, SalesOrderRepositoryFactory>();
+builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
 
 // PermissionService — Scoped to match the (Scoped) factory dep. The
 // cache itself lives on IMemoryCache (Singleton), so per-request
