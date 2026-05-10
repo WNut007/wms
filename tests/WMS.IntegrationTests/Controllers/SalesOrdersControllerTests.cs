@@ -604,4 +604,53 @@ public class SalesOrdersControllerTests
         Assert.Equal(soId, redirect.RouteValues!["id"]);
         Assert.Equal("SO not in Allocated state", b.Controller.TempData["SalesOrderError"]);
     }
+
+    // ================================================================
+    // GeneratePack (Phase 14D)
+    // ================================================================
+
+    [Fact]
+    public async Task GeneratePack_Happy_RedirectsToPackTaskDetail_WithTempDataMessage()
+    {
+        var b = BuildController();
+        var soId = Guid.NewGuid();
+        var newPackId = Guid.NewGuid();
+        b.PackTaskService.Setup(s => s.GenerateAsync(
+                TenantId, soId, b.CurrentUserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PackTaskGenerationResult(
+                PackTaskId: newPackId,
+                PackNumber: "PACK-20260510-0001",
+                LineCount: 2,
+                TotalPickedQuantity: 17m));
+
+        var result = await b.Controller.GeneratePack(soId, default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Detail", redirect.ActionName);
+        Assert.Equal("PackTasks", redirect.ControllerName);
+        Assert.Equal(newPackId, redirect.RouteValues!["id"]);
+
+        var msg = b.Controller.TempData["PackTaskMessage"] as string;
+        Assert.NotNull(msg);
+        Assert.Contains("PACK-20260510-0001", msg);
+        Assert.Contains("2 line", msg);
+    }
+
+    [Fact]
+    public async Task GeneratePack_ServiceThrows_RedirectsToSoDetail_WithError()
+    {
+        var b = BuildController();
+        var soId = Guid.NewGuid();
+        b.PackTaskService.Setup(s => s.GenerateAsync(
+                It.IsAny<Guid>(), soId, It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("no positively-picked lines"));
+
+        var result = await b.Controller.GeneratePack(soId, default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Detail", redirect.ActionName);
+        Assert.Null(redirect.ControllerName);
+        Assert.Equal(soId, redirect.RouteValues!["id"]);
+        Assert.Equal("no positively-picked lines", b.Controller.TempData["SalesOrderError"]);
+    }
 }
