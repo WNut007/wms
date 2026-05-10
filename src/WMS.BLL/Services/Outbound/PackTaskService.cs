@@ -231,6 +231,55 @@ public sealed class PackTaskService : IPackTaskService
             CartonNumber: cartonNumber);
     }
 
+    public async Task<bool> CancelAsync(
+        Guid tenantId,
+        Guid packTaskId,
+        string reason,
+        Guid currentUserId,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ArgumentException("Cancel reason is required.", nameof(reason));
+
+        var packRepo = _packRepoFactory.For(tenantId);
+
+        var detail = await packRepo.GetByIdAsync(packTaskId, ct)
+            ?? throw new InvalidOperationException(
+                $"PackTask {packTaskId} not found.");
+
+        var fromStatus = detail.Header.Status;
+
+        // Idempotent on already-Cancelled — caller may double-click.
+        if (fromStatus == "Cancelled") return false;
+
+        // Submit-terminal — Cartons exist + SO already flipped to Packed;
+        // reversing would need a return-to-stock workflow (future TD).
+        if (fromStatus == "Packed")
+            throw new InvalidOperationException(
+                $"Cannot cancel pack task in 'Packed' state — task is already submitted. " +
+                "Use a return-to-stock flow to reverse a posted pack (not yet implemented).");
+
+        if (fromStatus != "Pending")
+            throw new InvalidOperationException(
+                $"Cannot cancel pack task in '{fromStatus}' state.");
+
+        // Single-repo write — no TX needed (Generate didn't flip the SO,
+        // so Cancel doesn't need to revert it; SO stays Picked|
+        // PartiallyPicked, ready for re-Generate).
+        var trimmedReason = reason.Trim();
+        var changed = await packRepo.SetCancelledAsync(
+            packTaskId, trimmedReason, currentUserId, ct);
+        if (!changed)
+            throw new InvalidOperationException(
+                $"Failed to cancel pack task {packTaskId} from 'Pending' — concurrent state change?");
+
+        _logger.LogInformation(
+            "Cancelled pack task {PackNumber} ({PackId}) from 'Pending' — reason: {Reason}",
+            detail.Header.PackNumber, packTaskId, trimmedReason);
+
+        return true;
+    }
+
     // Verifies the request covers exactly the task's lines (no missing,
     // no extras, no duplicates), each entry's per-line shape is valid,
     // and the carton metadata is well-formed. Throws on any violation.

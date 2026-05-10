@@ -72,6 +72,31 @@ public interface IPackTaskService
         SubmitPackTaskRequest request,
         Guid currentUserId,
         CancellationToken ct = default);
+
+    // Phase 14D — pre-Submit reversal. Pending pack task → Cancelled
+    // with required reason. SO state is NOT touched (Generate didn't
+    // flip the SO — it stayed Picked|PartiallyPicked while pack was
+    // in flight; cancelling the task leaves the SO in that same state,
+    // ready for re-Generate by another packer if needed).
+    //
+    // No carton cleanup (Pending tasks have no carton — that's a
+    // SubmitAsync concern). No line resets (any operator-entered
+    // PackedQuantity / LineStatus would stay frozen as audit history,
+    // but pre-Submit there's nothing to reset since per-line edits
+    // don't happen until SubmitAsync's TX).
+    //
+    // Idempotent on already-Cancelled (returns false). Rejects Packed
+    // (post-Submit terminal — reversing a posted pack needs a separate
+    // return-to-stock workflow, future TD).
+    //
+    // Returns true when the cancel actually flipped the task; false
+    // for the no-op idempotent re-trigger.
+    Task<bool> CancelAsync(
+        Guid tenantId,
+        Guid packTaskId,
+        string reason,
+        Guid currentUserId,
+        CancellationToken ct = default);
 }
 
 // Phase 14D — return shape for GenerateAsync. Carries enough for the
