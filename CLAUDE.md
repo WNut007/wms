@@ -317,7 +317,36 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` · **Outbound MVP chain closed end-to-end** (SO → Allocate → Pick → Pack → Ship)
+> ## 🚀 v2.0.0-outbound-mvp — shipped 2026-05-10
+>
+> The Outbound MVP chain is closed end-to-end on the desktop. Operator can take an SO from `Draft` to `Shipped` without leaving the WMS:
+>
+> ```
+> Draft → Open → Allocating | Allocated
+>                ↓ (Generate pick — Phase 14C)
+>                Picking → Picked | PartiallyPicked
+>                          ↓ (Generate pack — Phase 14D)
+>                          Packed
+>                          ↓ (Generate shipment — Phase 14E)
+>                          Shipped
+> ```
+>
+> **What's in v2.0.0** (10 SO states + 4 outbound entities + 5 lifecycle services across allocation/pick/pack/ship): SalesOrder admin CRUD (14A) · FIFO allocation primitive (14B, ADR-005) · Pick task generation + execution (14C) · Pack task workflow with carton (14D) · Ship workflow with carrier + tracking (14E). Inbound MVP (PO + GR + Movement Log) shipped at v1.0.0.
+>
+> **What's NOT in v2.0.0** (deferred to post-MVP, all logged as TDs):
+> - List pages for `/PickTasks` + `/PackTasks` + `/Shipments` (TD-036 / TD-037 / TD-038 — operator reaches them via Generate redirect today)
+> - Mobile picker PWA (was sequenced as Phase 14E in original roadmap; desktop ship landed first to close the chain — same `IPickTaskService.SubmitAsync` entry point will plug in)
+> - Pack video (ADR-009 spec needed first — MediaRecorder + retention + PDPA audit)
+> - Scale integration / weight verification / box-suggestion algorithm
+> - Multi-carton splitting + multi-shipment per SO (UNIQUE drops in future migrations)
+> - Carrier FK lookup integration (`master.Carriers` exists with 4 seeded; Production-status filter blocks dev dropdown — free-text MVP avoids the friction)
+> - Carrier API integration / label printing / tracking auto-assignment / manifest workflow / tracking events ingestion
+> - Post-Submit reversal ("return to stock" for any of pick/pack/ship)
+> - ScanEach vs ScanAndQty per-product pack modes
+>
+> **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
+
+**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone · **Outbound MVP chain closed end-to-end** (SO → Allocate → Pick → Pack → Ship)
 **Current Focus**: Phase 15 (post-MVP) candidates: list pages for /PickTasks + /PackTasks + /Shipments (TD-036/037/038); mobile picker PWA (was 14E in roadmap but desktop ship landed first); pack video (ADR-009 spec); carrier FK integration; manifest workflow.
 **Blockers**: none — migrations 20260510_029 through _031 already applied to dev tenant
 
@@ -1627,5 +1656,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-10 (Day 10 — Phase 14E Ship Workflow; v1.8.0-ship · Outbound MVP chain closed)
-**Version**: 1.27
+**Last updated**: 2026-05-10 (Day 10 — v2.0.0-outbound-mvp milestone tag · Outbound MVP chain closed end-to-end)
+**Version**: 1.28
