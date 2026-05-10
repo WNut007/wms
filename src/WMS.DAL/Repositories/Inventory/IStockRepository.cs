@@ -96,4 +96,27 @@ public interface IStockRepository
         decimal delta,
         Guid? userId,
         CancellationToken ct = default);
+
+    // Phase 20 — mobile Putaway queue read. Returns Stock rows in the
+    // given warehouse that sit at a Receiving / Staging-zone location
+    // with positive OnHand. Sorted CreatedAt ASC (FIFO oldest first —
+    // operator clears the backlog). One JOIN-rich projection per row
+    // covers the per-card render without per-row lookups.
+    Task<IReadOnlyList<PutawayQueueRow>> GetPutawayQueueAsync(
+        Guid warehouseId,
+        CancellationToken ct = default);
+
+    // Phase 20 — suggested putaway destination for a product in the
+    // given warehouse. Filters to Storage-zone locations only
+    // (IsActive=1, Status='Active'). Scoring (descending priority):
+    //   1. SameProductRowCount DESC — cluster picks (existing same-
+    //      product Stock at the location; raises pick-face hit rate)
+    //   2. BinRank ASC — BC-style "lower rank fills first"
+    //   3. IsPickface ASC — preserve dedicated pick faces for pulls
+    // Returns null when no Storage-zone location qualifies. Capacity-
+    // aware scoring deferred (TD — needs product-volume data).
+    Task<SuggestedLocationResult?> GetSuggestedPutawayLocationAsync(
+        Guid warehouseId,
+        Guid productId,
+        CancellationToken ct = default);
 }
