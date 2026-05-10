@@ -1,0 +1,525 @@
+@using WMS.DAL.Repositories.Counts
+@model CycleCountDetail
+@{
+    ViewData["Title"] = $"Count {Model.Header.CountNumber}";
+    var lineRows = ViewBag.LineRows as IReadOnlyList<CycleCountLineRow>
+                   ?? new List<CycleCountLineRow>();
+    var okMsg = ViewBag.CountMessage as string;
+    var errMsg = ViewBag.CountError as string;
+
+    var isCounting = Model.Header.Status == "Counting";
+    var isReview   = Model.Header.Status == "Review";
+
+    // Build initial Alpine state — defaults CountedQuantity to existing
+    // value (operator may have saved drafts). Status defaults: Pending
+    // when CountedQuantity is null, otherwise existing LineStatus.
+    var initialJson = System.Text.Json.JsonSerializer.Serialize(
+        lineRows.Select(l => new
+        {
+            lineId          = l.Id,
+            lineNumber      = l.LineNumber,
+            locationCode    = l.LocationCode,
+            productCode     = l.ProductCode,
+            productName     = l.ProductName,
+            uomCode         = l.UomCode,
+            ownerCode       = l.OwnerCode,
+            lotNumber       = l.LotNumber,
+            palletNumber    = l.PalletNumber,
+            expectedQuantity = l.ExpectedQuantity,
+            countedQuantity  = l.CountedQuantity,
+            lineStatus      = l.LineStatus,
+            notes           = "",
+        }));
+
+    // Stat tiles for review state
+    int matchCount = 0, shortCount = 0, overCount = 0, skippedCount = 0;
+    foreach (var l in lineRows)
+    {
+        if (l.LineStatus == "Skipped") { skippedCount++; continue; }
+        if (l.CountedQuantity is null) continue;
+        var diff = l.CountedQuantity.Value - l.ExpectedQuantity;
+        if (diff == 0) matchCount++;
+        else if (diff < 0) shortCount++;
+        else overCount++;
+    }
+}
+
+<style>
+    .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+
+    .cnt-page-pad { padding: 12px 14px 110px; }   /* 110px sticky */
+
+    .cnt-banner {
+        padding: 8px 12px; border-radius: 8px;
+        font-size: 12px; margin-bottom: 10px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .cnt-banner-ok  { background: #E1F5EE; color: #0F6E56; }
+    .cnt-banner-err { background: #FCEBEB; color: #A32D2D; }
+
+    .cnt-crumb {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 9px; color: #6b7280; margin-bottom: 8px;
+    }
+    .cnt-back-btn {
+        width: 22px; height: 22px; border: 0.5px solid #e5e7eb;
+        background: #f3f4f6; border-radius: 6px;
+        display: inline-flex; align-items: center; justify-content: center;
+        text-decoration: none; color: #6b7280;
+    }
+    .cnt-current {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-weight: 500; color: #534AB7;
+    }
+
+    .cnt-context-bar {
+        background: #f9fafb; padding: 8px 12px;
+        border-radius: 8px; font-size: 11px; color: #6b7280;
+        margin-bottom: 12px;
+    }
+
+    /* Stat tiles (Review state summary) */
+    .cnt-stat-grid {
+        display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;
+        margin-bottom: 12px;
+    }
+    .cnt-stat-tile {
+        background: #ffffff; border: 0.5px solid #e5e7eb;
+        border-radius: 9px; padding: 8px 10px; text-align: center;
+    }
+    .cnt-stat-tile.is-match { border-left: 3px solid #1D9E75; }
+    .cnt-stat-tile.is-short { border-left: 3px solid #E24B4A; }
+    .cnt-stat-tile.is-over  { border-left: 3px solid #EF9F27; }
+    .cnt-stat-label { font-size: 8px; color: #6b7280; text-transform: uppercase; }
+    .cnt-stat-value { font-size: 18px; font-weight: 500; margin-top: 2px;
+                      font-variant-numeric: tabular-nums; }
+    .cnt-stat-value.is-match { color: #0F6E56; }
+    .cnt-stat-value.is-short { color: #A32D2D; }
+    .cnt-stat-value.is-over  { color: #854F0B; }
+
+    /* Per-line card */
+    .cnt-card {
+        background: #ffffff; border: 0.5px solid #e5e7eb;
+        border-left: 3px solid #534AB7;
+        border-radius: 11px; padding: 12px 14px; margin-bottom: 10px;
+    }
+
+    .cnt-loc-row {
+        display: flex; align-items: center; gap: 10px;
+    }
+    .cnt-loc-icon {
+        width: 36px; height: 36px; border-radius: 8px;
+        background: #EEEDFE; color: #534AB7;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 18px;
+    }
+    .cnt-loc-code {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 14px; font-weight: 500; color: #534AB7;
+    }
+    .cnt-loc-meta { font-size: 9px; color: #6b7280; margin-top: 2px; }
+
+    .cnt-divider {
+        height: 0.5px; background: #f3f4f6; margin: 10px 0;
+    }
+
+    .cnt-product-row {
+        display: flex; align-items: center; gap: 8px;
+        font-size: 11px;
+    }
+    .cnt-product-code {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-weight: 500; color: #1f2937;
+    }
+    .cnt-product-name { color: #6b7280; }
+
+    /* Side-by-side qty grid */
+    .cnt-qty-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+        margin-top: 10px;
+    }
+    .cnt-tile {
+        border-radius: 9px; padding: 10px;
+    }
+    .cnt-tile-expected {
+        background: #f9fafb; border: 0.5px solid #e5e7eb;
+    }
+    .cnt-tile-counted {
+        background: #ffffff; border: 1.5px solid #534AB7;
+    }
+    .cnt-tile-label {
+        font-size: 9px; color: #6b7280; text-transform: uppercase;
+    }
+    .cnt-tile-label.is-counted { color: #534AB7; }
+    .cnt-tile-value {
+        font-size: 22px; font-weight: 500; color: #6b7280;
+        font-variant-numeric: tabular-nums; margin-top: 2px;
+    }
+    .cnt-tile-unit { font-size: 11px; color: #9ca3af; }
+    .cnt-tile-hint { font-size: 9px; color: #9ca3af; margin-top: 4px; }
+
+    .cnt-input {
+        width: 100%; height: 34px;
+        padding: 4px 8px; font-size: 22px; font-weight: 500;
+        border: none; outline: none; background: transparent;
+        color: #534AB7; font-variant-numeric: tabular-nums;
+    }
+    .cnt-input:disabled { color: #9ca3af; }
+
+    /* Variance indicator */
+    .cnt-variance {
+        margin-top: 10px; padding: 9px 11px;
+        border-radius: 8px; font-size: 11px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .cnt-variance.is-match { background: #E1F5EE; border-left: 3px solid #1D9E75; color: #0F6E56; }
+    .cnt-variance.is-short { background: #FCEBEB; border-left: 3px solid #E24B4A; color: #A32D2D; }
+    .cnt-variance.is-over  { background: #FAEEDA; border-left: 3px solid #EF9F27; color: #854F0B; }
+    .cnt-variance.is-skip  { background: #f3f4f6; border-left: 3px solid #9ca3af; color: #6b7280; }
+
+    /* Quick adjust */
+    .cnt-quick-row { display: flex; gap: 6px; margin-top: 6px; }
+    .cnt-quick-btn {
+        flex: 1; height: 32px;
+        background: #ffffff; border: 0.5px solid #e5e7eb;
+        border-radius: 7px;
+        font-size: 11px; font-weight: 500; color: #1f2937;
+        cursor: pointer;
+    }
+    .cnt-quick-btn:active { background: #f3f4f6; }
+    .cnt-quick-btn:disabled {
+        background: #f9fafb; color: #d1d5db; cursor: not-allowed;
+    }
+    .cnt-skip-btn {
+        width: 100%; height: 32px; margin-top: 6px;
+        background: #f9fafb; color: #6b7280;
+        border: 0.5px solid #e5e7eb; border-radius: 7px;
+        font-size: 11px; cursor: pointer;
+    }
+    .cnt-skip-btn.is-active {
+        background: #f3f4f6; color: #1f2937; font-weight: 500;
+    }
+
+    /* Notes */
+    .cnt-notes-section {
+        background: #ffffff; border: 0.5px solid #e5e7eb;
+        border-radius: 11px; padding: 12px 14px; margin-top: 16px;
+    }
+    .cnt-notes-label {
+        font-size: 11px; font-weight: 500; color: #1f2937;
+        margin-bottom: 6px;
+    }
+    .cnt-textarea {
+        width: 100%; min-height: 60px;
+        padding: 6px 8px; font-size: 12px;
+        border: 0.5px solid #e5e7eb; border-radius: 7px;
+        background: #f9fafb; resize: vertical;
+    }
+
+    /* Sticky bottom */
+    .cnt-sticky {
+        position: fixed; left: 0; right: 0; bottom: 0;
+        background: #ffffff; border-top: 0.5px solid #e5e7eb;
+        padding: 10px 14px;
+        box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
+    }
+    .cnt-submit {
+        width: 100%; height: 46px;
+        background: #534AB7; color: #ffffff;
+        border: none; border-radius: 8px;
+        font-size: 14px; font-weight: 500; cursor: pointer;
+    }
+    .cnt-submit:disabled {
+        background: #d1d5db; color: #9ca3af; cursor: not-allowed;
+    }
+    .cnt-secondary {
+        width: 100%; height: 36px; margin-top: 6px;
+        background: #ffffff; color: #534AB7;
+        border: 0.5px solid #534AB7; border-radius: 7px;
+        font-size: 12px; cursor: pointer;
+    }
+    .cnt-cancel {
+        width: 100%; height: 36px; margin-top: 6px;
+        background: #ffffff; color: #6b7280;
+        border: 0.5px solid #e5e7eb; border-radius: 7px;
+        font-size: 12px; cursor: pointer;
+    }
+
+    .cnt-readonly-banner {
+        background: #FAEEDA; color: #854F0B;
+        padding: 10px 12px; border-radius: 8px;
+        font-size: 11px; margin-bottom: 12px;
+    }
+</style>
+
+<div class="cnt-page-pad" x-data="countTask({ initialLines: @Html.Raw(initialJson) })">
+    @if (!string.IsNullOrEmpty(okMsg))
+    {
+        <div class="cnt-banner cnt-banner-ok">
+            <i class="ti ti-check"></i> @okMsg
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(errMsg))
+    {
+        <div class="cnt-banner cnt-banner-err">
+            <i class="ti ti-alert-circle"></i> @errMsg
+        </div>
+    }
+
+    <div class="cnt-crumb">
+        <a href="/count" class="cnt-back-btn"><i class="ti ti-arrow-left"></i></a>
+        <span>Count</span>
+        <i class="ti ti-chevron-right"></i>
+        <span class="cnt-current">@Model.Header.CountNumber</span>
+    </div>
+
+    <div class="cnt-context-bar">
+        <strong>@Model.Header.Status</strong>
+        · @lineRows.Count line@(lineRows.Count == 1 ? "" : "s")
+        @if (isReview)
+        {
+            <span> · awaiting desktop approval</span>
+        }
+    </div>
+
+    @if (isReview)
+    {
+        <div class="cnt-readonly-banner">
+            <i class="ti ti-lock"></i>
+            <strong>Read-only.</strong> This session is in Review.
+            Use the desktop /CycleCounts page to approve and apply variances.
+        </div>
+
+        <div class="cnt-stat-grid">
+            <div class="cnt-stat-tile is-match">
+                <div class="cnt-stat-label">Match</div>
+                <div class="cnt-stat-value is-match">@matchCount</div>
+            </div>
+            <div class="cnt-stat-tile is-short">
+                <div class="cnt-stat-label">Short</div>
+                <div class="cnt-stat-value is-short">@shortCount</div>
+            </div>
+            <div class="cnt-stat-tile is-over">
+                <div class="cnt-stat-label">Over</div>
+                <div class="cnt-stat-value is-over">@overCount</div>
+            </div>
+        </div>
+    }
+
+    @if (isCounting)
+    {
+        <form id="count-form"
+              asp-controller="Count" asp-action="Save"
+              asp-route-sessionId="@Model.Header.Id" method="post"
+              x-ref="saveForm">
+            @Html.AntiForgeryToken()
+        </form>
+        <form id="submit-form"
+              asp-controller="Count" asp-action="Submit"
+              asp-route-sessionId="@Model.Header.Id" method="post"
+              x-ref="submitForm">
+            @Html.AntiForgeryToken()
+        </form>
+    }
+
+    @for (var i = 0; i < lineRows.Count; i++)
+    {
+        var l = lineRows[i];
+        <div class="cnt-card">
+            <div class="cnt-loc-row">
+                <div class="cnt-loc-icon"><i class="ti ti-map-pin"></i></div>
+                <div>
+                    <div class="cnt-loc-code">@l.LocationCode</div>
+                    <div class="cnt-loc-meta">Line @l.LineNumber@(l.LotNumber is null ? "" : $" · Lot {l.LotNumber}")@(l.PalletNumber is null ? "" : $" · Pallet {l.PalletNumber}")</div>
+                </div>
+            </div>
+
+            <div class="cnt-divider"></div>
+
+            <div class="cnt-product-row">
+                <i class="ti ti-package" style="color:#534AB7"></i>
+                <span class="cnt-product-code">@l.ProductCode</span>
+                <span class="cnt-product-name">· @l.ProductName</span>
+            </div>
+
+            @if (isCounting)
+            {
+                <input type="hidden" name="Lines[@i].LineId" value="@l.Id" form="count-form" />
+                <input type="hidden" name="Lines[@i].LineId" value="@l.Id" form="submit-form" />
+            }
+
+            <div class="cnt-qty-grid">
+                <div class="cnt-tile cnt-tile-expected">
+                    <div class="cnt-tile-label">Expected</div>
+                    <div class="cnt-tile-value">@l.ExpectedQuantity.ToString("N2")</div>
+                    <div class="cnt-tile-unit">@l.UomCode</div>
+                    <div class="cnt-tile-hint">From system</div>
+                </div>
+                <div class="cnt-tile cnt-tile-counted">
+                    <div class="cnt-tile-label is-counted">Counted</div>
+                    @if (isCounting)
+                    {
+                        <input type="number" step="0.0001" min="0"
+                               class="cnt-input"
+                               inputmode="decimal"
+                               x-model.number="lines[@i].countedQuantity"
+                               @@input="onCountInput(@i)"
+                               :disabled="lines[@i].lineStatus === 'Skipped'" />
+                        <input type="hidden" name="Lines[@i].CountedQuantity"
+                               :value="lines[@i].countedQuantity ?? ''" form="count-form" />
+                        <input type="hidden" name="Lines[@i].CountedQuantity"
+                               :value="lines[@i].countedQuantity ?? ''" form="submit-form" />
+                        <input type="hidden" name="Lines[@i].LineStatus"
+                               :value="lines[@i].lineStatus" form="count-form" />
+                        <input type="hidden" name="Lines[@i].LineStatus"
+                               :value="lines[@i].lineStatus" form="submit-form" />
+                    }
+                    else
+                    {
+                        <div class="cnt-tile-value" style="color:#534AB7">@(l.CountedQuantity?.ToString("N2") ?? "—")</div>
+                    }
+                    <div class="cnt-tile-unit">@l.UomCode</div>
+                    @if (isCounting)
+                    {
+                        <div class="cnt-tile-hint" style="color:#534AB7">Tap to edit</div>
+                    }
+                </div>
+            </div>
+
+            <div class="cnt-variance"
+                 :class="varianceClass(@i)"
+                 x-show="varianceText(@i)"
+                 x-text="varianceText(@i)"></div>
+
+            @if (isCounting)
+            {
+                <div class="cnt-quick-row">
+                    <button type="button" class="cnt-quick-btn"
+                            :disabled="lines[@i].lineStatus === 'Skipped'"
+                            @@click="adjust(@i, -1)">−1</button>
+                    <button type="button" class="cnt-quick-btn"
+                            :disabled="lines[@i].lineStatus === 'Skipped'"
+                            @@click="adjust(@i, 1)">+1</button>
+                    <button type="button" class="cnt-quick-btn"
+                            :disabled="lines[@i].lineStatus === 'Skipped'"
+                            @@click="adjust(@i, -10)">−10</button>
+                    <button type="button" class="cnt-quick-btn"
+                            :disabled="lines[@i].lineStatus === 'Skipped'"
+                            @@click="adjust(@i, 10)">+10</button>
+                </div>
+                <button type="button" class="cnt-skip-btn"
+                        :class="{ 'is-active': lines[@i].lineStatus === 'Skipped' }"
+                        @@click="toggleSkip(@i)"
+                        x-text="lines[@i].lineStatus === 'Skipped' ? '⊘ Skipped — tap to undo' : 'Skip this location'"></button>
+                <input type="hidden" name="Lines[@i].Notes"
+                       :value="lines[@i].notes" form="count-form" />
+                <input type="hidden" name="Lines[@i].Notes"
+                       :value="lines[@i].notes" form="submit-form" />
+            }
+        </div>
+    }
+
+    @if (isCounting)
+    {
+        <div class="cnt-sticky">
+            <button type="submit" form="submit-form" class="cnt-submit"
+                    :disabled="!hasAnyCount()">
+                <i class="ti ti-check"></i> Submit for review
+            </button>
+            <button type="submit" form="count-form" class="cnt-secondary">
+                <i class="ti ti-device-floppy"></i> Save progress
+            </button>
+        </div>
+
+        <form asp-controller="Count" asp-action="Cancel"
+              asp-route-sessionId="@Model.Header.Id" method="post"
+              onsubmit="return confirmCountCancel(this);"
+              style="position:fixed;left:14px;right:14px;bottom:104px;">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="reason" value="" />
+            <button type="submit" class="cnt-cancel">
+                <i class="ti ti-x"></i> Cancel session
+            </button>
+        </form>
+    }
+    else
+    {
+        <div class="cnt-sticky">
+            <a href="/count" class="cnt-submit"
+               style="text-decoration:none;display:flex;align-items:center;justify-content:center;gap:6px;">
+                <i class="ti ti-arrow-left"></i> Back to queue
+            </a>
+        </div>
+    }
+</div>
+
+@section Scripts {
+    <script>
+        function countTask(opts) {
+            return {
+                lines: opts.initialLines || [],
+                onCountInput(idx) {
+                    // Auto-flip status: empty → Pending; value → Counted.
+                    const line = this.lines[idx];
+                    if (line.lineStatus === 'Skipped') return;
+                    line.lineStatus = (line.countedQuantity == null || line.countedQuantity === '')
+                        ? 'Pending' : 'Counted';
+                },
+                adjust(idx, delta) {
+                    const line = this.lines[idx];
+                    if (line.lineStatus === 'Skipped') return;
+                    const next = (line.countedQuantity || 0) + delta;
+                    line.countedQuantity = next < 0 ? 0 : next;
+                    line.lineStatus = 'Counted';
+                },
+                toggleSkip(idx) {
+                    const line = this.lines[idx];
+                    if (line.lineStatus === 'Skipped') {
+                        // Un-skip: revert to Pending or Counted depending
+                        // on whether a value exists.
+                        line.lineStatus = (line.countedQuantity == null || line.countedQuantity === '')
+                            ? 'Pending' : 'Counted';
+                    } else {
+                        line.lineStatus = 'Skipped';
+                        line.countedQuantity = null;
+                    }
+                },
+                varianceText(idx) {
+                    const line = this.lines[idx];
+                    if (line.lineStatus === 'Skipped') return '⊘ Skipped — won\'t apply';
+                    if (line.countedQuantity == null || line.countedQuantity === '') return '';
+                    const diff = line.countedQuantity - line.expectedQuantity;
+                    if (diff === 0) return `✓ Match (${line.expectedQuantity})`;
+                    if (diff < 0) return `↓ ${Math.abs(diff)} short of expected`;
+                    return `↑ ${diff} over expected`;
+                },
+                varianceClass(idx) {
+                    const line = this.lines[idx];
+                    if (line.lineStatus === 'Skipped') return 'is-skip';
+                    if (line.countedQuantity == null || line.countedQuantity === '') return '';
+                    const diff = line.countedQuantity - line.expectedQuantity;
+                    if (diff === 0) return 'is-match';
+                    if (diff < 0) return 'is-short';
+                    return 'is-over';
+                },
+                hasAnyCount() {
+                    return this.lines.some(l =>
+                        l.lineStatus === 'Counted' || l.lineStatus === 'Skipped');
+                },
+            };
+        }
+
+        function confirmCountCancel(form) {
+            const reason = window.prompt('Cancel reason (required, min 3 chars):', '');
+            if (reason === null) return false;
+            const trimmed = (reason || '').trim();
+            if (trimmed.length < 3) {
+                alert('Reason must be at least 3 characters.');
+                return false;
+            }
+            form.querySelector('input[name="reason"]').value = trimmed;
+            return true;
+        }
+    </script>
+}

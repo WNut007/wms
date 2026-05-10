@@ -93,11 +93,19 @@ public sealed class CountController : Controller
         if (_currentUser.WarehouseId is null)
             return RedirectToAction("SelectWarehouse", "Auth");
 
-        var detail = await _service.GetByIdAsync(_tenant.RequireTenantId(), sessionId, ct);
+        var tenantId = _tenant.RequireTenantId();
+        var detail = await _service.GetByIdAsync(tenantId, sessionId, ct);
         if (detail is null) return NotFound();
         if (detail.Header.Status is not "Counting" and not "Review")
             return NotFound();
 
+        // Richer projection (resolved Product / Location / UoM /
+        // Owner / Lot / Pallet codes) — drives the per-line card
+        // render without per-row lookups. Same shape as Phase 18
+        // ReceiveController's bulk product meta fetch.
+        var lineRows = await _repos.For(tenantId).GetLineRowsByIdAsync(sessionId, ct);
+
+        ViewBag.LineRows     = lineRows;
         ViewBag.CountMessage = TempData["CountMessage"] as string;
         ViewBag.CountError   = TempData["CountError"]   as string;
         return View(detail);
