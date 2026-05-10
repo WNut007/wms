@@ -1,0 +1,91 @@
+@model WMS.Web.ViewModels.Detail.DetailPageViewModel
+@{
+    var allocations = ViewBag.AllocationRows as IReadOnlyList<WMS.DAL.Repositories.Outbound.OrderAllocationRow>
+                      ?? new List<WMS.DAL.Repositories.Outbound.OrderAllocationRow>();
+    // Group by line for visual hierarchy — operator scans "what's
+    // allocated for line 1, line 2, ...". Within a line, allocations
+    // are already ordered by AllocatedAt from the SQL.
+    var byLine = allocations
+        .GroupBy(a => (a.SalesOrderLineId, a.LineNumber))
+        .OrderBy(g => g.Key.LineNumber)
+        .ToList();
+}
+
+<section class="wmsd-section">
+    <p class="wmsd-section-eyebrow">— Allocations</p>
+    <h2>Active stock reservations</h2>
+
+    @if (allocations.Count == 0)
+    {
+        <p style="text-align:center;padding:40px;color:var(--wms-text-tertiary);font-size:12px;">
+            No active allocations on this sales order.
+            <br />
+            <span style="font-size:11px;">Run <strong>Allocate</strong> to reserve stock against the lines.</span>
+        </p>
+    }
+    else
+    {
+        <p style="font-size:12px;color:var(--wms-text-secondary);margin-bottom:12px;">
+            @allocations.Count active reservation(s) across @byLine.Count line(s).
+            Released allocations are not shown — they are kept in the audit log.
+        </p>
+
+        <div style="overflow-x:auto;">
+            <table class="wms-table" style="width:100%;">
+                <thead>
+                    <tr>
+                        <th style="width:50px;">Line</th>
+                        <th style="width:110px;">Location</th>
+                        <th style="width:110px;">Lot</th>
+                        <th style="width:110px;">Pallet</th>
+                        <th style="width:110px;text-align:right;">Allocated qty</th>
+                        <th style="width:140px;">Allocated</th>
+                        <th>By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var group in byLine)
+                    {
+                        var first = true;
+                        foreach (var a in group)
+                        {
+                            <tr>
+                                <td>
+                                    @if (first)
+                                    {
+                                        <span class="mono" style="font-weight:500;">@a.LineNumber</span>
+                                    }
+                                </td>
+                                <td><span class="mono">@a.LocationCode</span></td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(a.LotNumber))
+                                    {
+                                        <span class="mono">@a.LotNumber</span>
+                                    }
+                                    else
+                                    {
+                                        <span style="color:var(--wms-text-tertiary);">—</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(a.PalletNumber))
+                                    {
+                                        <span class="mono">@a.PalletNumber</span>
+                                    }
+                                    else
+                                    {
+                                        <span style="color:var(--wms-text-tertiary);">—</span>
+                                    }
+                                </td>
+                                <td style="text-align:right;">@a.AllocatedQuantity.ToString("N2")</td>
+                                <td style="font-size:11px;">@WMS.Web.Services.RelativeTime.Format(a.AllocatedAt)</td>
+                                <td style="font-size:11px;color:var(--wms-text-secondary);">@a.AllocatedByName</td>
+                            </tr>
+                            first = false;
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>

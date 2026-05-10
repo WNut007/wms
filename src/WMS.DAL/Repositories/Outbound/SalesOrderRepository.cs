@@ -22,7 +22,7 @@ internal sealed class SalesOrderRepository : ISalesOrderRepository
     private const string LineColumns = @"
         Id, SalesOrderId, LineNumber,
         ProductId, OwnerId, UomId,
-        OrderedQuantity, UnitPrice, Notes,
+        OrderedQuantity, AllocatedQuantity, UnitPrice, Notes,
         CreatedAt, UpdatedAt, CreatedBy, UpdatedBy, Version
         FROM outbound.SalesOrderLines";
 
@@ -213,10 +213,12 @@ JOIN master.Warehouses  wh ON wh.Id = so.WarehouseId
 
         const string sql = @"
 SELECT
-    COUNT(*)                                                  AS [All],
-    SUM(CASE WHEN so.Status = 'Draft'     THEN 1 ELSE 0 END)  AS Draft,
-    SUM(CASE WHEN so.Status = 'Open'      THEN 1 ELSE 0 END)  AS [Open],
-    SUM(CASE WHEN so.Status = 'Cancelled' THEN 1 ELSE 0 END)  AS Cancelled
+    COUNT(*)                                                   AS [All],
+    SUM(CASE WHEN so.Status = 'Draft'      THEN 1 ELSE 0 END)  AS Draft,
+    SUM(CASE WHEN so.Status = 'Open'       THEN 1 ELSE 0 END)  AS [Open],
+    SUM(CASE WHEN so.Status = 'Allocating' THEN 1 ELSE 0 END)  AS Allocating,
+    SUM(CASE WHEN so.Status = 'Allocated'  THEN 1 ELSE 0 END)  AS Allocated,
+    SUM(CASE WHEN so.Status = 'Cancelled'  THEN 1 ELSE 0 END)  AS Cancelled
 FROM outbound.SalesOrders so
 JOIN master.Customers  c  ON c.Id  = so.CustomerId
 JOIN master.Warehouses wh ON wh.Id = so.WarehouseId
@@ -244,6 +246,7 @@ SELECT
     ow.Code AS OwnerCode,
     u.Code  AS UomCode,
     sol.OrderedQuantity,
+    sol.AllocatedQuantity,
     sol.UnitPrice,
     sol.Notes
 FROM outbound.SalesOrderLines sol
@@ -378,5 +381,20 @@ WHERE Id = @Id AND Status = @FromStatus;";
             @"SELECT COUNT(*) FROM outbound.SalesOrders
               WHERE SoNumber LIKE @prefix + '%';",
             new { prefix = datePrefix },
+            cancellationToken: ct));
+
+    public Task AdjustLineAllocatedQuantityAsync(
+        Guid salesOrderLineId,
+        decimal delta,
+        Guid? userId,
+        CancellationToken ct = default) =>
+        _connection.ExecuteAsync(new CommandDefinition(
+            @"UPDATE outbound.SalesOrderLines
+              SET AllocatedQuantity = AllocatedQuantity + @Delta,
+                  UpdatedAt         = SYSUTCDATETIME(),
+                  UpdatedBy         = @UserId,
+                  Version           = Version + 1
+              WHERE Id = @LineId;",
+            new { LineId = salesOrderLineId, Delta = delta, UserId = userId },
             cancellationToken: ct));
 }

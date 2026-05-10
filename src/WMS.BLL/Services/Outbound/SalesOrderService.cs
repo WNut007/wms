@@ -1,26 +1,35 @@
+using System.Transactions;
 using Microsoft.Extensions.Logging;
 using WMS.DAL.Repositories.Outbound;
 using WMS.Domain.Entities.Outbound;
 
 namespace WMS.BLL.Services.Outbound;
 
-// Phase 14A — SalesOrder workflow service (MVP foundation).
+// Phase 14A — SalesOrder workflow service.
 //
 // Validation up-front on Create + Update; database CHECKs catch the
 // rest at insert time. Number assignment server-side via repo's
 // CountForDatePrefix — same pattern as Adjustment / CycleCount /
-// Transfer. No TransactionScope wrapping needed in MVP — there are
-// no Stock-touching operations yet (those arrive in 14B).
+// Transfer.
+//
+// Phase 14B — CancelAsync now reversal-aware: Cancelled-from-
+// Allocating/Allocated releases every Active OrderAllocation +
+// decrements Stock.QuantityAllocated + resets line.AllocatedQuantity
+// inside one TransactionScope before flipping status. Allocation
+// reversal mechanics live in IAllocationService.
 public sealed class SalesOrderService : ISalesOrderService
 {
     private readonly ISalesOrderRepositoryFactory _repoFactory;
+    private readonly IAllocationService _allocationService;
     private readonly ILogger<SalesOrderService> _logger;
 
     public SalesOrderService(
         ISalesOrderRepositoryFactory repoFactory,
+        IAllocationService allocationService,
         ILogger<SalesOrderService> logger)
     {
         _repoFactory = repoFactory;
+        _allocationService = allocationService;
         _logger = logger;
     }
 
@@ -211,17 +220,39 @@ public sealed class SalesOrderService : ISalesOrderService
 
         if (existing.Header.Status == "Cancelled") return false; // idempotent
 
+        var hadAllocations = existing.Header.Status is "Allocating" or "Allocated";
+        var actorUserId = currentUserId ?? Guid.Empty;
+
+        // TransactionScope wraps reversal + status flip together. Even
+        // when there are no allocations to release, the wrapper keeps
+        // the cancel flow uniform with Phase 11A/12/13 precedent.
+        using var scope = new TransactionScope(
+            TransactionScopeOption.Required,
+            new TransactionOptions { IsolationLevel = System.Transactions.IsolationLevel.ReadCommitted },
+            TransactionScopeAsyncFlowOption.Enabled);
+
+        if (hadAllocations)
+        {
+            await _allocationService.ReleaseAllForSalesOrderAsync(
+                tenantId, salesOrderId, "SO cancelled", actorUserId, ct);
+        }
+
         // Try each non-terminal source state. SetStatusAsync's
-        // WHERE Status=@from filter makes both attempts cheap.
+        // WHERE Status=@from filter makes each attempt cheap and the
+        // sequence picks whichever applies.
         var changed =
-               await repo.SetStatusAsync(salesOrderId, "Draft", "Cancelled", currentUserId, ct)
-            || await repo.SetStatusAsync(salesOrderId, "Open",  "Cancelled", currentUserId, ct);
+               await repo.SetStatusAsync(salesOrderId, "Draft",      "Cancelled", currentUserId, ct)
+            || await repo.SetStatusAsync(salesOrderId, "Open",       "Cancelled", currentUserId, ct)
+            || await repo.SetStatusAsync(salesOrderId, "Allocating", "Cancelled", currentUserId, ct)
+            || await repo.SetStatusAsync(salesOrderId, "Allocated",  "Cancelled", currentUserId, ct);
+
+        scope.Complete();
 
         if (changed)
         {
             _logger.LogInformation(
-                "SO {SoNumber} ({SoId}) cancelled",
-                existing.Header.SoNumber, salesOrderId);
+                "SO {SoNumber} ({SoId}) cancelled (hadAllocations={Had})",
+                existing.Header.SoNumber, salesOrderId, hadAllocations);
         }
         return changed;
     }

@@ -317,11 +317,62 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud`
-**Current Focus**: Phase 14B — Sales Order allocation + Pick task generation (parallel to Phase 9B's GR work for Inbound). Foundation now in place; allocation strategy resolver + line-status fields the next layer up.
-**Blockers**: none — migrations 20260510_008 through _017 already applied to dev tenant
+**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation`
+**Current Focus**: Phase 14C — Pick task generation + execution (desktop "Complete pick" form first; mobile in 14E). Allocation primitive now in place; pick draws from `outbound.OrderAllocations` rows.
+**Blockers**: none — migrations 20260510_008 through _020 already applied to dev tenant
 
 Update this section weekly during standups.
+
+### Day 10 — Phase 14B (Sales Order Allocation — ADR-005 strategy primitive)
+
+**Branch**: `feat/outbound-allocation` → merged to `main` · **Tag**: `v1.5.0-allocation` · **Foundation for**: Phase 14C (pick draws from active OrderAllocations)
+
+First Stock-touching outbound surface. Allocation primitive sized so 14C's pick logic plugs in cleanly: it consumes Active `OrderAllocations` rows and never needs to re-resolve the strategy. Reversal-aware Cancel completes the round-trip — cancel-after-allocate releases reservations atomically.
+
+**Schema** (3 migrations):
+- `20260510_018` — DROP + ADD `CK_SalesOrders_Status` to widen the enum from 3 → 5: `Draft|Open|Allocating|Allocated|Cancelled`. Down() reverses to MVP set. SQL Server requires drop+add for CHECK widening.
+- `20260510_019` — ALTER `outbound.SalesOrderLines` ADD `AllocatedQuantity DECIMAL(18,4) NOT NULL DEFAULT 0` + 2 CHECKs (`>= 0` and `<= OrderedQuantity`). Denormalized aggregate of the line's Active OrderAllocations rows; bumped/decremented atomically inside AllocateAsync / cancel-reversal TX.
+- `20260510_020` — CREATE `outbound.OrderAllocations`. Per-line linkage to `inventory.Stock` rows. Status: `Active|Released`. Audit pairs (AllocatedBy/At + ReleasedBy/At) + ReleaseReason. `CK_OrderAllocations_AuditMatchesStatus` invariant (mirrors Phase 11A/12/13 pattern). 2 indexes (per-Line + per-Stock). Released allocations stay in the table as audit history — never hard-deleted.
+
+**Strategy pattern** (ADR-005, new `WMS.BLL.Strategies.Allocation` folder):
+- `IAllocationStrategy` — pure-function interface: `(SOLineId, OutstandingQty, Stock candidates) → (Picks, Shortfall)`. Strategies are stateless and deterministic. Records bundled in the same file (Context/Decision/Pick).
+- `FifoAllocationStrategy` — `Name = "FIFO"`. Sorts candidates by `Stock.CreatedAt` ASC, takes `min(available, remaining)` per row.
+- `AllocationStrategyResolver` — receives `IEnumerable<IAllocationStrategy>` from DI (auto-discovered), looks up by Name (case-insensitive), default = FIFO. Constructor enforces FIFO presence at startup. Adding FEFO/Tier later is one DI line + one impl class — no service-code change.
+
+**Service** (`IAllocationService`):
+- `AllocateAsync(tenantId, soId, strategyName?, userId, ct)` — TransactionScope-wrapped (Phase 11A/12/13 pattern, MSDTC trade-off). Loads SO → resolves strategy → per-line: `IStockRepository.GetAllocationCandidatesAsync` (filter by Warehouse + Product + Owner + UoM, where `OnHand-Allocated > 0`, FIFO-friendly default sort) → `strategy.Allocate(context)` → for each pick: insert `OrderAllocation` (Active) + `Stock.AdjustQuantityAllocatedAsync(+pickQty)` + `SalesOrderLine.AdjustLineAllocatedQuantityAsync(+sumPicks)`. Flips header to `Allocated` (zero shortfall) or `Allocating` (any shortfall). Idempotent on already-Allocated; rejects from Draft/Cancelled. Returns `AllocationResult(IsFullyAllocated, LineCount, FullyAllocatedLineCount, ShortfallByLineId)`.
+- `ReleaseAllForSalesOrderAsync(tenantId, soId, reason, userId, ct)` — caller owns TX. 3 steps inside: (1) per-allocation: `Stock.AdjustQuantityAllocatedAsync(-allocatedQty)`; (2) per-line: `SalesOrderLine.AdjustLineAllocatedQuantityAsync(-sumOfFreedQty)`; (3) bulk-flip Active→Released with audit on every row via single UPDATE+IN-subquery. Returns count.
+
+**Reversal-aware Cancel** (`SalesOrderService.CancelAsync`):
+- Constructor gained `IAllocationService` dep.
+- TransactionScope-wraps conditional release (only when `Status is "Allocating" or "Allocated"`) + 4-state source chain (`Draft|Open|Allocating|Allocated → Cancelled`). When SO had no allocations (Draft/Open), the release is skipped but the TX still wraps the status flip — uniformity over branching.
+
+**UI** (3 surfaces touched):
+- `/SalesOrders` Index — Alpine `statuses` array now lists 6 chips; badge map adds `allocating: s-warning` + `allocated: s-info`.
+- `/SalesOrders/Detail/{id}`:
+  - Stats tile shape: Lines / Quantity / **Allocated (x.xx / y.yy with color tint)** / Status. Dropped Amount tile.
+  - 4 Quick Actions: Edit / Submit / **Allocate** / Cancel. Allocate enabled on `Open|Allocating` only (greyed on Allocated — idempotent no-op, visually "done").
+  - 2 custom tabs: Lines (now shows `AllocatedQuantity` column with `% filled` color tint) + new **Allocations** panel (`_SalesOrderAllocationsPanel` — grouped-by-line read-only table: Line / Location / Lot / Pallet / Qty / Allocated time-relative / By).
+- Decision modals — new `#allocate-modal` (FIFO strategy explainer + green confirm button). Cancel modal copy now conditional via `@if (ViewBag.IsAllocating || ViewBag.IsAllocated)` — explains allocation release vs no-op.
+
+**Status mapper** widened to 5 states. Variants: `Draft=neutral`, `Open=success`, `Allocating=warning`, `Allocated=info`, `Cancelled=neutral`.
+
+**SalesOrderStatusCounts** record gained `Allocating` + `Allocated` fields between `Open` and `Cancelled`. SQL projection extended.
+
+**DAL extensions** (chunk 3):
+- New `IOrderAllocationRepository` (7 methods: Create, CreateBatch, GetActiveByLineId, GetActiveBySalesOrderId, GetActiveEntitiesBySalesOrderId, ReleaseAsync, ReleaseAllForSalesOrderAsync). Reads JOIN through Stock + Lots + Pallets + Users for the display projection (`OrderAllocationRow`).
+- `IStockRepository` gained `GetAllocationCandidatesAsync` (filter by warehouse + 3-tuple Product+Owner+UoM, `OnHand-Allocated > 0`, sort `CreatedAt` ASC) + `AdjustQuantityAllocatedAsync` (atomic delta, leans on existing `CK_Stock_Allocated_NotOverOnHand` for invariants).
+- `ISalesOrderRepository` gained `AdjustLineAllocatedQuantityAsync`.
+- `SalesOrderRepository.LineColumns` SELECT/`SalesOrderLineRow` record gained `AllocatedQuantity` between `OrderedQuantity` and `UnitPrice`.
+
+**Tests**: +35 net (8 FifoStrategy + 5 Resolver + 10 AllocationService + 3 SalesOrderService cancel-reversal + 9 controller incl. 2 new mapper Theory cases). Test posture: **585 passing** (was 550). 207 unit + 378 integration + 5 skipped.
+
+**Out of scope** (logged as TD-035): pick task generation + execution (14C scope), FEFO/Tier strategies (one impl + DI line each), per-tenant strategy configuration, allocation-aware line edit on Open SOs (line locks to "Replace lines" path until Phase 14C ships), short-pick failure reversal (will share `ReleaseAllForSalesOrderAsync`'s mechanics), reservation expiry timer, allocation history report (Released rows are queryable but no UI).
+
+**Notes on chunk-by-chunk hiccups**:
+- Chunk 3 hit a phantom-Edit issue where `IStockRepository.cs` interface edits never persisted despite the Edit tool reporting success — class-only edit compiled fine (extra methods on impl > interface is legal C#) but BLL surfaced the gap in chunk 5. Re-applied. Same pattern hit again on chunk 8 modals (parallel Edits to the same file in one tool-batch silently no-op for all but the first). Mitigation going forward: spot-check critical interface edits with a follow-up Read; sequential edits when modifying a file in multiple places per chunk.
+
+**Permission**: `OUTBOUND.ORDERS` covers allocation operations for MVP. Future phases may introduce a finer `OUTBOUND.ALLOCATION` perm for separation-of-duties on Allocate vs SO admin.
 
 ### Day 10 — Phase 14A (Sales Order Admin CRUD — Outbound MVP foundation)
 
@@ -1385,5 +1436,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-10 (Day 10 — Phase 14A Sales Order Admin CRUD; v1.4.0-so-crud)
-**Version**: 1.23
+**Last updated**: 2026-05-10 (Day 10 — Phase 14B Sales Order Allocation; v1.5.0-allocation)
+**Version**: 1.24

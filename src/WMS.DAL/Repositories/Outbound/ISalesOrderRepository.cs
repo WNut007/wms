@@ -77,4 +77,15 @@ public interface ISalesOrderRepository
     // count of SOs whose SoNumber LIKE @prefix + '%'.
     Task<int> CountForDatePrefixAsync(
         string datePrefix, CancellationToken ct = default);
+
+    // Phase 14B — atomic delta on the line's denormalized
+    // AllocatedQuantity. Positive on allocate, negative on release.
+    // CK_SalesOrderLines_AllocatedQty_NonNegative + _NotOverOrdered
+    // guard the result range. Caller composes this inside the same TX
+    // as the matching OrderAllocations + Stock writes.
+    Task AdjustLineAllocatedQuantityAsync(
+        Guid salesOrderLineId,
+        decimal delta,
+        Guid? userId,
+        CancellationToken ct = default);
 }

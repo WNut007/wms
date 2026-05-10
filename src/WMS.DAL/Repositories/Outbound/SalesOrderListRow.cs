@@ -40,15 +40,23 @@ public sealed record SalesOrderFilter(
 // Phase 14A — chip-count aggregate for /SalesOrders list. Counts
 // respect Customer + Warehouse + Search filter; ignore Status so
 // inactive chips still display their totals.
+//
+// Phase 14B added Allocating + Allocated counts.
 public sealed record SalesOrderStatusCounts(
     int All,
     int Draft,
     int Open,
+    int Allocating,
+    int Allocated,
     int Cancelled);
 
 // Phase 14A — read-projection for the Detail Lines tab. Resolved
 // Product code/name + Owner code + UoM code via JOIN, single round-
 // trip. Shape parallel to PurchaseOrderLineRow + TransferOrderLineRow.
+//
+// Phase 14B added: AllocatedQuantity (between OrderedQuantity and
+// UnitPrice) — denormalized aggregate of the line's Active
+// OrderAllocations rows.
 public sealed record SalesOrderLineRow(
     Guid Id,
     int LineNumber,
@@ -58,5 +66,6 @@ public sealed record SalesOrderLineRow(
     string OwnerCode,
     string UomCode,
     decimal OrderedQuantity,
+    decimal AllocatedQuantity,
     decimal? UnitPrice,
     string? Notes);

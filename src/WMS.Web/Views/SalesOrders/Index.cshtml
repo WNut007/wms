@@ -108,12 +108,14 @@
             return {
                 rows: [], total: 0, totalPages: 1, page: 1, pageSize: 20,
                 search: '', status: 'all', loading: false,
-                counts: { all: 0, draft: 0, open: 0, cancelled: 0 },
+                counts: { all: 0, draft: 0, open: 0, allocating: 0, allocated: 0, cancelled: 0 },
                 statuses: [
-                    { value: 'all',       label: 'All' },
-                    { value: 'draft',     label: 'Draft' },
-                    { value: 'open',      label: 'Open' },
-                    { value: 'cancelled', label: 'Cancelled' },
+                    { value: 'all',        label: 'All' },
+                    { value: 'draft',      label: 'Draft' },
+                    { value: 'open',       label: 'Open' },
+                    { value: 'allocating', label: 'Allocating' },
+                    { value: 'allocated',  label: 'Allocated' },
+                    { value: 'cancelled',  label: 'Cancelled' },
                 ],
                 async init() { await this.reload(); },
                 async reload() {
@@ -146,9 +148,11 @@
                 },
                 badgeClass(status) {
                     return {
-                        'draft':     's-neutral',
-                        'open':      's-success',
-                        'cancelled': 's-neutral',
+                        'draft':      's-neutral',
+                        'open':       's-success',
+                        'allocating': 's-warning',
+                        'allocated':  's-info',
+                        'cancelled':  's-neutral',
                     }[status] || 's-neutral';
                 },
             };

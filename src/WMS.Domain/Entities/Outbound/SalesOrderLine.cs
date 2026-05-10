@@ -2,13 +2,16 @@ namespace WMS.Domain.Entities.Outbound;
 
 // Phase 14A — outbound.SalesOrderLines.
 //
-// Owner preserved per ADR-007 (3PL/VMI invariant). When Phase 14B's
-// allocation runs, Stock matches on the (Product, Owner, UoM) shape —
+// Owner preserved per ADR-007 (3PL/VMI invariant). Phase 14B's
+// allocation matches Stock on the (Product, Owner, UoM) shape —
 // preventing accidental commingling of one customer's owner-keyed
 // stock with another's.
 //
-// Allocation/pick/ship qty fields deliberately omitted from MVP; they
-// arrive in 14B's schema ALTER + this entity's growth.
+// Phase 14B added: AllocatedQuantity. Denormalized aggregate of the
+// row's Active OrderAllocations rows. Stays in sync with the linking
+// table inside the same TX as AllocateAsync / CancelAsync. CHECK
+// 0 <= AllocatedQuantity <= OrderedQuantity. Pick/Ship qty fields
+// arrive in 14C/D.
 public sealed class SalesOrderLine : BaseEntity
 {
     public Guid SalesOrderId { get; set; }
@@ -17,6 +20,7 @@ public sealed class SalesOrderLine : BaseEntity
     public Guid OwnerId { get; set; }
     public Guid UomId { get; set; }
     public decimal OrderedQuantity { get; set; }
+    public decimal AllocatedQuantity { get; set; }
     public decimal? UnitPrice { get; set; }
     public string? Notes { get; set; }
 }

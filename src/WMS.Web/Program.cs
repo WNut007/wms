@@ -9,6 +9,7 @@ using WMS.BLL.Services.Counts;
 using WMS.BLL.Services.Inbound;
 using WMS.BLL.Services.Inventory;
 using WMS.BLL.Services.Outbound;
+using WMS.BLL.Strategies.Allocation;
 using WMS.DAL.Repositories.Counts;
 using WMS.DAL.Multitenancy;
 using WMS.DAL.Repositories.Documents;
@@ -124,6 +125,15 @@ builder.Services.AddScoped<ITransferOrderService, TransferOrderService>();
 // Phase 14A — Outbound Sales Orders (MVP foundation).
 builder.Services.AddScoped<ISalesOrderRepositoryFactory, SalesOrderRepositoryFactory>();
 builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
+
+// Phase 14B — Allocation primitive (ADR-005).
+builder.Services.AddScoped<IOrderAllocationRepositoryFactory, OrderAllocationRepositoryFactory>();
+builder.Services.AddScoped<IAllocationService, AllocationService>();
+// Strategy registrations — every IAllocationStrategy here flows into
+// the resolver's DI-injected IEnumerable<>. Adding FEFO/Tier/etc.
+// later is one more AddScoped line; no service-code change.
+builder.Services.AddScoped<IAllocationStrategy, FifoAllocationStrategy>();
+builder.Services.AddScoped<IAllocationStrategyResolver, AllocationStrategyResolver>();
 
 // PermissionService — Scoped to match the (Scoped) factory dep. The
 // cache itself lives on IMemoryCache (Singleton), so per-request

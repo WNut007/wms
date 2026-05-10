@@ -18,14 +18,30 @@ public class SalesOrderServiceTests
     private static readonly Guid OwnerId = Guid.NewGuid();
     private static readonly Guid UomId = Guid.NewGuid();
 
-    private static SalesOrderService NewService(out Mock<ISalesOrderRepository> repo)
+    // Phase 14A — original single-out helper. Delegates to the richer
+    // overload below so existing test bodies don't change.
+    private static SalesOrderService NewService(out Mock<ISalesOrderRepository> repo) =>
+        NewService(out repo, out _);
+
+    // Phase 14B — richer helper exposing the IAllocationService mock so
+    // cancel-after-allocate tests can verify reversal calls.
+    private static SalesOrderService NewService(
+        out Mock<ISalesOrderRepository> repo,
+        out Mock<IAllocationService> allocationService)
     {
         repo = new Mock<ISalesOrderRepository>();
         var factory = new Mock<ISalesOrderRepositoryFactory>();
         factory.Setup(f => f.For(It.IsAny<Guid>())).Returns(repo.Object);
 
+        allocationService = new Mock<IAllocationService>();
+        allocationService.Setup(s => s.ReleaseAllForSalesOrderAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(),
+                It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0);
+
         return new SalesOrderService(
             factory.Object,
+            allocationService.Object,
             NullLogger<SalesOrderService>.Instance);
     }
 
@@ -270,6 +286,75 @@ public class SalesOrderServiceTests
         Assert.True(ok);
         repo.Verify(r => r.SetStatusAsync(
             id, "Open", "Cancelled", userId, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // ================================================================
+    // Phase 14B — Cancel-after-allocate reversal
+    // ================================================================
+
+    [Fact]
+    public async Task Cancel_FromAllocating_CallsReversal_BeforeStatusFlip()
+    {
+        var sut = NewService(out var repo, out var allocService);
+        var id = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        repo.Setup(r => r.GetByIdAsync(id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SalesOrderDetail(
+                NewHeader(id, "Allocating"),
+                new List<SalesOrderLine>()));
+        repo.Setup(r => r.SetStatusAsync(
+                id, "Allocating", "Cancelled", userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var ok = await sut.CancelAsync(TenantId, id, userId);
+
+        Assert.True(ok);
+        allocService.Verify(s => s.ReleaseAllForSalesOrderAsync(
+            TenantId, id, "SO cancelled", userId, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Cancel_FromAllocated_CallsReversal()
+    {
+        var sut = NewService(out var repo, out var allocService);
+        var id = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        repo.Setup(r => r.GetByIdAsync(id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SalesOrderDetail(
+                NewHeader(id, "Allocated"),
+                new List<SalesOrderLine>()));
+        repo.Setup(r => r.SetStatusAsync(
+                id, "Allocated", "Cancelled", userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        await sut.CancelAsync(TenantId, id, userId);
+
+        allocService.Verify(s => s.ReleaseAllForSalesOrderAsync(
+            TenantId, id, "SO cancelled", userId, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Cancel_FromDraft_DoesNotCallReversal()
+    {
+        var sut = NewService(out var repo, out var allocService);
+        var id = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        repo.Setup(r => r.GetByIdAsync(id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SalesOrderDetail(
+                NewHeader(id, "Draft"),
+                new List<SalesOrderLine>()));
+        repo.Setup(r => r.SetStatusAsync(
+                id, "Draft", "Cancelled", userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        await sut.CancelAsync(TenantId, id, userId);
+
+        allocService.Verify(s => s.ReleaseAllForSalesOrderAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(),
+            It.IsAny<Guid>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     // ================================================================

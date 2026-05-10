@@ -2,10 +2,11 @@
     Phase 14A — Submit / Cancel modals for SalesOrder Detail. Same
     CSS-only :target activation pattern as Phase 11A/12/13. Each modal
     renders only when its corresponding ViewBag flag is true (CanSubmit
-    / CanCancel) so unauthorized users don't see actionable affordances.
+    / CanCancel / CanAllocate) so unauthorized users don't see
+    actionable affordances.
 
-    MVP: no reason field on Cancel (operator can edit Notes pre-cancel).
-    Phase 14B may add CancelReason once allocation reversal lands.
+    Phase 14B added Allocate modal. Cancel copy is conditional —
+    mentions allocation release when SO is in an allocated state.
 *@
 
 <style>
@@ -38,6 +39,7 @@
         gap: 8px;
     }
     .wms-so-modal h2.is-info    { color: #0C447C; }
+    .wms-so-modal h2.is-success { color: #0F6E56; }
     .wms-so-modal h2.is-danger  { color: #A32D2D; }
     .wms-so-modal p.lead {
         margin: 0 0 16px;
@@ -57,6 +59,8 @@
     .wms-so-btn:hover { background: #F3F4F6; }
     .wms-so-btn.is-info    { background: #0C447C; border-color: #0C447C; color: #fff; }
     .wms-so-btn.is-info:hover    { background: #0A3760; }
+    .wms-so-btn.is-success { background: #0F6E56; border-color: #0F6E56; color: #fff; }
+    .wms-so-btn.is-success:hover { background: #0B5A47; }
     .wms-so-btn.is-danger  { background: #A32D2D; border-color: #A32D2D; color: #fff; }
     .wms-so-btn.is-danger:hover  { background: #8B2424; }
 </style>
@@ -85,6 +89,32 @@
     </div>
 }
 
+@if (ViewBag.CanAllocate is true)
+{
+    <div id="allocate-modal" class="wms-so-overlay">
+        <div class="wms-so-modal" role="dialog">
+            <h2 class="is-success">
+                <i class="ti ti-tags"></i> Allocate stock
+            </h2>
+            <p class="lead">
+                Reserves stock against this SO's lines using the
+                <strong>FIFO</strong> strategy (oldest stock first).
+                Per-line picks reduce <em>available</em> stock at the
+                source rows; the pick step in 14C draws from these
+                allocations. Re-run if more stock arrives later.
+            </p>
+            <form asp-controller="SalesOrders" asp-action="Allocate"
+                  asp-route-id="@ViewBag.HeaderId" method="post">
+                @Html.AntiForgeryToken()
+                <div class="wms-so-actions">
+                    <a href="#" class="wms-so-btn">Cancel</a>
+                    <button type="submit" class="wms-so-btn is-success">Confirm allocate</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
 @if (ViewBag.CanCancel is true)
 {
     <div id="cancel-modal" class="wms-so-overlay">
@@ -94,8 +124,17 @@
             </h2>
             <p class="lead">
                 Terminates the sales order. Status flips to
-                <strong>Cancelled</strong>. No allocation reversal in MVP
-                (no allocation has happened yet — that's a 14B concern).
+                <strong>Cancelled</strong>.
+                @if (ViewBag.IsAllocating is true || ViewBag.IsAllocated is true)
+                {
+                    <span>Any active allocations are <strong>released</strong>:
+                    Stock.QuantityAllocated is decremented atomically and
+                    line allocation totals reset to 0.</span>
+                }
+                else
+                {
+                    <span>No allocations to reverse at this state.</span>
+                }
                 If you need to record context, edit Notes before cancelling.
             </p>
             <form asp-controller="SalesOrders" asp-action="Cancel"

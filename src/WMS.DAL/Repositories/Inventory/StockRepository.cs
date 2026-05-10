@@ -372,4 +372,49 @@ ORDER BY loc.Code, s.ProductId;";
             sql, new { warehouseId, locationFilter }, cancellationToken: ct));
         return rows.AsList();
     }
+
+    public async Task<IReadOnlyList<Stock>> GetAllocationCandidatesAsync(
+        Guid warehouseId,
+        Guid productId,
+        Guid ownerId,
+        Guid uomId,
+        CancellationToken ct = default)
+    {
+        // Available = OnHand - Allocated. CK_Stock_Allocated_NotOver-
+        // OnHand keeps that non-negative; the > 0 predicate filters
+        // fully-allocated rows. Sort CreatedAt ASC = FIFO-friendly
+        // default; strategies may re-order in memory before picking.
+        const string sql = @"
+SELECT s.Id, s.LocationId, s.ProductId, s.LotId, s.PalletId, s.OwnerId, s.UomId,
+       s.QuantityOnHand, s.QuantityAllocated, s.LastMovementAt,
+       s.CreatedAt, s.UpdatedAt, s.CreatedBy, s.UpdatedBy, s.Version
+FROM inventory.Stock s
+JOIN master.Locations loc ON loc.Id = s.LocationId
+WHERE loc.WarehouseId = @warehouseId
+  AND s.ProductId     = @productId
+  AND s.OwnerId       = @ownerId
+  AND s.UomId         = @uomId
+  AND (s.QuantityOnHand - s.QuantityAllocated) > 0
+ORDER BY s.CreatedAt;";
+
+        var rows = await _connection.QueryAsync<Stock>(new CommandDefinition(
+            sql, new { warehouseId, productId, ownerId, uomId },
+            cancellationToken: ct));
+        return rows.AsList();
+    }
+
+    public Task AdjustQuantityAllocatedAsync(
+        Guid stockId,
+        decimal delta,
+        Guid? userId,
+        CancellationToken ct = default) =>
+        _connection.ExecuteAsync(new CommandDefinition(
+            @"UPDATE inventory.Stock
+              SET QuantityAllocated = QuantityAllocated + @Delta,
+                  UpdatedAt         = SYSUTCDATETIME(),
+                  UpdatedBy         = @UserId,
+                  Version           = Version + 1
+              WHERE Id = @StockId;",
+            new { StockId = stockId, Delta = delta, UserId = userId },
+            cancellationToken: ct));
 }
