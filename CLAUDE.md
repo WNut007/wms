@@ -317,11 +317,78 @@ docs(adr): document putaway template decision
 
 ## 🎯 Current Phase
 
-**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation`
-**Current Focus**: Phase 14C — Pick task generation + execution (desktop "Complete pick" form first; mobile in 14E). Allocation primitive now in place; pick draws from `outbound.OrderAllocations` rows.
-**Blockers**: none — migrations 20260510_008 through _020 already applied to dev tenant
+**Active Sprint**: Day 10 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task`
+**Current Focus**: Phase 14D — Pack workflow (Pack stations consume Picked / PartiallyPicked SO lines; carton + label + pack video per ADR-009). After 14D: Phase 14E mobile picker PWA, then 14F Ship.
+**Blockers**: none — migrations 20260510_021 through _024 already applied to dev tenant
 
 Update this section weekly during standups.
+
+### Day 10 — Phase 14C (Pick Task Generation + Execution — desktop "Complete pick" form)
+
+**Branch**: `feat/outbound-pick` → merged to `main` · **Tag**: `v1.6.0-pick-task` · **Foundation for**: Phase 14D (pack consumes Picked / PartiallyPicked SO lines), 14E (mobile picker PWA replaces the desktop submit form on a per-station basis)
+
+The execution half of the outbound pipeline. Allocation (14B) reserved stock against SO lines via `OrderAllocations`; this phase consumes those reservations: a pick task snapshots the active allocations, the operator enters actual picked quantities (full / short / skipped), and submit atomically decrements `Stock.OnHand`, releases `Stock.QuantityAllocated`, bumps the SO line's `PickedQuantity`, and flips the allocation `Active → Picked`. The schema is sized so 14E's mobile picker plugs into the same `SubmitAsync` entry point — the desktop form is just one consumer surface.
+
+**Schema** (4 migrations):
+- `20260510_021` — DROP + ADD `CK_SalesOrders_Status` to widen the enum from 5 → 8: adds `Picking | Picked | PartiallyPicked` between `Allocated` and `Cancelled`. Down() reverses to Phase 14B set. SQL Server requires drop+add for CHECK widening (Phase 14B's _018 set the precedent).
+- `20260510_022` — ALTER `outbound.SalesOrderLines` ADD `PickedQuantity DECIMAL(18,4) NOT NULL DEFAULT 0` + 2 CHECKs (`>= 0` and `<= OrderedQuantity`). Note: `PickedQty` is bounded by **Ordered**, not Allocated — short-pick is real (operator picks less than allocated; AllocatedQuantity decrements on submit to release the unfilled reservation), but you can never pick more than originally ordered. Denormalized aggregate of the SO line's pick-task line `PickedQty`s; bumped atomically inside `SubmitAsync` TX.
+- `20260510_023` — ALTER `outbound.OrderAllocations` ADD `PickedAt` + `PickedBy` audit pair (FK to `security.Users`); widen `CK_OrderAllocations_Status` from 2 → 3 (`Active | Released | Picked`); DROP + ADD `CK_OrderAllocations_AuditMatchesStatus` with three branches now: `Active` (all audit nulls), `Released` (ReleasedAt populated, PickedAt null), `Picked` (PickedAt populated, ReleasedAt null). `Released` and `Picked` are distinct terminal states — Released = cancel-reversal (14B), Picked = consumed by a pick task (this phase).
+- `20260510_024` — CREATE `outbound.PickTasks` + `outbound.PickTaskLines`. Bundled in one migration for table-pair coherence (Phase 13 TransferOrders pattern).
+  - `PickTasks` 5-state machine (`Pending → InProgress → Picked | PartiallyPicked | Cancelled`) with per-state audit trio (`GeneratedBy/At` always set; `StartedBy/At`, `CompletedBy/At`, `CancelledBy/At + CancelReason`) + `CK_PickTasks_AuditMatchesStatus` invariant per the established Phase 11A/12/13 + 14B `OrderAllocations` pattern. `AssignedTo` nullable for MVP pool mode (per-picker assignment is a future workflow). 3 indexes (per-status queue, per-SO, per-AssignedTo).
+  - `PickTaskLines` snapshot the OrderAllocation's Stock 6-tuple (LocationId / ProductId / OwnerId / UomId / LotId / PalletId) + ExpectedQuantity at generation time so display + reporting stay stable even if the underlying `inventory.Stock` row mutates (Phase 12 cycle-count line snapshot pattern). Per-line `LineStatus` (`Pending | Picked | Skipped`) + `ShortPickReason` + `CK_PickTaskLines_StatusMatchesQty` invariant. CASCADE on header→lines. No `Version` on lines (matches CycleCountLines + TransferOrderLines convention). 4 CHECKs total: status enum, expected-positive, picked-non-negative, picked-not-over-expected.
+
+**Service** (`IPickTaskService`, 3 lifecycle methods, all TransactionScope-wrapped per Phase 11A/12/13/14B precedent — MSDTC trade-off accepted per `feedback_transactionscope_dapper.md`):
+- `GenerateAsync(tenantId, salesOrderId, currentUserId)` — light TX. State validation (Allocated only; **idempotent on Picking** — returns the existing Active task so the controller can redirect to its Detail page rather than 500 on accidental re-trigger). Defensive double-generation guard via `GetActiveBySalesOrderAsync`. Per-allocation Stock lookup snapshots the 6-tuple onto each PickTaskLine. Assigns `PICK-YYYYMMDD-NNNN` via `CountForDatePrefixAsync`. Inside TX: `pickRepo.CreateAsync(header, lines)` → `soRepo.SetStatusAsync("Allocated", "Picking")`. **No Stock writes, no allocation flips** — those happen in `SubmitAsync` when the operator commits actual quantities.
+- `SubmitAsync(tenantId, request, currentUserId)` — heavyweight TX (the headline). Belt-and-suspenders `ValidateRequestShape` (private static): every task line in submission, no extras / dups, `LineStatus ∈ {'Picked','Skipped'}`, qty in `[0, ExpectedQuantity]`, `ShortPickReason` required when `picked < expected` OR `Skipped` (Skipped IS a short — the full Expected). One `GetActiveEntitiesBySalesOrderIdAsync` read resolves `SalesOrderLineId` per allocation (PickTaskLine doesn't carry it — snapshot intentionally narrow). Per task line inside TX: (1) `pickRepo.UpdateLinePickedAsync(qty + status + reason + notes)`; (2) `stockRepo.UpsertOnHandAsync(StockKey, -pickedQty, ctx)` with `MovementType=Pick + ReferenceType='PickTaskLine' + ReferenceId=line.Id` — only when `picked > 0`. `CK_Stock_OnHand_NonNegative` throws on concurrent drain → TX rolls back; (3) `stockRepo.AdjustQuantityAllocatedAsync(stockId, -ExpectedQty)` — releases the **full reservation** (picked portion went out via OnHand; unfilled portion is now free for re-allocation); (4) `allocRepo.MarkPickedAsync(allocId)` — flip Active → Picked, returns false on race (concurrent cancel/pick), throw on false. Per affected SO line aggregated: `AdjustLinePickedQuantityAsync(+pickedSum)` + `AdjustLineAllocatedQuantityAsync(-expectedSum)`. Header flips: PickTask Pending → InProgress (if Pending) → `Picked | PartiallyPicked` (target = Picked when zero shorts + zero skips); SO Picking → `Picked | PartiallyPicked` (Picked when **every** SO line PickedQty >= OrderedQty — re-reads SO lines after step 5 to capture the post-pick aggregate). Concurrent state-change guarded on every state-flip return value.
+- `CancelAsync(tenantId, pickTaskId, reason, currentUserId)` — light TX. `Pending | InProgress → Cancelled` with required reason. SO `Picking → Allocated`. **No Stock writes, no allocation flips, no line resets** — Generate didn't mutate Stock or OrderAllocations, so neither does Cancel; allocations stay Active and the SO returns to its pre-pick state ready for a re-Generate by another picker if needed. Any operator-entered quantities on lines stay frozen as audit history. Idempotent on already-Cancelled (returns false). Rejects `Picked / PartiallyPicked` (post-Submit terminals — reversing a posted pick needs a separate "return to stock" workflow, future phase).
+
+**UI** (5 surfaces touched / created):
+- `/SalesOrders/Detail` — 3 new state flags (`IsPicking / IsPicked / IsPartiallyPicked`) + `canGenerate` (`isAllocated || isPicking` — Picking returns existing task idempotently). `canCancel` narrowed to the 4 pre-pick states (`Draft | Open | Allocating | Allocated`) — once a pick task exists the operator must cancel the pick task first (revert SO Picking → Allocated) before cancelling the SO. New "Generate pick" Quick Action (ti-list-check icon) between Allocate and Cancel.
+- `/SalesOrders` Index — Alpine `statuses` array now lists 9 chips; counts envelope expanded with `picking + picked + partiallypicked`; `badgeClass` map widened (Picking=warning, Picked=success, PartiallyPicked=warning).
+- `POST /SalesOrders/Generate/{id}` — calls `GenerateAsync`, redirects to `/PickTasks/Detail/{newPickId}` on success with `PickTaskMessage` carrying PickNumber + line count + total expected qty. Error path bounces back to `/SalesOrders/Detail` with `SalesOrderError`.
+- `_SalesOrderDecisionModals.cshtml` — new `#generate-modal` block (info-blue header + lead text explaining the snapshot semantics: "Stock + allocations NOT mutated until pick submit").
+- `/PickTasks/Detail/{id}` — new surface using `_DetailLayout`. Stats: Lines / Expected / Picked (color-tinted: green when fully picked, amber on any short, neutral pre-submit) / Status. SO link in Overview (`/SalesOrders/Detail/{soId}` mono code). Per-state audit trio in Properties sidebar (Generated / Started / Completed / Cancelled). Custom Lines tab via `_PickTaskLinesPanel`:
+  - **Editable form when Pending|InProgress**: Alpine reactive table. Per-row picked-qty input defaults to the full ExpectedQuantity (the common "full pick" shortcut — operator just clicks Submit if everything went fine); Status select toggles Picked/Skipped (Skipped disables the qty input + zeroes the value, server enforces null); ShortPickReason gets a "Required" placeholder + flagged input class when picked-qty drops below expected OR status flips to Skipped. Footer shows live "{n} full · {m} short · {k} skipped" tally. Submit button gated client-side via `isValid()` — every line that needs a reason must have ≥3 chars (server-side authoritative).
+  - **Terminal (Picked / PartiallyPicked / Cancelled)**: read-only table with picked vs expected color-coded per line (green=full, amber=short, red=skipped) and ShortPickReason surfaced.
+- `_PickTaskDecisionModals.cshtml` — new partial. Cancel modal with required 3-500 char reason textarea. CSS-only `:target` activation; same shell as Phase 11A/12/13/14A modals with `wms-pt-` token namespace. Submit lives **inline** in the Lines panel (needs the per-line inputs in scope; a separate modal would mean duplicating the line table).
+- Sidebar — Outbound submenu still shows Sales Orders only; **PickTasks sidebar entry waits for the list-page chunk** (currently no `/PickTasks` action — operator reaches pick tasks via the Generate redirect from SO Detail). `outboundActive` widened to highlight Outbound when on a PickTasks route.
+
+**Status mappers** (2 widened / created):
+- `SalesOrderStatusMapper` widened to 8 states. Variants: `Picking=warning`, `Picked=success`, `PartiallyPicked=warning`. Phase 14D will further widen with Packed / Shipped / Closed.
+- `PickTaskStatusMapper` (new). 5 states. `Pending=neutral`, `InProgress=warning` (in flight), `Picked=success`, `PartiallyPicked=warning` (short — needs follow-up), `Cancelled=neutral`.
+
+**TempData generalization**: `_DetailLayout` banner block now coalesces SIX sets of TempData keys (`Cancel*`, `Adjustment*`, `CycleCount*`, `Transfer*`, `SalesOrder*`, `PickTask*`). Pattern continues to scale linearly per phase.
+
+**ViewModels + validation** (3 new):
+- `SubmitPickTaskViewModel` + `PickedLineRow` — model-binding shape for `POST /PickTasks/Submit`. DataAnnotations stay light because the cross-field rules (status enum, qty range, reason required for short/skip) are enforced server-side by `SubmitAsync`'s `ValidateRequestShape`.
+- `CancelPickTaskViewModel` — same shape as Phase 10B `CancelReceivingViewModel` and Phase 12 `CancelCycleCountViewModel`.
+- `CancelPickTaskValidator` — same shape as `CancelCycleCountValidator` (3-500 char reason, non-blank, non-empty Id).
+
+**DAL extensions**:
+- New `IPickTaskRepository` (8 methods: `CreateAsync` ambient-TX-aware header+lines insert, `GetByIdAsync` / `GetByNumberAsync` QueryMultiple, `GetActiveBySalesOrderAsync` pre-generation guard, `SetStartedAsync` / `SetCompletedAsync(targetStatus)` / `SetCancelledAsync(fromStatus, reason)` atomic per-state UPDATEs idempotent via `WHERE Status=@from`, `UpdateLinePickedAsync`, `CountForDatePrefixAsync`). New `PickTaskDetail` aggregate.
+- `IOrderAllocationRepository` gained `MarkPickedAsync` (atomic Active → Picked flip with PickedAt/PickedBy audit). `EntityColumns` SELECT now carries PickedAt/PickedBy.
+- `ISalesOrderRepository` gained `AdjustLinePickedQuantityAsync` (mirror of `AdjustLineAllocatedQuantityAsync`). `LineColumns` SELECT includes PickedQuantity. `GetLineRowsByIdAsync` SQL selects `sol.PickedQuantity`. `GetStatusCountsAsync` SQL grew 3 new SUM(CASE) cases.
+- `SalesOrderListRow.cs`: `SalesOrderLineRow` record gained `PickedQuantity` (between AllocatedQuantity and UnitPrice). `SalesOrderStatusCounts` widened to 9 fields (3 new in pipeline-chronological order, before Cancelled).
+
+**Tests**: +101 net test cases (~43 distinct methods — same scale as Phase 14B's +35). 31 unit (PickTaskService — Generate / Submit / Cancel state-gating + happy paths + ValidateRequestShape edge cases + concurrent-race coverage); 70 integration (PickTaskStatusMapper Theory across 5 states; SalesOrderStatusMapper Theory backfill across the now-8-state set; PickTasksController Detail / Submit / Cancel happy + error + state-driven flag wiring; SalesOrders.Generate happy + error). Test posture: **686 passing** (was 585). 238 unit + 448 integration + 5 skipped.
+
+**Out of scope** (logged as TD-036):
+- `/PickTasks` Index list page + GetData JSON envelope + chip counts + sidebar entry — list page deferred (operator reaches pick tasks via Generate redirect in MVP; navigation gap acceptable until pickers want a queue view).
+- "Save Progress" intermediate save — operator enters all quantities + submits in one shot for MVP. The PickTask `Pending → InProgress` transition is meant for this future flow; today it's invisible (`SubmitAsync` advances Pending → InProgress → Completed in one round-trip pair).
+- Post-Submit reversal flow — Picked / PartiallyPicked tasks cannot be undone; needs a separate "return to stock" workflow with Adjust+ movements. `CancelAsync` rejects these states explicitly with a forward-pointing error message.
+- Per-pick-task assignment (`PickTasks.AssignedTo` column nullable for MVP — pool mode); per-picker assignment workflow + claim/release UX waits for a future phase.
+- Mobile picker PWA (14E scope per `docs/03_Roadmap.md` — desktop submit form first).
+- "View pick task" link from SO Detail when SO is in Picking / Picked / PartiallyPicked — pick number is recoverable from the SO header but no quick-link UI yet (operator currently has to go through Generate-which-bounces-to-existing-task on Picking).
+- Pick task printable picksheet (Phase 9C GRN print pattern).
+- Per-tenant pick strategy resolver (FIFO is implicit through allocation; no FEFO/zone strategies for MVP).
+- Pick task observability (StockMovements feed shows the Pick movements but no per-task aggregate report — Activity tab on PickTask Detail is bare today).
+
+**Permission**: `OUTBOUND.ORDERS` covers pick task operations for MVP. Future phases may introduce a finer `OUTBOUND.PICK` perm for separation-of-duties on pick vs SO admin.
+
+**Notes on chunk-by-chunk hiccups**:
+- T7 → T8 transitional state: Generate redirect target was "back to SO Detail" temporarily in T7 (the receiving page didn't exist yet); flipped to `/PickTasks/Detail/{newId}` in T8 once the route landed. Half-state between commits is OK per the chunk-by-chunk pattern — every commit compiles and 585 tests stayed green throughout.
+- T8 sidebar: PickTasks submenu link was added then immediately backed out — `Url.Action("Index", "PickTasks")` would 404 because no Index action exists yet (deferred to the list-page chunk). Cleaner to defer the sidebar entry to that chunk than to ship a dead link.
+- T5 `MarkPickedAsync` return-value check was added after a quick mental review caught the gap — the repo method's bool return signals concurrent-state-change races, but the original write didn't act on it. Throwing on false catches operator-vs-operator pick races (rare in practice; defensive against the data-corruption-not-loss side).
 
 ### Day 10 — Phase 14B (Sales Order Allocation — ADR-005 strategy primitive)
 
@@ -1436,5 +1503,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-10 (Day 10 — Phase 14B Sales Order Allocation; v1.5.0-allocation)
-**Version**: 1.24
+**Last updated**: 2026-05-10 (Day 10 — Phase 14C Pick Task Generation + Execution; v1.6.0-pick-task)
+**Version**: 1.25
