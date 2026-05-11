@@ -2,6 +2,8 @@
 
 **ระบบ Warehouse Management System สำหรับ B2B + B2C Marketplace + 3PL/SaaS**
 
+> **⚠️ Implementation status**: See [`06_v3.0.0_Implementation_Status.md`](./06_v3.0.0_Implementation_Status.md) for current shipped status vs this design vision. Some sections (notably Wave Engine, 3PL Billing, Strategic Allocation, Marketplace adapters) are roadmap items — not in `v3.0.0`. This document is the **stable vision**; the status doc captures the gap.
+
 ---
 
 ## 📋 Project Overview
