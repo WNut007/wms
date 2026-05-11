@@ -9,8 +9,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- F4 / P1-1 fix: appsettings.json is copied to bin for the CLI
+         entry point (dotnet run targeting this project), but MUST NOT
+         propagate to WMS.Web's publish output. WMS.Web has its own
+         appsettings.json; the two would collide with NETSDK1152.
+         CopyToPublishDirectory=Never blocks the propagation while
+         CopyToOutputDirectory=PreserveNewest keeps the CLI working. -->
     <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
     </None>
   </ItemGroup>
 
