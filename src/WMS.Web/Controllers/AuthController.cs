@@ -62,11 +62,17 @@ public sealed class AuthController : BaseController
 
         if (!result.Success)
         {
-            // Same message regardless of FailureReason — don't tell the
-            // client whether the email is known. (Timing differs between
-            // UnknownEmail vs InvalidPassword; tightening that is a
-            // separate concern.)
-            ModelState.AddModelError(string.Empty, "Invalid email or password.");
+            // Phase 25 — RateLimited gets a distinct message so the
+            // operator knows to back off. UnknownEmail vs InvalidPassword
+            // still share a message to avoid email-enumeration leaks.
+            // AccountLocked-equivalent failures arrive as InvalidPassword
+            // (VerifyPasswordAsync returns null for both) — the audit
+            // log differentiates them, but the operator-facing message
+            // should not.
+            ModelState.AddModelError(string.Empty,
+                result.FailureReason == "RateLimited"
+                    ? "Too many login attempts. Please wait a minute and try again."
+                    : "Invalid email or password.");
             return View(model);
         }
 
