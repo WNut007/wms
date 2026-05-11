@@ -31,6 +31,10 @@ using WMS.Web.Services.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Phase 26 — fail-fast on missing production config (empty MasterDb /
+// TenantTemplate). Dev gets a warning + continues; Production throws.
+ConfigurationValidator.Validate(builder.Configuration, builder.Environment);
+
 builder.Host.UseSerilog((context, services, configuration) =>
 {
     configuration
