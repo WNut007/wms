@@ -52,8 +52,32 @@ public sealed class AuthController : BaseController
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Login(LoginViewModel model, CancellationToken ct)
     {
+        var wantsJson = RequestWantsJson();
+
         if (!ModelState.IsValid)
+        {
+            if (wantsJson)
+            {
+                // Surface the first field error so the JS validator can
+                // map it to the right input. Fall through to a generic
+                // message if ModelState only has form-level errors.
+                var firstError = ModelState
+                    .Where(kv => kv.Value!.Errors.Count > 0)
+                    .Select(kv => new
+                    {
+                        field = kv.Key,
+                        message = kv.Value!.Errors[0].ErrorMessage
+                    })
+                    .FirstOrDefault();
+                return Json(new
+                {
+                    status = "format_invalid",
+                    message = firstError?.message ?? "Please correct the form errors.",
+                    field = firstError?.field
+                });
+            }
             return View(model);
+        }
 
         var result = await _auth.AuthenticateAsync(
             model.Email,
@@ -71,6 +95,11 @@ public sealed class AuthController : BaseController
             // (VerifyPasswordAsync returns null for both) — the audit
             // log differentiates them, but the operator-facing message
             // should not.
+            if (wantsJson)
+            {
+                return await BuildFailureJsonAsync(model.Email, result.FailureReason, ct);
+            }
+
             ModelState.AddModelError(string.Empty,
                 result.FailureReason == "RateLimited"
                     ? "Too many login attempts. Please wait a minute and try again."
@@ -88,9 +117,98 @@ public sealed class AuthController : BaseController
         // in-flow change-password step on the same _AuthLayout shell;
         // session cookie is NOT issued yet, so no sidebar leakage.
         if (result.RequiresPasswordChange)
+        {
+            if (wantsJson)
+            {
+                return Json(new
+                {
+                    status = "must_change",
+                    redirectUrl = Url.Action(nameof(ChangePassword))
+                });
+            }
             return RedirectToAction(nameof(ChangePassword));
+        }
 
+        if (wantsJson)
+        {
+            return Json(new
+            {
+                status = "ok",
+                redirectUrl = Url.Action(nameof(SelectTenant))
+            });
+        }
         return RedirectToAction(nameof(SelectTenant));
+    }
+
+    // TD-116 — content negotiation. The shared auth-login.js (T7)
+    // submits via fetch with Accept: application/json + X-Requested-With:
+    // XMLHttpRequest so the controller knows to return a structured
+    // body instead of an HTML view. Browsers without JS get the
+    // server-rendered fallback.
+    private bool RequestWantsJson() =>
+        Request.Headers["X-Requested-With"].ToString() == "XMLHttpRequest"
+        || (Request.Headers["Accept"].ToString()?.Contains("application/json") ?? false);
+
+    // TD-116 — builds the JSON failure body for the AJAX login path.
+    // Reads the failed user's current FailedLoginAttempts + LockedUntil
+    // from the user repo so the frontend can render attempts-remaining
+    // or a live lockout countdown. Best-effort: if the user can't be
+    // resolved (UnknownEmail / cross-tenant lookup race), returns a
+    // generic auth_failed with no counters.
+    private async Task<IActionResult> BuildFailureJsonAsync(
+        string email, string? failureReason, CancellationToken ct)
+    {
+        if (failureReason == "RateLimited")
+        {
+            return Json(new
+            {
+                status = "rate_limited",
+                message = "Too many login attempts. Please wait a minute and try again."
+            });
+        }
+
+        // Try to resolve the user so we can report attempts + lockout.
+        // UnknownEmail short-circuits here (GetByEmailAsync goes via
+        // UserTenantMap which already returned 0 rows).
+        var tenants = await _userTenantMapRepo.GetByEmailAsync(email, ct);
+        if (tenants.Count == 0)
+        {
+            // Email enumeration defence — same generic message even
+            // though we know it's UnknownEmail.
+            return Json(new
+            {
+                status = "auth_failed",
+                message = "Invalid email or password."
+            });
+        }
+
+        var user = await _userRepoFactory.For(tenants[0].TenantId)
+            .GetByEmailAsync(email, ct);
+
+        // Account currently locked (regardless of whether THIS attempt
+        // tripped the lockout or it was already locked).
+        if (user is not null
+            && user.LockedUntil is not null
+            && user.LockedUntil > DateTime.UtcNow)
+        {
+            return Json(new
+            {
+                status = "locked",
+                message = "Account temporarily locked due to repeated failed sign-in attempts.",
+                lockoutUntil = user.LockedUntil.Value.ToString("o")
+            });
+        }
+
+        var attemptsRemaining = user is null
+            ? (int?)null
+            : Math.Max(0, AuthService.LockoutThreshold - user.FailedLoginAttempts);
+
+        return Json(new
+        {
+            status = "auth_failed",
+            message = "Invalid email or password.",
+            attemptsRemaining
+        });
     }
 
     // P0 #4 — in-flow forced password change step. Renders inside
