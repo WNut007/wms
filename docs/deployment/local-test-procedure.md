@@ -53,6 +53,53 @@ If you don't set these, `Test-Local-Deploy.ps1` will prompt for them
 interactively (handy for one-off runs) but they vanish at the end
 of the PowerShell session.
 
+### ⚠️ Env var scope — common confusion (F5)
+
+`$env:Name = "value"` is **session-scoped**. The variable exists
+only in the PowerShell process where you typed it. If you:
+
+1. Open PowerShell window **A**, set `$env:Email__Username = "..."`
+2. Open PowerShell window **B**, run `Test-Local-Deploy.ps1`
+
+…then window B sees **no** env var, the app uses defaults
+(`TestMode=true` for email, missing for ConnectionStrings), and
+the deploy fails or quietly malfunctions.
+
+**Three options to make env vars stick**:
+
+| Scope | How | When useful |
+|---|---|---|
+| Current session only | `$env:Name = "value"` | One-off testing in a single shell |
+| User profile (machine) | `[Environment]::SetEnvironmentVariable("Name", "value", "User")` | Persistent across reboots; survives new shells |
+| All-in-one launch | Set + run in same script (see below) | Reproducible CI-style runs |
+
+For dev iteration, the **same-script launch** is cleanest:
+
+```powershell
+# launch-wms.ps1 — set + run in one shell
+$env:ConnectionStrings__MasterDb       = "Server=localhost;Database=WMS_Master;Trusted_Connection=True;TrustServerCertificate=True"
+$env:ConnectionStrings__TenantTemplate = "Server=localhost;Database={0};Trusted_Connection=True;TrustServerCertificate=True"
+$env:Email__TestMode    = "false"
+$env:Email__Username    = "<your gmail>"
+$env:Email__Password    = "<app password>"
+$env:Email__FromAddress = "<from>"
+$env:Email__LoginUrl    = "http://localhost:5500/Auth/Login"
+
+.\scripts\deploy\Test-Local-Deploy.ps1
+```
+
+Save the above as `launch-wms.ps1` (gitignored — see `.gitignore`),
+re-run after a fresh shell. Variables stay in the local script
+scope so nothing leaks system-wide.
+
+To verify env vars are set BEFORE the deploy starts:
+
+```powershell
+gci env: | Where-Object Name -match '^(Email__|ConnectionStrings__)'
+```
+
+If the output is empty, the deploy script will prompt or fail.
+
 ### Optional — email (Phase 30A M1)
 
 Without Email env vars, `EmailOptions.TestMode` stays `true` and the
@@ -69,6 +116,36 @@ $env:Email__LoginUrl    = "http://localhost:5500/Auth/Login"
 App Password setup: Google Account → Security → 2-Step Verification
 → App passwords → "WMS test". Copy the 16-char string. The TD-110
 SendGrid switch removes this friction post-launch.
+
+#### ⚠️ `Email__LoginUrl` must match the actual app URL (F6)
+
+The link in the rendered email points users at where to sign in.
+It's read from `Email__LoginUrl` env var (no auto-detection from
+HttpContext today — see below). The link in the email **does not
+verify** that the URL is reachable, so a mismatch is silent: the
+user clicks and lands on "site can't be reached".
+
+Common mismatches:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Email says `http://localhost:5500/...` but app is on `:5044` | `dotnet run` defaults to a random port (often :5044); deploy script forces :5500. Inconsistent env var | Pin `Email__LoginUrl` to match the launch method you're using |
+| Email says `http://localhost` but app is on a server | Forgot to override env for the new environment | Set production `Email__LoginUrl` via app-pool env vars |
+| Email links 404 | LoginUrl missing the `/Auth/Login` path segment | Include the full path: `https://wms.customer.com/Auth/Login` |
+
+Recommended values by launch method:
+
+- `dotnet run --project src/WMS.Web` → typically `:5044` or `:5000` (check console output).
+  Set `Email__LoginUrl="http://localhost:5044/Auth/Login"`.
+- `Test-Local-Deploy.ps1` (default) → `:5500`.
+  Set `Email__LoginUrl="http://localhost:5500/Auth/Login"`.
+- Production IIS deployment → your real hostname:
+  `Email__LoginUrl="https://wms.customer.com/Auth/Login"`.
+
+Auto-detection from `HttpContext.Request.Host` is a future
+improvement (TD candidate) — would remove the env-var burden but
+needs care because background-job send paths (no HttpContext)
+would still need a fallback.
 
 ---
 
