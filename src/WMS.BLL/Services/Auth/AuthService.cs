@@ -113,7 +113,14 @@ public sealed class AuthService : IAuthService
             return LoginResult.Failed("InvalidPassword");
         }
 
-        var token = await CreatePreAuthTokenAsync(email, ipAddress, ct);
+        // P0 #4 — if user must change password, flag the token so the
+        // in-flow change-password endpoint is the only path that accepts
+        // it. No session cookie issued yet; tenant select deferred until
+        // after the change.
+        var requiresChange = user.MustChangePassword;
+        var token = await CreatePreAuthTokenAsync(
+            email, ipAddress, ct, requiresPasswordChange: requiresChange);
+
         await LogLoginAttemptAsync(email, success: true, null,
             ipAddress, userAgent, ct);
 
@@ -124,7 +131,9 @@ public sealed class AuthService : IAuthService
             AuditEventTypes.LoginSuccess, AuditEventTypes.EntityUser, user.Id,
             ipAddress, userAgent, details: null, ct);
 
-        return LoginResult.Succeeded(token, tenants);
+        return requiresChange
+            ? LoginResult.RequiresForcedPasswordChange(token, tenants)
+            : LoginResult.Succeeded(token, tenants);
     }
 
     public async Task<User?> VerifyPasswordAsync(
@@ -263,7 +272,8 @@ public sealed class AuthService : IAuthService
     public async Task<string> CreatePreAuthTokenAsync(
         string email,
         string? ipAddress,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool requiresPasswordChange = false)
     {
         var token = GenerateToken();
         var expiresAt = DateTime.UtcNow.AddMinutes(PreAuthTokenLifetimeMinutes);
@@ -271,9 +281,9 @@ public sealed class AuthService : IAuthService
         using var conn = _masterFactory.CreateConnection();
         await conn.ExecuteAsync(new CommandDefinition(
             @"INSERT INTO master.PreAuthTokens
-                  (UserEmail, Token, ExpiresAt, IpAddress)
-              VALUES (@email, @token, @expiresAt, @ip)",
-            new { email, token, expiresAt, ip = ipAddress },
+                  (UserEmail, Token, ExpiresAt, IpAddress, RequiresPasswordChange)
+              VALUES (@email, @token, @expiresAt, @ip, @requiresPasswordChange)",
+            new { email, token, expiresAt, ip = ipAddress, requiresPasswordChange },
             cancellationToken: ct));
 
         return token;
@@ -285,7 +295,7 @@ public sealed class AuthService : IAuthService
     {
         using var conn = _masterFactory.CreateConnection();
         var row = await conn.QuerySingleOrDefaultAsync<PreAuthData?>(new CommandDefinition(
-            @"SELECT Id, UserEmail, ExpiresAt, IpAddress
+            @"SELECT Id, UserEmail, ExpiresAt, IpAddress, RequiresPasswordChange
               FROM master.PreAuthTokens
               WHERE Token = @token
                 AND UsedAt IS NULL
@@ -306,6 +316,77 @@ public sealed class AuthService : IAuthService
               WHERE Token = @token",
             new { token },
             cancellationToken: ct));
+    }
+
+    // P0 #4 — orchestrates the in-flow forced password change. Called
+    // from AuthController when Step 1 returned RequiresPasswordChange=true
+    // and the user posts their new password. Order:
+    //   1. Validate token + check RequiresPasswordChange flag is true
+    //   2. Validate new password against PasswordPolicy
+    //   3. Resolve user via primary tenant from UserTenantMap
+    //   4. Update password hash (UpdatePasswordHashAsync clears
+    //      MustChangePassword + FailedLoginAttempts as a side effect)
+    //   5. Emit PASSWORD_CHANGE_SELF audit in primary tenant
+    //   6. Mark old token consumed
+    //   7. Issue NEW token without the flag so the caller can re-enter
+    //      the normal tenant-select / warehouse-select chain
+    //
+    // Returns LoginResult.Succeeded with the new token on success,
+    // LoginResult.Failed("InvalidToken" / "WrongTokenType" /
+    // "InvalidPassword" / "UserNotFound") otherwise.
+    public async Task<LoginResult> ApplyForcedPasswordChangeAsync(
+        string token,
+        string newPassword,
+        string? ipAddress,
+        string? userAgent,
+        CancellationToken ct = default)
+    {
+        var preAuth = await ValidatePreAuthTokenAsync(token, ct);
+        if (preAuth is null)
+            return LoginResult.Failed("InvalidToken");
+
+        if (!preAuth.RequiresPasswordChange)
+            return LoginResult.Failed("WrongTokenType");
+
+        // Password policy check before any DB write. PasswordPolicy is
+        // the single source of truth (Phase 25); throws on violation
+        // with a focused message we surface to the operator.
+        var policyError = PasswordPolicy.Validate(newPassword);
+        if (policyError is not null)
+            return LoginResult.Failed(policyError);
+
+        // Resolve user via primary tenant. UserTenantMap is master-scoped.
+        var tenants = await _userTenantMapRepo.GetByEmailAsync(preAuth.UserEmail, ct);
+        if (tenants.Count == 0)
+            return LoginResult.Failed("UserNotFound");
+
+        var primary = tenants[0];
+        var userRepo = _userRepoFactory.For(primary.TenantId);
+        var user = await userRepo.GetByEmailAsync(preAuth.UserEmail, ct);
+        if (user is null || !user.IsActive)
+            return LoginResult.Failed("UserNotFound");
+
+        // Update hash → clears MustChangePassword + FailedLoginAttempts.
+        // actorId = user themselves (self-service change).
+        var newHash = HashPassword(newPassword);
+        await userRepo.UpdatePasswordHashAsync(user.Id, newHash, user.Id, ct);
+
+        // Audit. PASSWORD_CHANGE_SELF is the same event the voluntary
+        // self-change path uses (Phase 25). Detail records the forced
+        // context so audit reviewers can distinguish.
+        await AppendAuditAsync(primary.TenantId, user.Id,
+            AuditEventTypes.PasswordChangedSelf, AuditEventTypes.EntityUser, user.Id,
+            ipAddress, userAgent,
+            details: JsonSerializer.Serialize(new { context = "ForcedChangeOnFirstLogin" }),
+            ct);
+
+        // Consume the forced-change token + mint a fresh one without the
+        // flag so the caller continues through the normal Step 2 / Step 3.
+        await MarkPreAuthTokenUsedAsync(token, ct);
+        var newToken = await CreatePreAuthTokenAsync(
+            preAuth.UserEmail, ipAddress, ct, requiresPasswordChange: false);
+
+        return LoginResult.Succeeded(newToken, tenants);
     }
 
     // 32 bytes of cryptographic randomness, base64url-encoded → ~43
