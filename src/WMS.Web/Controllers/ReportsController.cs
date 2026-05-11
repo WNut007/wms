@@ -4,6 +4,7 @@ using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
 using WMS.DAL.Repositories.Reports;
 using WMS.Web.Filters;
+using WMS.Web.Services.Reports;
 using WMS.Web.ViewModels.Reports;
 
 namespace WMS.Web.Controllers;
@@ -38,14 +39,52 @@ public sealed class ReportsController : Controller
     public IActionResult Index() => View();
 
     [HttpGet("Inventory")]
-    public async Task<IActionResult> Inventory(CancellationToken ct = default)
+    public async Task<IActionResult> Inventory(CancellationToken ct = default) =>
+        View(await BuildInventoryAsync(ct));
+
+    [HttpGet("Orders")]
+    public async Task<IActionResult> Orders(string? range = null, CancellationToken ct = default) =>
+        View(await BuildOrdersAsync(range, ct));
+
+    [HttpGet("Kpis")]
+    public async Task<IActionResult> Kpis(string? range = null, CancellationToken ct = default) =>
+        View(await BuildKpisAsync(range, ct));
+
+    // ── Excel exports (T5) ─────────────────────────────────────────────
+
+    [HttpGet("ExportInventory")]
+    public async Task<IActionResult> ExportInventory(CancellationToken ct = default)
+    {
+        var vm = await BuildInventoryAsync(ct);
+        var (bytes, fileName, contentType) = ReportExcelExporter.ExportInventory(vm);
+        return File(bytes, contentType, fileName);
+    }
+
+    [HttpGet("ExportOrders")]
+    public async Task<IActionResult> ExportOrders(string? range = null, CancellationToken ct = default)
+    {
+        var vm = await BuildOrdersAsync(range, ct);
+        var (bytes, fileName, contentType) = ReportExcelExporter.ExportOrders(vm);
+        return File(bytes, contentType, fileName);
+    }
+
+    [HttpGet("ExportKpis")]
+    public async Task<IActionResult> ExportKpis(string? range = null, CancellationToken ct = default)
+    {
+        var vm = await BuildKpisAsync(range, ct);
+        var (bytes, fileName, contentType) = ReportExcelExporter.ExportKpis(vm);
+        return File(bytes, contentType, fileName);
+    }
+
+    // ── ViewModel builders ─────────────────────────────────────────────
+    //
+    // Extracted so Export* actions reuse the same query bundle the view
+    // actions consume — single source of truth per report.
+
+    private async Task<InventoryReportViewModel> BuildInventoryAsync(CancellationToken ct)
     {
         var repo = _repos.For(_tenant.RequireTenantId());
-
-        // 5 reads — all independent, but the connection serialises them
-        // so they go in sequence. Tight enough at <100 rows per slice
-        // that a Task.WhenAll detour adds churn without latency wins.
-        var vm = new InventoryReportViewModel
+        return new InventoryReportViewModel
         {
             Summary          = await repo.GetInventorySummaryAsync(ct),
             StockByWarehouse = await repo.GetStockByWarehouseAsync(ct),
@@ -54,17 +93,13 @@ public sealed class ReportsController : Controller
             SlowMovers       = await repo.GetSlowMoversAsync(daysThreshold: 60, limit: 20, ct),
             SnapshotAt       = DateTime.UtcNow,
         };
-
-        return View(vm);
     }
 
-    [HttpGet("Orders")]
-    public async Task<IActionResult> Orders(string? range = null, CancellationToken ct = default)
+    private async Task<OrderAnalyticsViewModel> BuildOrdersAsync(string? range, CancellationToken ct)
     {
         var (fromUtc, toUtc, label) = DateRangePreset.Resolve(range);
         var repo = _repos.For(_tenant.RequireTenantId());
-
-        var vm = new OrderAnalyticsViewModel
+        return new OrderAnalyticsViewModel
         {
             OrdersByStatus   = await repo.GetOrdersByStatusAsync(fromUtc, toUtc, ct),
             OrdersByDate     = await repo.GetOrdersByDateAsync(fromUtc, toUtc, ct),
@@ -75,17 +110,13 @@ public sealed class ReportsController : Controller
             FromUtc          = fromUtc,
             ToUtc            = toUtc,
         };
-
-        return View(vm);
     }
 
-    [HttpGet("Kpis")]
-    public async Task<IActionResult> Kpis(string? range = null, CancellationToken ct = default)
+    private async Task<KpiReportViewModel> BuildKpisAsync(string? range, CancellationToken ct)
     {
         var (fromUtc, toUtc, label) = DateRangePreset.Resolve(range);
         var repo = _repos.For(_tenant.RequireTenantId());
-
-        var vm = new KpiReportViewModel
+        return new KpiReportViewModel
         {
             PicksByDay         = await repo.GetPicksByDayAsync(fromUtc, toUtc, ct),
             PacksByDay         = await repo.GetPacksByDayAsync(fromUtc, toUtc, ct),
@@ -97,7 +128,5 @@ public sealed class ReportsController : Controller
             FromUtc            = fromUtc,
             ToUtc              = toUtc,
         };
-
-        return View(vm);
     }
 }
