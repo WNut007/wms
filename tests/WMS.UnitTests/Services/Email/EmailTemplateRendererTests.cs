@@ -111,4 +111,35 @@ public class EmailTemplateRendererTests
         Assert.Throws<InvalidOperationException>(() =>
             Renderer.Render((EmailTemplateType)999, new Dictionary<string, string>()));
     }
+
+    [Fact]
+    public void Render_PasswordReset_DoesNotEmit_RawMustacheSectionTags()
+    {
+        // P0 #2 regression — PasswordReset.html briefly used
+        // {{#ActorName}}...{{/ActorName}} Mustache section syntax. The
+        // renderer only handles {{Var}} so the section tags rendered
+        // as literal text in the email body. Fix dropped the
+        // conditional and always supplies ActorName. This test pins
+        // both the template change AND the renderer behaviour.
+        var result = Renderer.Render(EmailTemplateType.PasswordReset,
+            new Dictionary<string, string>
+            {
+                ["UserName"] = "Jane",
+                ["TempPassword"] = "TempPass123",
+                ["LoginUrl"] = "https://wms/Auth",
+                ["IssuedAtUtc"] = "2026-05-12 10:00:00",
+                ["ActorName"] = "your administrator",
+            });
+
+        // Neither the HTML nor text body should contain Mustache
+        // section markers in any form. If a future template author
+        // reintroduces them, this catches it.
+        Assert.DoesNotContain("{{#", result.HtmlBody);
+        Assert.DoesNotContain("{{/", result.HtmlBody);
+        Assert.DoesNotContain("{{#", result.TextBody);
+        Assert.DoesNotContain("{{/", result.TextBody);
+
+        // The fix should still render ActorName cleanly.
+        Assert.Contains("by your administrator", result.HtmlBody);
+    }
 }
