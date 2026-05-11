@@ -1,0 +1,378 @@
+/*
+  auth-validator.css — TD-116 + TD-117 shared UX foundation.
+
+  Covers the auth surfaces' live-validation UI primitives:
+    - Show-password toggle (eye icon overlay on inputs)
+    - 4-segment strength bar
+    - Live rule checklist (gray pending / green pass / red fail)
+    - Inline field state (error / ok)
+    - Banner block (success / warning / danger)
+    - Submit button loading variant
+
+  Class namespace: `.av-*` (auth-validator) — avoids collision with
+  `.wms-*` (office), `.sa-*` (superadmin), `.wmsf-*` (forms polish).
+
+  Theme-agnostic: uses CSS custom properties with neutral defaults.
+  Dark _SuperAdminLayout overrides via .av-theme--dark on a wrapping
+  element. Light _AuthLayout / _OfficeLayout get the defaults.
+
+  Used by:
+    /Auth/Login             (TD-116)
+    /Auth/ChangePassword    (TD-117 — in-flow forced)
+    /Account/ChangePassword (TD-117 — voluntary tenant)
+    /SuperAdmin/ChangePassword (TD-117 — voluntary SA, dark theme)
+*/
+
+:root {
+  /* Semantic colours — light theme defaults. */
+  --av-color-success: #16A34A;
+  --av-color-success-bg: rgba(22, 163, 74, 0.10);
+  --av-color-warning: #D97706;
+  --av-color-warning-bg: rgba(217, 119, 6, 0.10);
+  --av-color-danger: #DC2626;
+  --av-color-danger-bg: rgba(220, 38, 38, 0.08);
+  --av-color-muted: #9CA3AF;
+  --av-color-muted-bg: rgba(156, 163, 175, 0.18);
+  --av-color-text: #1F2937;
+  --av-color-text-muted: #6B7280;
+  --av-color-surface: #FFFFFF;
+  --av-color-border: #E5E7EB;
+
+  --av-radius: 6px;
+  --av-transition: 150ms ease;
+}
+
+/* Dark-theme override (applied by adding `.av-theme--dark` to a
+   wrapping form element on the SuperAdmin views — _SuperAdminLayout
+   has navy/black background). */
+.av-theme--dark {
+  --av-color-text: #F3F4F6;
+  --av-color-text-muted: #CBD5E1;
+  --av-color-surface: rgba(255, 255, 255, 0.04);
+  --av-color-border: rgba(255, 255, 255, 0.18);
+  --av-color-muted: rgba(255, 255, 255, 0.45);
+  --av-color-muted-bg: rgba(255, 255, 255, 0.10);
+  /* Semantic colours stay punchy on dark — only adjust backgrounds */
+  --av-color-success-bg: rgba(34, 197, 94, 0.18);
+  --av-color-warning-bg: rgba(217, 119, 6, 0.18);
+  --av-color-danger-bg: rgba(220, 38, 38, 0.20);
+}
+
+/* ===========================================================
+   Show-password toggle
+   =========================================================== */
+
+.av-input-wrap {
+  position: relative;
+  display: block;
+}
+
+.av-input-wrap > input {
+  /* Reserve space for the eye icon button */
+  padding-right: 40px !important;
+}
+
+.av-input-toggle {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--av-color-text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+  transition: color var(--av-transition), background var(--av-transition);
+}
+
+.av-input-toggle:hover,
+.av-input-toggle:focus-visible {
+  color: var(--av-color-text);
+  background: var(--av-color-muted-bg);
+  outline: none;
+}
+
+.av-input-toggle i {
+  font-size: 16px;
+}
+
+/* ===========================================================
+   Strength bar (4 segments)
+   =========================================================== */
+
+.av-strength {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.av-strength-bar {
+  flex: 1;
+  display: flex;
+  gap: 4px;
+  height: 6px;
+}
+
+.av-strength-segment {
+  flex: 1;
+  height: 100%;
+  background: var(--av-color-muted-bg);
+  border-radius: 3px;
+  transition: background var(--av-transition);
+}
+
+/* Level modifiers — fill N segments + colour them per level.
+   "weak"=1, "fair"=2, "good"=3, "strong"=4. */
+.av-strength--weak .av-strength-segment:nth-child(-n+1) {
+  background: var(--av-color-danger);
+}
+.av-strength--fair .av-strength-segment:nth-child(-n+2) {
+  background: var(--av-color-warning);
+}
+.av-strength--good .av-strength-segment:nth-child(-n+3) {
+  background: var(--av-color-success);
+}
+.av-strength--strong .av-strength-segment:nth-child(-n+4) {
+  background: var(--av-color-success);
+}
+
+.av-strength-label {
+  font-size: 12px;
+  font-weight: 500;
+  min-width: 56px;
+  text-align: right;
+  color: var(--av-color-text-muted);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.av-strength--weak   .av-strength-label { color: var(--av-color-danger); }
+.av-strength--fair   .av-strength-label { color: var(--av-color-warning); }
+.av-strength--good   .av-strength-label,
+.av-strength--strong .av-strength-label { color: var(--av-color-success); }
+
+/* ===========================================================
+   Live rule checklist
+   =========================================================== */
+
+.av-checklist {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.av-rule {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--av-color-text-muted);
+  transition: color var(--av-transition);
+}
+
+.av-rule-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  font-size: 11px;
+  background: var(--av-color-muted-bg);
+  color: var(--av-color-muted);
+  transition: background var(--av-transition), color var(--av-transition);
+}
+
+.av-rule-icon i { font-size: 11px; }
+
+/* Met state — green check */
+.av-rule--ok {
+  color: var(--av-color-success);
+}
+.av-rule--ok .av-rule-icon {
+  background: var(--av-color-success-bg);
+  color: var(--av-color-success);
+}
+
+/* Fail state — red X (only after first interaction so the user isn't
+   yelled at on first render; JS in T2 toggles this class). */
+.av-rule--fail {
+  color: var(--av-color-danger);
+}
+.av-rule--fail .av-rule-icon {
+  background: var(--av-color-danger-bg);
+  color: var(--av-color-danger);
+}
+
+/* Optional live-count text (e.g. "8/8 characters"). Renders as muted
+   suffix on the rule line. */
+.av-rule-count {
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--av-color-text-muted);
+}
+
+/* ===========================================================
+   Field state (red/green border + icon overlay)
+   =========================================================== */
+
+.av-field--error > input,
+.av-field--error > .av-input-wrap > input {
+  border-color: var(--av-color-danger) !important;
+  box-shadow: 0 0 0 3px var(--av-color-danger-bg);
+}
+
+.av-field--ok > input,
+.av-field--ok > .av-input-wrap > input {
+  border-color: var(--av-color-success) !important;
+}
+
+.av-field-msg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.av-field-msg--error { color: var(--av-color-danger); }
+.av-field-msg--ok    { color: var(--av-color-success); }
+
+.av-field-msg i { font-size: 14px; }
+
+/* ===========================================================
+   Banner block (info / success / warning / danger)
+   =========================================================== */
+
+.av-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--av-radius);
+  border-left: 3px solid transparent;
+  margin-bottom: 16px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.av-banner-icon {
+  flex-shrink: 0;
+  font-size: 18px;
+  line-height: 1;
+  margin-top: 1px;
+}
+
+.av-banner-body { flex: 1; }
+
+.av-banner-title {
+  display: block;
+  font-weight: 500;
+  margin: 0 0 2px;
+}
+
+.av-banner-subtitle {
+  display: block;
+  color: var(--av-color-text-muted);
+  font-size: 12px;
+}
+
+.av-banner--success {
+  background: var(--av-color-success-bg);
+  border-left-color: var(--av-color-success);
+  color: var(--av-color-text);
+}
+.av-banner--success .av-banner-icon { color: var(--av-color-success); }
+
+.av-banner--warning {
+  background: var(--av-color-warning-bg);
+  border-left-color: var(--av-color-warning);
+  color: var(--av-color-text);
+}
+.av-banner--warning .av-banner-icon { color: var(--av-color-warning); }
+
+.av-banner--danger {
+  background: var(--av-color-danger-bg);
+  border-left-color: var(--av-color-danger);
+  color: var(--av-color-text);
+}
+.av-banner--danger .av-banner-icon { color: var(--av-color-danger); }
+
+/* Inline countdown timer text inside the lockout banner. JS updates
+   the `data-countdown` element every second; CSS just gives it
+   typographic stability. */
+.av-banner-countdown {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+/* ===========================================================
+   Submit button — loading state
+   =========================================================== */
+
+.av-submit--loading {
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+.av-submit--loading .av-submit-text { display: none; }
+.av-submit--loading .av-submit-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* When NOT loading, the loading body is hidden. */
+.av-submit-loading { display: none; }
+
+/* Tiny spinning icon — uses Tabler's ti-loader-2 via a simple
+   keyframe. No JS animation lib needed. */
+.av-submit-loading .ti {
+  animation: av-spin 0.9s linear infinite;
+  font-size: 16px;
+}
+
+@keyframes av-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ===========================================================
+   Disabled state — for inputs / submit when account locked
+   (TD-116 State 3). The form keeps its layout but goes inert.
+   =========================================================== */
+
+.av-form--locked input,
+.av-form--locked button[type="submit"] {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* Login attempts pill — small inline chip showing
+   "3 attempts remaining" inside the danger banner.
+   Subtler than the banner title so it reads as supporting context. */
+.av-attempts {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--av-color-danger-bg);
+  color: var(--av-color-danger);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}

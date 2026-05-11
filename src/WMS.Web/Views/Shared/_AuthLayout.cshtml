@@ -14,6 +14,10 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@@tabler/icons-webfont@@latest/dist/tabler-icons.min.css" />
     <link rel="stylesheet" href="~/css/wms-custom.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/wms-picker.css" asp-append-version="true" />
+    @* TD-116 + TD-117 — live validator primitives (strength bar,
+       checklist, banner, show-password toggle). Theme-agnostic via
+       CSS vars; class namespace `.av-*`. *@
+    <link rel="stylesheet" href="~/css/auth-validator.css" asp-append-version="true" />
 
     @* Phase 8.5 — Alpine for the warehouse picker's client-side
        filter (search + region chips). Login + tenant-select pages

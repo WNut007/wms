@@ -26,6 +26,10 @@
        Auth picker. Was only loaded from _AuthLayout, leaving Phase 9A
        and 9C list pages with unstyled buttons. *@
     <link rel="stylesheet" href="~/css/wms-picker.css" asp-append-version="true" />
+    @* TD-117 — live password validator shared across Auth + SA +
+       Office (Account/ChangePassword). Strength bar + checklist +
+       show-password toggle. *@
+    <link rel="stylesheet" href="~/css/auth-validator.css" asp-append-version="true" />
 
     <script defer src="https://unpkg.com/htmx.org@@2.0.4"></script>
     <script defer src="https://unpkg.com/alpinejs@@3.14.1/dist/cdn.min.js"></script>
