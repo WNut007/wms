@@ -346,11 +346,82 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10-16 · Phases 10A-27 + **28** shipped → tags … + **`v2.13.0-onboarding`** + **`v2.14.0-docs`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 REPORTS (ch.1) · 🛡️ TENANT ADMIN (ch.2) · 🔒 SECURITY HARDENING (ch.3) · 🚀 DEPLOYMENT FOUNDATION (ch.4) · 🎩 SUPERADMIN ONBOARDING (ch.5) · 📚 **DOCUMENTATION MVP SHIPPED** — operations runbook + customer onboarding playbook + 6 ADRs backfill + README enhance (v3.0.0 ch. 6)
-**Current Focus**: v3.0.0 — Phase 29 beta polish (v2.15.0 — final UX cleanup, browser smoke on all 6 chapters, last TD sweep), Phase 30 first customer onboarding = v3.0.0; Phase 19.5 serial-aware mobile bundle (TD-040 + TD-042 + TD-043 — needs serial schema first); ADR-004 putaway header (TD-004).
+**Active Sprint**: Day 10-17 · Phases 10A-28 + **29** shipped → tags … + **`v2.14.0-docs`** + **`v2.15.0-beta-ready`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 REPORTS (ch.1) · 🛡️ TENANT ADMIN (ch.2) · 🔒 SECURITY HARDENING (ch.3) · 🚀 DEPLOYMENT FOUNDATION (ch.4) · 🎩 SUPERADMIN ONBOARDING (ch.5) · 📚 DOCUMENTATION MVP (ch.6) · ✨ **POLISH + BETA READY SHIPPED** — P0 MustChangePassword enforcement gap closed + dropdown polish + Tenants tile NULL guard + demo script for sales (v3.0.0 ch. 7)
+**Current Focus**: v3.0.0 = Phase 30 first-customer onboarding. **6 v3.0.0 chapters complete; codebase is beta-ready.** Pending: ADR-004 putaway header (TD-004); Phase 19.5 serial-aware mobile bundle (TD-040 + TD-042 + TD-043 — needs serial schema first).
 **Blockers**: none
 
 Update this section weekly during standups.
+
+### Day 17 — Phase 29 (Polish + Beta Ready · v3.0.0 chapter 7 — last build phase before customer)
+
+**Branch**: `feat/polish-beta-ready` → merged to `main` · **Tag**: `v2.15.0-beta-ready` · **Strategy**: time-boxed structured 4-part approach (smoke → triage → fix → demo script). ~3.5h actual vs 6-8h estimate — finished early due to clean codebase.
+
+Seventh + final v3.0.0 chapter. Last build phase before Phase 30 (first customer = v3.0.0).
+
+**Part 1 — Static smoke (~30 min)**:
+Code-level audit across 7 critical paths. Caught:
+- **P0-1**: `MustChangePassword=true` on tenant bootstrap admin is NEVER enforced at tenant login. Phase 27 D4 said "first login redirects to /Account/ChangePassword; cannot proceed until changed" — implemented for SuperAdmin (SuperAdminAuthController checks claim post-auth) but the tenant-side enforcement was missing. Provisioned bootstrap admins could keep using the temp password forever.
+- **P1-1**: `_OfficeLayout` user dropdown has dead "Profile" + "Settings" links + no /Account/ChangePassword affordance. Operator has no UI path to change their password.
+- **P1-3**: `SUM(CASE WHEN ...)` in `SuperAdminController.Dashboard` + `Tenants` returns NULL on empty `master.Tenants` → Dapper `InvalidCastException` on int tuple deserialization → 500 page. Affects fresh installs that don't seed DEMO tenant.
+
+**Part 2 — Triage (~10 min)**:
+3 confirmed issues, all fixable in <1h. P2 deferred items captured as TDs (TD-097 through TD-102) for post-launch polish.
+
+**Part 3 — Fix pass (~1.5h)**:
+
+P0-1 fix — three-component:
+1. `MustChangePasswordMiddleware` (Web/Multitenancy/) runs between `UseTenantValidation` and `UseAuthorization`. Reads the `MustChangePassword` claim; redirects to `/Account/ChangePassword` when `true`. Allowlists `/Account/ChangePassword`, `/Auth/*`, `/SuperAdmin/*` (different scheme), `/healthz`, `/health`, `/Error/*` to prevent infinite loop / SuperAdmin overlap / health probe failures.
+2. `AuthController.CompleteTenantSelectionAsync` adds the claim at SignInAsync when `user.MustChangePassword=true`. Bootstrap admins skip the warehouse-select step entirely (jumps straight to `/Account/ChangePassword` to avoid visible flicker through `/Auth/SelectWarehouse`).
+3. `AccountController.ChangePassword` re-issues the cookie minus the claim after a successful change via `RefreshClaimsWithoutMustChangePasswordAsync` (`UpdatePasswordHashAsync` already cleared the DB flag; this syncs the in-flight session). Forced-change path → bootstrap admin lands on dashboard; voluntary-change → stays on form for the success banner.
+
+P1-1 fix — `_OfficeLayout` dropdown: replaced dead "Profile" + "Settings" with single "Change password" link (with `ti-lock` icon) pointing at `/Account/ChangePassword`.
+
+P1-3 fix — wrapped both SUM(CASE WHEN) aggregates in `ISNULL(..., 0)` so empty `master.Tenants` returns 0 across all 4 tiles (Total / Active / Suspended / Inactive).
+
+**Part 4 — Demo script (~45 min)**:
+`docs/sales/v3.0.0-demo-script.md` (~500 lines) covering:
+- Pre-call setup checklist
+- 2-min opener (pain-point qualifying)
+- Act 1: SuperAdmin Onboarding (3 min — provision tenant live, display-once temp password)
+- Act 2: First Login + Setup (5 min — sidebar tour, module breadth)
+- Act 3: B2B Inbound (5 min — PO → mobile Receive → mobile Putaway → stock visible)
+- Act 4: B2C Outbound (5 min — SO → Allocate → mobile Pick → mobile Pack → Ship)
+- Act 5: Operations & Reports (5 min — 3 dashboards + Excel export + Users + Roles + AuditLog)
+- Act 6: Security (3 min — HTTPS / password policy / audit log / tenant isolation / honest about 2FA gap)
+- 3-min close (pilot pitch)
+- Common Q&A
+- Wow moments (5 specific lines that close deals)
+- Recovery procedures for live-demo glitches
+- Post-demo checklist
+
+**Tests (+13 net)**:
+- `MustChangePasswordMiddlewareTests` (12 integration in WMS.IntegrationTests) — Anonymous passes through / Authenticated-no-claim passes / Authenticated-with-claim redirects (302 + Location header) / 9-case Theory on allowlisted paths (covers all 6 surface families) / NonTenantScheme (SuperAdmin) skipped even when claim present
+- xUnit Theory generates an extra case making the actual delta +13
+
+Test posture: **1037 passing** (was 1024 / **+13 net**). 353 unit + 684 integration + 5 skipped.
+
+**TDs added (5)** — P2 polish items deferred to post-launch:
+- **TD-097** — Master Data Index pages have dead "Add new" cards (Customers/Products/Warehouses Index.cshtml) — overlap with header "New X" button. Either remove the duplicate or make the inline card trigger the same action.
+- **TD-098** — Login page "Forgot password?" + "Contact support" links are dead (`href="#"`). Forgot password = TD-056 (needs SMTP); Contact support = TD-093 (knowledge base + support contact).
+- **TD-099** — Sales Order decision modal "Cancel" buttons use `href="#"` (CSS-only `:target` modal close pattern — intentional but visually inconsistent with the rest of the design system). Same for Adjustment / CycleCount / Pack / Pick / Receipt cancel modals. Pattern is correct (no JS); cosmetic gap is in the link styling.
+- **TD-100** — SUM(CASE WHEN) pattern used across 9 repos (Phase 23-24 chip counts). All have at least 1 seeded row in practice but the NULL guard is missing. Low-risk because seed migrations always provide a row, but worth a sweep in v3.0.x.
+- **TD-101** — Customer onboarding playbook references a "secure delivery channel" for temp passwords but Phase 27 doesn't ship one. Today: out-of-band sharing (Signal / Slack DM). v3.1: ship a one-time-view share-URL with expiry.
+- **TD-102** — `_OfficeLayout` dropdown anchor `href="#"` (`wms-topbar-avatar`) is intentional (Bootstrap dropdown trigger) but accessibility-suboptimal. Should be `<button>` semantically — `data-bs-toggle` works on buttons too.
+
+**"Customer-ready" assessment**:
+- ✅ All 7 critical paths trace cleanly through code
+- ✅ Build clean (1 pre-existing warning unrelated to Phase 29)
+- ✅ 1037 tests passing
+- ✅ MustChangePassword enforcement closes the only P0 surface gap
+- ✅ User dropdown has functioning password-change affordance
+- ✅ SuperAdmin pages don't crash on empty master.Tenants
+- ✅ Demo script is sales-ready
+- ⚠️ Browser smoke (live) NOT performed — these fixes catch issues a static review surfaces; visual layout / JS runtime issues need human eyes on the actual UI. **Recommendation**: 1-2 hours of human-driven smoke before sales conversations start.
+- ⚠️ 6 P2 polish items deferred (TD-097 through TD-102) — none block a demo
+
+**Notes**: Static smoke was a forced choice (no browser-automation available). It catches a different class of bug than a human smoke would: missing routes, type-deserialisation failures, missing claim wiring, dead code paths. It MISSES: layout bugs, CSS issues, JavaScript runtime errors, slow renders, mobile touch-target sizes, timing/race issues. Recommend a 1-2 hour human smoke before Phase 30 begins — but the static smoke caught enough to declare beta-ready. The MustChangePassword P0 is the kind of integration gap that would have surfaced exactly when the first customer's bootstrap admin tried to sign in — caught it in time.
+
+---
 
 ### Day 14 — Phase 26 (Deployment Foundation · v3.0.0 chapter 4 · Level 1: code-ready)
 
@@ -2673,5 +2744,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-16 (Day 16 — Phase 28 Documentation MVP; v2.14.0-docs · 📚 sixth v3.0.0 chapter phase — operations runbook + customer onboarding playbook + 6 ADRs backfill + README enhance; tests unchanged at 1024)
-**Version**: 1.42
+**Last updated**: 2026-05-17 (Day 17 — Phase 29 Polish + Beta Ready; v2.15.0-beta-ready · ✨ seventh + final v3.0.0 chapter — P0 MustChangePassword enforcement gap closed + UI dropdown polish + Tenants tile NULL guard + 500-line demo script; +13 tests, 1037 passing. **6 v3.0.0 chapters complete; beta-ready.**)
+**Version**: 1.43

@@ -309,10 +309,24 @@ public sealed class AuthController : BaseController
             new(WmsClaimTypes.TenantId, selected.TenantId.ToString()),
             new(WmsClaimTypes.TenantCode, selected.TenantCode),
         };
+        // Phase 29 — carry MustChangePassword as a claim so the tenant-
+        // side middleware can intercept without a per-request DB hit.
+        // Cleared on successful change in AccountController by re-signing-in.
+        if (user.MustChangePassword)
+            claims.Add(new Claim(WMS.Web.Multitenancy.MustChangePasswordMiddleware.ClaimType,
+                WMS.Web.Multitenancy.MustChangePasswordMiddleware.TrueValue));
+
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         await HttpContext.SignInAsync(
             CookieAuthenticationDefaults.AuthenticationScheme,
             new ClaimsPrincipal(identity));
+
+        // Phase 29 — bootstrap admins (MustChangePassword=true) skip the
+        // warehouse-select step entirely; jump to /Account/ChangePassword.
+        // The middleware would redirect anyway, but going there directly
+        // avoids the visible flicker through SelectWarehouse.
+        if (user.MustChangePassword)
+            return Redirect("/Account/ChangePassword");
 
         return RedirectToAction(nameof(SelectWarehouse));
     }
