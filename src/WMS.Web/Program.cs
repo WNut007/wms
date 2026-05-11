@@ -10,6 +10,9 @@ using WMS.Web.Infrastructure.HealthChecks;
 using WMS.Web.Services.Outbound;
 using WMS.BLL.Services.Auth;
 using WMS.BLL.Services.Security;
+using WMS.BLL.Services.SuperAdmin;
+using WMS.Web.Auth;
+using WMS.Web.Services.SuperAdmin;
 using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
 using WMS.BLL.Services.Counts;
@@ -51,6 +54,11 @@ builder.Services.AddMemoryCache();
 // Cookie auth for the 3-step login flow (ADR-008). Cookie name kept
 // short so the request header stays small; SlidingExpiration so users
 // don't get bounced out mid-shift.
+//
+// Phase 27 — adds a SECOND cookie scheme "SuperAdminAuth" for
+// /SuperAdmin/ surfaces. Distinct cookie name (wms.superauth) +
+// distinct LoginPath so a compromised tenant cookie can't grant
+// access to SuperAdmin surfaces and vice-versa.
 builder.Services
     .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(opts =>
@@ -62,6 +70,17 @@ builder.Services
         opts.LoginPath = "/Auth/Login";
         opts.AccessDeniedPath = "/Auth/Forbidden";
         opts.ExpireTimeSpan = TimeSpan.FromHours(8);
+        opts.SlidingExpiration = true;
+    })
+    .AddCookie(SuperAdminAuthScheme.Name, opts =>
+    {
+        opts.Cookie.Name = "wms.superauth";
+        opts.Cookie.HttpOnly = true;
+        opts.Cookie.SameSite = SameSiteMode.Lax;
+        opts.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+        opts.LoginPath = "/SuperAdmin/Login";
+        opts.AccessDeniedPath = "/SuperAdmin/Login";
+        opts.ExpireTimeSpan = TimeSpan.FromHours(4);   // shorter than tenant — admin sessions decay faster
         opts.SlidingExpiration = true;
     });
 
@@ -174,6 +193,12 @@ builder.Services.AddScoped<IRoleRepositoryFactory, RoleRepositoryFactory>();
 builder.Services.AddScoped<IFunctionRepositoryFactory, FunctionRepositoryFactory>();
 builder.Services.AddScoped<IAuditLogRepositoryFactory, AuditLogRepositoryFactory>();
 builder.Services.AddScoped<ISecurityService, SecurityService>();
+
+// Phase 27 — SuperAdmin (master DB) + tenant provisioning.
+builder.Services.AddScoped<ISuperAdminRepository, SuperAdminRepository>();
+builder.Services.AddScoped<ISystemAuditLogRepository, SystemAuditLogRepository>();
+builder.Services.AddScoped<ISuperAdminAuthService, SuperAdminAuthService>();
+builder.Services.AddScoped<ITenantProvisioningService, TenantProvisioningService>();
 
 // Phase 17 — pack-video retention. Binds RetentionDays + CronSchedule
 // from "PackVideoRetention" section. Job registered as Scoped so
@@ -360,5 +385,23 @@ app.MapHangfireDashboard("/hangfire", new Hangfire.DashboardOptions
 app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Home}/{action=Index}/{id?}");
+
+// Phase 27 — bootstrap initial SuperAdmin from config on first run.
+// Idempotent + skips silently when InitialSuperAdmin config is absent.
+using (var scope = app.Services.CreateScope())
+{
+    var bootstrapLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        await SuperAdminBootstrap.EnsureAsync(scope.ServiceProvider, bootstrapLogger);
+    }
+    catch (Exception ex)
+    {
+        // Don't crash boot — bootstrap failure (DB unreachable, etc.)
+        // should be loud in logs but the app still starts so the
+        // operator can investigate.
+        bootstrapLogger.LogError(ex, "SuperAdmin bootstrap failed — continuing startup.");
+    }
+}
 
 app.Run();

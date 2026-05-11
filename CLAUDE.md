@@ -346,8 +346,8 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10-14 · Phases 10A-25 + **26** shipped → tags … + **`v2.11.0-security`** + **`v2.12.0-deployment`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 REPORTS (v3.0.0 ch. 1) · 🛡️ TENANT ADMIN (ch. 2) · 🔒 SECURITY HARDENING (ch. 3) · 🚀 **DEPLOYMENT FOUNDATION SHIPPED** — production config + health endpoints + security headers + tenant migration coordinator + IIS docs (v3.0.0 ch. 4 · Level 1: code-ready, not yet deployed)
-**Current Focus**: v3.0.0 — Phase 27 onboarding tooling (v2.13.0 — SuperAdmin tenant CRUD), Phase 28 docs (v2.14.0), Phase 29 beta polish (v2.15.0), Phase 30 first customer onboarding = v3.0.0; Phase 19.5 serial-aware mobile bundle (TD-040 + TD-042 + TD-043 — needs serial schema first); ADR-004 putaway header (TD-004).
+**Active Sprint**: Day 10-15 · Phases 10A-26 + **27** shipped → tags … + **`v2.12.0-deployment`** + **`v2.13.0-onboarding`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 REPORTS (ch.1) · 🛡️ TENANT ADMIN (ch.2) · 🔒 SECURITY HARDENING (ch.3) · 🚀 DEPLOYMENT FOUNDATION (ch.4) · 🎩 **SUPERADMIN TENANT ONBOARDING SHIPPED** — SuperAdmin auth + tenant provisioning (CREATE DATABASE + migrations + bootstrap admin) + suspend/reactivate + admin pw reset (v3.0.0 ch. 5)
+**Current Focus**: v3.0.0 — Phase 28 docs (v2.14.0 — admin runbook, customer onboarding playbook, ADR backfill), Phase 29 beta polish (v2.15.0), Phase 30 first customer onboarding = v3.0.0; Phase 19.5 serial-aware mobile bundle (TD-040 + TD-042 + TD-043 — needs serial schema first); ADR-004 putaway header (TD-004).
 **Blockers**: none
 
 Update this section weekly during standups.
@@ -2673,5 +2673,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-14 (Day 14 — Phase 26 Deployment Foundation; v2.12.0-deployment · 🚀 fourth v3.0.0 chapter phase — production config + health endpoints + security headers + tenant migration coordinator + IIS deployment docs; +12 tests, 1004 passing)
-**Version**: 1.40
+**Last updated**: 2026-05-15 (Day 15 — Phase 27 SuperAdmin Tenant Onboarding; v2.13.0-onboarding · 🎩 fifth v3.0.0 chapter phase — SuperAdmin auth + tenant provisioning + suspend/reactivate + admin pw reset; +20 tests, 1024 passing)
+**Version**: 1.41

@@ -16,6 +16,7 @@ internal sealed class UserRepository : IUserRepository
     private const string SelectColumns = @"
         SELECT Id, Email, PasswordHash, FullName, IsActive, LastLoginAt,
                FailedLoginAttempts, LockedUntil, ApprovalLimit,
+               MustChangePassword,
                CreatedAt, UpdatedAt, CreatedBy, UpdatedBy
         FROM security.Users";
 
@@ -187,11 +188,11 @@ SELECT CAST(CASE WHEN EXISTS (
         _connection.ExecuteAsync(new CommandDefinition(
             @"INSERT INTO security.Users
                 (Id, Email, PasswordHash, FullName, IsActive,
-                 FailedLoginAttempts, ApprovalLimit,
+                 FailedLoginAttempts, ApprovalLimit, MustChangePassword,
                  CreatedAt, CreatedBy)
               VALUES
                 (@Id, @Email, @PasswordHash, @FullName, @IsActive,
-                 0, @ApprovalLimit,
+                 0, @ApprovalLimit, @MustChangePassword,
                  SYSUTCDATETIME(), @CreatedBy)",
             user,
             cancellationToken: ct));
@@ -243,9 +244,13 @@ SELECT CAST(CASE WHEN EXISTS (
         string newPasswordHash,
         Guid? actorId,
         CancellationToken ct = default) =>
+        // Phase 27 — clears MustChangePassword as a side-effect. The
+        // operator just set a new password, so the forced-change reason
+        // is satisfied.
         _connection.ExecuteAsync(new CommandDefinition(
             @"UPDATE security.Users
               SET PasswordHash = @newPasswordHash,
+                  MustChangePassword = 0,
                   FailedLoginAttempts = 0,
                   LockedUntil = NULL,
                   UpdatedAt = SYSUTCDATETIME(),

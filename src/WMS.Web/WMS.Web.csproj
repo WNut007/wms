@@ -7,6 +7,7 @@
     <ProjectReference Include="..\WMS.Common\WMS.Common.csproj" />
     <ProjectReference Include="..\WMS.Plugins\WMS.Plugins.csproj" />
     <ProjectReference Include="..\WMS.Jobs\WMS.Jobs.csproj" />
+    <ProjectReference Include="..\..\tools\WMS.Migrate\WMS.Migrate.csproj" />
   </ItemGroup>
 
   <ItemGroup>

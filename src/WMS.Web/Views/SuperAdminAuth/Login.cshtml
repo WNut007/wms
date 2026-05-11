@@ -1,0 +1,53 @@
+@model WMS.Web.ViewModels.SuperAdmin.SuperAdminLoginViewModel
+@{
+    Layout = "_SuperAdminLayout";
+    ViewData["Title"] = "SuperAdmin sign in";
+}
+
+<div style="max-width: 420px; margin: 60px auto;">
+    <div class="sa-card">
+        <h1 class="sa-title">
+            <i class="ti ti-shield-cog" style="color: #DC2626; margin-right: 6px;"></i>
+            SuperAdmin
+        </h1>
+        <p class="sa-subtitle">
+            Platform console. Tenant provisioning + cross-tenant administration.
+            <br/>
+            <span style="color: #FCA5A5;">Not for warehouse operators — use <a href="/Auth/Login" style="color: #FCA5A5;">/Auth/Login</a> instead.</span>
+        </p>
+
+        <div asp-validation-summary="ModelOnly" class="sa-banner-err" style="display: none;"></div>
+        @if (!ViewData.ModelState.IsValid)
+        {
+            var summary = ViewData.ModelState[""]?.Errors.Select(e => e.ErrorMessage).ToList();
+            if (summary is { Count: > 0 })
+            {
+                <div class="sa-banner-err">@string.Join("; ", summary)</div>
+            }
+        }
+
+        <form asp-action="Login" method="post">
+            @Html.AntiForgeryToken()
+            <input type="hidden" asp-for="ReturnUrl" />
+
+            <div style="margin-bottom: 14px;">
+                <label class="sa-label" asp-for="Email">Email</label>
+                <input asp-for="Email" class="sa-input" autocomplete="username" autofocus />
+                <span asp-validation-for="Email" class="sa-field-error"></span>
+            </div>
+            <div style="margin-bottom: 18px;">
+                <label class="sa-label" asp-for="Password">Password</label>
+                <input asp-for="Password" type="password" class="sa-input" autocomplete="current-password" />
+                <span asp-validation-for="Password" class="sa-field-error"></span>
+            </div>
+            <button type="submit" class="sa-btn" style="width: 100%; justify-content: center;">
+                Sign in to console
+                <i class="ti ti-arrow-right"></i>
+            </button>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

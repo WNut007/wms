@@ -1,0 +1,47 @@
+@model WMS.Web.ViewModels.SuperAdmin.TenantCreateSuccessViewModel
+@{
+    Layout = "_SuperAdminLayout";
+    ViewData["Title"] = "Tenant created";
+}
+
+<div style="max-width: 640px; margin: 24px auto;">
+    <div class="sa-card" style="border-left: 4px solid #16A34A;">
+        <h1 class="sa-title" style="color: #86EFAC;">
+            <i class="ti ti-check-circle"></i> Tenant provisioned
+        </h1>
+        <p class="sa-subtitle">
+            Tenant <span class="sa-mono">@Model.Code</span> is ready. The bootstrap admin's
+            temp password is displayed ONCE below — copy it now.
+        </p>
+
+        <table class="sa-table" style="margin-bottom: 20px;">
+            <tr><th>Tenant code</th><td><span class="sa-mono">@Model.Code</span></td></tr>
+            <tr><th>Database</th><td><span class="sa-mono">@Model.DatabaseName</span></td></tr>
+            <tr><th>Admin email</th><td>@Model.AdminEmail</td></tr>
+        </table>
+
+        <div class="sa-warn-banner" style="margin-bottom: 14px;">
+            <i class="ti ti-alert-triangle"></i>
+            <strong>Save this temp password.</strong> It won't be shown again. The admin must change it on first login (MustChangePassword=true is set).
+        </div>
+
+        <div style="background: #0F172A; border: 1px solid #DC2626; border-radius: 8px; padding: 18px; text-align: center; margin-bottom: 20px;">
+            <p style="color: var(--sa-text-secondary); font-size: 11px; margin: 0 0 8px; letter-spacing: 1px;">
+                TEMPORARY PASSWORD
+            </p>
+            <p style="font-family: 'JetBrains Mono', monospace; font-size: 24px; color: #FCA5A5; margin: 0; user-select: all;">
+                @Model.AdminTempPassword
+            </p>
+            <button type="button" onclick="navigator.clipboard.writeText('@Model.AdminTempPassword'); this.textContent='Copied!'" class="sa-btn sa-btn-secondary" style="font-size: 12px; padding: 6px 12px; margin-top: 12px;">
+                <i class="ti ti-copy"></i> Copy to clipboard
+            </button>
+        </div>
+
+        <div style="display: flex; gap: 8px;">
+            <a href="/SuperAdmin/Tenants/@Model.TenantId" class="sa-btn">
+                <i class="ti ti-arrow-right"></i> View tenant
+            </a>
+            <a href="/SuperAdmin/Tenants" class="sa-btn sa-btn-secondary">All tenants</a>
+        </div>
+    </div>
+</div>
