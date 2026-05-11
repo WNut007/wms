@@ -1,0 +1,28 @@
+Your WMS workspace is ready
+
+Hi {{UserName}},
+
+The {{TenantName}} workspace has been provisioned for you on the WMS
+platform.
+
+Use these details to sign in as the bootstrap administrator:
+
+  URL:         {{LoginUrl}}
+  Email:       {{UserEmail}}
+  Tenant code: {{TenantCode}}
+
+  TEMPORARY PASSWORD: {{TempPassword}}
+
+You must change this on first sign-in.
+
+Next steps after first login:
+  1. Change your password
+  2. Add the rest of your team in Security → Users
+  3. Configure your warehouse in Master Data → Warehouses
+  4. Import your products in Master Data → Products
+
+An onboarding session has been scheduled for {{KickoffDate}}. Come
+prepared with your master data files (products, locations, customers).
+
+—
+Provisioned at {{IssuedAtUtc}} UTC by the WMS platform team.

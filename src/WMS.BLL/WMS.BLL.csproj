@@ -11,6 +11,15 @@
     <PackageReference Include="Dapper" Version="2.1.72" />
     <PackageReference Include="Microsoft.Extensions.Caching.Abstractions" Version="8.0.*" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.*" />
+  </ItemGroup>
+
+  <!-- Phase 30A — embed email templates so the BLL doesn't need
+       a relative file path at runtime. Loaded via EmailTemplate-
+       Renderer.LoadTemplate(). -->
+  <ItemGroup>
+    <EmbeddedResource Include="Services\Email\Templates\*.html" />
+    <EmbeddedResource Include="Services\Email\Templates\*.txt" />
   </ItemGroup>
 
   <PropertyGroup>

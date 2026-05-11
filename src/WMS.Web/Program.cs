@@ -9,6 +9,7 @@ using WMS.Web.Infrastructure;
 using WMS.Web.Infrastructure.HealthChecks;
 using WMS.Web.Services.Outbound;
 using WMS.BLL.Services.Auth;
+using WMS.BLL.Services.Email;
 using WMS.BLL.Services.Security;
 using WMS.BLL.Services.SuperAdmin;
 using WMS.Web.Auth;
@@ -200,6 +201,13 @@ builder.Services.AddScoped<ISystemAuditLogRepository, SystemAuditLogRepository>(
 builder.Services.AddScoped<ISuperAdminAuthService, SuperAdminAuthService>();
 builder.Services.AddScoped<ITenantProvisioningService, TenantProvisioningService>();
 
+// Phase 30A — SMTP email service (TD-078 closed). TestMode=true by
+// default; production sets Email:TestMode=false + env-var credentials.
+builder.Services.Configure<EmailOptions>(
+    builder.Configuration.GetSection(EmailOptions.SectionName));
+builder.Services.AddScoped<IEmailService, GmailSmtpEmailService>();
+builder.Services.AddSingleton<EmailTemplateRenderer>();
+
 // Phase 17 — pack-video retention. Binds RetentionDays + CronSchedule
 // from "PackVideoRetention" section. Job registered as Scoped so
 // Hangfire's per-execution scope provides fresh repo factories.
@@ -303,7 +311,8 @@ builder.Services.AddHangfireServer(opts =>
 // = process alive + Master DB reachable. Both anonymous; load-balancer
 // probes shouldn't need auth.
 builder.Services.AddHealthChecks()
-    .AddCheck<MasterDbHealthCheck>("master-db", tags: new[] { "ready" });
+    .AddCheck<MasterDbHealthCheck>("master-db", tags: new[] { "ready" })
+    .AddCheck<EmailServiceHealthCheck>("email", tags: new[] { "ready" });
 
 // Phase 26 — security headers. Bind from SecurityHeaders config section
 // so CSP is tunable per environment.

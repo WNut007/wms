@@ -6,6 +6,11 @@
 # dotenv files
 .env
 
+# Local credential / secret files — never commit
+gmail_for_testing_wms.txt
+*credentials*.txt
+*.secrets.json
+
 # User-specific files
 *.rsuser
 *.suo

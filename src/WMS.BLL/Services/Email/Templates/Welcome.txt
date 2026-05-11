@@ -1,0 +1,19 @@
+Welcome to {{TenantName}}
+
+Hi {{UserName}},
+
+An account has been created for you on the {{TenantName}} warehouse
+management system.
+
+Use the following details to sign in:
+
+  URL:   {{LoginUrl}}
+  Email: {{UserEmail}}
+
+Your administrator will share the temporary password through a separate
+channel. On first login you will be required to set your own password.
+
+Questions? Reach out to your administrator.
+
+—
+This is an automated message from the WMS platform.

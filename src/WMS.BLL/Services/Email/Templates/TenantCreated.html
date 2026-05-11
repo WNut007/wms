@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Your WMS workspace is ready</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.5; color: #1F2937; max-width: 600px; margin: 0 auto; padding: 24px;">
+<h1 style="color: #534AB7; margin: 0 0 16px 0;">Your WMS workspace is ready</h1>
+<p>Hi {{UserName}},</p>
+<p>The <strong>{{TenantName}}</strong> workspace has been provisioned for you on the WMS platform.</p>
+<p>Use these details to sign in as the bootstrap administrator:</p>
+<table style="border-collapse: collapse; margin: 16px 0;">
+<tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">URL</td><td><a href="{{LoginUrl}}">{{LoginUrl}}</a></td></tr>
+<tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Email</td><td>{{UserEmail}}</td></tr>
+<tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Tenant code</td><td><code>{{TenantCode}}</code></td></tr>
+</table>
+<div style="background: #FEF3C7; border-left: 4px solid #D97706; padding: 12px 16px; margin: 20px 0;">
+<p style="margin: 0; color: #92400E;"><strong>Temporary password</strong></p>
+<p style="margin: 6px 0 0; font-family: 'Courier New', monospace; font-size: 16px; color: #1F2937;">{{TempPassword}}</p>
+<p style="margin: 8px 0 0; font-size: 12px; color: #92400E;">You must change this on first sign-in.</p>
+</div>
+<p><strong>Next steps after first login:</strong></p>
+<ol>
+<li>Change your password</li>
+<li>Add the rest of your team in Security → Users</li>
+<li>Configure your warehouse in Master Data → Warehouses</li>
+<li>Import your products in Master Data → Products</li>
+</ol>
+<p>An onboarding session has been scheduled for <strong>{{KickoffDate}}</strong>. Come prepared with your master data files (products, locations, customers).</p>
+<p style="color: #6B7280; font-size: 12px; margin-top: 32px;">Provisioned at {{IssuedAtUtc}} UTC by the WMS platform team.</p>
+</body>
+</html>
