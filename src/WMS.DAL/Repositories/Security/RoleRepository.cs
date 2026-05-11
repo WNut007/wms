@@ -35,6 +35,47 @@ internal sealed class RoleRepository : IRoleRepository
         return rows.AsList();
     }
 
+    public async Task<IReadOnlyList<RoleListRow>> GetAllAsync(CancellationToken ct = default)
+    {
+        const string sql = @"
+SELECT r.Id, r.Code, r.Name, r.Description, r.IsSystemRole, r.IsActive,
+       (SELECT COUNT(*) FROM security.UserRoles ur WHERE ur.RoleId = r.Id) AS UserCount,
+       (SELECT COUNT(*) FROM security.RoleFunctionPermissions rfp
+        WHERE rfp.RoleId = r.Id
+          AND (rfp.CanView = 1 OR rfp.CanAdd = 1 OR rfp.CanEdit = 1
+               OR rfp.CanDelete = 1 OR rfp.CanApprove = 1)) AS PermissionCount,
+       r.CreatedAt
+FROM security.Roles r
+ORDER BY r.IsSystemRole DESC, r.Code;";
+        var rows = await _connection.QueryAsync<RoleListRow>(
+            new CommandDefinition(sql, cancellationToken: ct));
+        return rows.AsList();
+    }
+
+    public async Task<IReadOnlyList<RolePermissionRow>> GetPermissionsForRoleAsync(
+        Guid roleId, CancellationToken ct = default)
+    {
+        // LEFT JOIN means a Function without a grant row for this role
+        // surfaces with all flags = 0 (COALESCEd) — the matrix renders
+        // the full Function catalogue without a separate union path.
+        const string sql = @"
+SELECT f.Id AS FunctionId, f.Code AS FunctionCode, f.Name AS FunctionName,
+       f.Module, f.DisplayOrder,
+       COALESCE(rfp.CanView, 0) AS CanView,
+       COALESCE(rfp.CanAdd, 0) AS CanAdd,
+       COALESCE(rfp.CanEdit, 0) AS CanEdit,
+       COALESCE(rfp.CanDelete, 0) AS CanDelete,
+       COALESCE(rfp.CanApprove, 0) AS CanApprove
+FROM security.Functions f
+LEFT JOIN security.RoleFunctionPermissions rfp
+    ON rfp.FunctionId = f.Id AND rfp.RoleId = @roleId
+WHERE f.IsActive = 1
+ORDER BY f.Module, f.DisplayOrder, f.Code;";
+        var rows = await _connection.QueryAsync<RolePermissionRow>(
+            new CommandDefinition(sql, new { roleId }, cancellationToken: ct));
+        return rows.AsList();
+    }
+
     public Task UpsertPermissionAsync(
         Guid roleId,
         Guid functionId,

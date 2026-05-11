@@ -1,0 +1,168 @@
+@model WMS.Web.ViewModels.Security.RoleDetailViewModel
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = $"Role · {Model.Role.Code}";
+    var readOnly = Model.Role.IsSystemRole;
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">
+            <span class="rp-mono">@Model.Role.Code</span>
+            <span style="font-weight: 400; color: var(--wms-text-secondary); margin-left: 8px;">@Model.Role.Name</span>
+            @if (readOnly) { <span class="wms-badge s-info" style="margin-left: 8px;">System role</span> }
+        </p>
+        <div class="wms-breadcrumb">
+            <span>Security</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <a asp-action="Index" style="color: var(--wms-text-secondary);">Roles</a>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">@Model.Role.Code</span>
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(Model.Role.Description))
+{
+    <p style="margin-bottom: 16px; color: var(--wms-text-secondary);">@Model.Role.Description</p>
+}
+
+@if (readOnly)
+{
+    <div class="wms-banner" style="margin-bottom: 16px; background: #FEF3C7; border-left: 3px solid #D97706; padding: 10px 14px;">
+        <i class="ti ti-shield-lock" aria-hidden="true"></i>
+        <strong>System role permissions are read-only.</strong>
+        Baseline grants come from migrations 043 + 044. Editing system roles would invalidate the BLL bypass + role-test fixtures — defer to a future phase if customisation is needed.
+    </div>
+}
+else
+{
+    <div id="permissionStatus" class="wms-banner wms-banner-success"
+         style="margin-bottom: 16px; display: none;"></div>
+    <div id="permissionError" class="wms-banner wms-banner-danger"
+         style="margin-bottom: 16px; display: none;"></div>
+}
+
+<p style="font-size: 13px; color: var(--wms-text-secondary); margin-bottom: 12px;">
+    Functions grouped by module. Inline edits @(readOnly ? "are disabled for system roles." : "save automatically on toggle.")
+</p>
+
+<div data-role-id="@Model.Role.Id" data-readonly="@(readOnly ? "true" : "false")">
+    @foreach (var group in Model.Groups)
+    {
+        <div class="rp-chart-card" style="margin-bottom: 12px;">
+            <p class="rp-chart-title">@group.Module</p>
+            <table class="rp-table rp-perm-matrix">
+                <thead>
+                    <tr>
+                        <th style="width: 35%;">Function</th>
+                        <th class="rp-perm-cell">View</th>
+                        <th class="rp-perm-cell">Add</th>
+                        <th class="rp-perm-cell">Edit</th>
+                        <th class="rp-perm-cell">Delete</th>
+                        <th class="rp-perm-cell">Approve</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in group.Rows)
+                    {
+                        <tr data-function-id="@row.FunctionId">
+                            <td>
+                                <span class="rp-mono" style="font-size: 12px;">@row.FunctionCode</span>
+                                <span style="color: var(--wms-text-secondary); margin-left: 6px; font-size: 12px;">@row.FunctionName</span>
+                            </td>
+                            <td class="rp-perm-cell">
+                                <input type="checkbox" data-flag="view" @(row.CanView ? "checked" : "") @(readOnly ? "disabled" : "") />
+                            </td>
+                            <td class="rp-perm-cell">
+                                <input type="checkbox" data-flag="add" @(row.CanAdd ? "checked" : "") @(readOnly ? "disabled" : "") />
+                            </td>
+                            <td class="rp-perm-cell">
+                                <input type="checkbox" data-flag="edit" @(row.CanEdit ? "checked" : "") @(readOnly ? "disabled" : "") />
+                            </td>
+                            <td class="rp-perm-cell">
+                                <input type="checkbox" data-flag="delete" @(row.CanDelete ? "checked" : "") @(readOnly ? "disabled" : "") />
+                            </td>
+                            <td class="rp-perm-cell">
+                                <input type="checkbox" data-flag="approve" @(row.CanApprove ? "checked" : "") @(readOnly ? "disabled" : "") />
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<style>
+    .rp-perm-matrix { font-size: 13px; }
+    .rp-perm-cell { text-align: center !important; width: 70px; }
+    .rp-perm-cell input[type=checkbox] {
+        width: 18px; height: 18px;
+        accent-color: #534AB7;
+        cursor: pointer;
+    }
+    .rp-perm-cell input[type=checkbox]:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+</style>
+
+@if (!readOnly)
+{
+    <script>
+        (function () {
+            const container = document.querySelector('[data-role-id]');
+            const roleId = container.dataset.roleId;
+            const status = document.getElementById('permissionStatus');
+            const error = document.getElementById('permissionError');
+            const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value;
+
+            container.addEventListener('change', async function (e) {
+                if (e.target.type !== 'checkbox') return;
+                const row = e.target.closest('tr[data-function-id]');
+                if (!row) return;
+                const functionId = row.dataset.functionId;
+
+                const flags = {
+                    canView:    row.querySelector('[data-flag=view]').checked,
+                    canAdd:     row.querySelector('[data-flag=add]').checked,
+                    canEdit:    row.querySelector('[data-flag=edit]').checked,
+                    canDelete:  row.querySelector('[data-flag=delete]').checked,
+                    canApprove: row.querySelector('[data-flag=approve]').checked,
+                };
+
+                try {
+                    const res = await fetch('/Roles/SetPermission', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'RequestVerificationToken': token,
+                        },
+                        body: JSON.stringify({ roleId, functionId, ...flags }),
+                    });
+                    if (!res.ok) {
+                        const data = await res.json();
+                        e.target.checked = !e.target.checked;
+                        error.textContent = data.error || 'Failed to save.';
+                        error.style.display = 'block';
+                        status.style.display = 'none';
+                        setTimeout(() => { error.style.display = 'none'; }, 4000);
+                        return;
+                    }
+                    status.textContent = 'Saved.';
+                    status.style.display = 'block';
+                    error.style.display = 'none';
+                    setTimeout(() => { status.style.display = 'none'; }, 1500);
+                } catch (err) {
+                    e.target.checked = !e.target.checked;
+                    error.textContent = 'Network error — change reverted.';
+                    error.style.display = 'block';
+                }
+            });
+        })();
+    </script>
+
+    <!-- Anti-forgery token for the inline POST -->
+    <form style="display: none;">@Html.AntiForgeryToken()</form>
+}

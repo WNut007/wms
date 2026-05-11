@@ -166,6 +166,7 @@ builder.Services.AddScoped<IReportRepositoryFactory, ReportRepositoryFactory>();
 // Phase 24 — Tenant Admin: Users / Roles / AuditLog.
 builder.Services.AddScoped<IUserRoleRepositoryFactory, UserRoleRepositoryFactory>();
 builder.Services.AddScoped<IRoleRepositoryFactory, RoleRepositoryFactory>();
+builder.Services.AddScoped<IFunctionRepositoryFactory, FunctionRepositoryFactory>();
 builder.Services.AddScoped<IAuditLogRepositoryFactory, AuditLogRepositoryFactory>();
 builder.Services.AddScoped<ISecurityService, SecurityService>();
 
