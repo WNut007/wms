@@ -399,9 +399,14 @@ public sealed class AuthController : BaseController
             new(WmsClaimTypes.TenantId, selected.TenantId.ToString()),
             new(WmsClaimTypes.TenantCode, selected.TenantCode),
         };
-        // Phase 29 — carry MustChangePassword as a claim so the tenant-
-        // side middleware can intercept without a per-request DB hit.
-        // Cleared on successful change in AccountController by re-signing-in.
+        // P0 #4 post-30A — both branches below are now BELT-AND-SUSPENDERS.
+        // The in-flow forced-change path (AuthController.ChangePassword)
+        // applies the new password via AuthService.ApplyForcedPasswordChange-
+        // Async BEFORE re-entering this method, so `user.MustChangePassword`
+        // is always false here under the primary flow. The branches remain
+        // for the rare race where the User row's flag isn't yet cleared
+        // when we re-read it (e.g. read replica lag in a future hot path) —
+        // MustChangePasswordMiddleware then catches the next request.
         if (user.MustChangePassword)
             claims.Add(new Claim(WMS.Web.Multitenancy.MustChangePasswordMiddleware.ClaimType,
                 WMS.Web.Multitenancy.MustChangePasswordMiddleware.TrueValue));
@@ -411,10 +416,6 @@ public sealed class AuthController : BaseController
             CookieAuthenticationDefaults.AuthenticationScheme,
             new ClaimsPrincipal(identity));
 
-        // Phase 29 — bootstrap admins (MustChangePassword=true) skip the
-        // warehouse-select step entirely; jump to /Account/ChangePassword.
-        // The middleware would redirect anyway, but going there directly
-        // avoids the visible flicker through SelectWarehouse.
         if (user.MustChangePassword)
             return Redirect("/Account/ChangePassword");
 

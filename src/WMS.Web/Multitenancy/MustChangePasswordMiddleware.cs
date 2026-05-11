@@ -3,21 +3,26 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 
 namespace WMS.Web.Multitenancy;
 
-// Phase 29 (P0 fix) — enforce the MustChangePassword flag for tenant
-// users. When a bootstrap admin is provisioned via SuperAdmin tenant
-// onboarding (Phase 27), their User row gets MustChangePassword=true.
-// Without this middleware, the bootstrap admin could keep using the
-// temp password indefinitely — Phase 27 D4 said "first login redirects
-// to /Account/ChangePassword; cannot proceed until changed".
+// Phase 29 (P0 fix) → P0 #4 post-30A: SAFETY NET only.
 //
-// The flag is carried as a custom claim ("MustChangePassword") set at
-// SignInAsync time in AuthController.CompleteTenantSelectionAsync. When
-// the claim is "true", every request EXCEPT a small allowlist is
-// redirected to /Account/ChangePassword. The claim is cleared by
-// re-signing-in at the end of AccountController.ChangePassword.
+// PRIMARY path (P0 #4 post-30A): forced password change is now handled
+// in-flow at login time by AuthController.ChangePassword. Cookie
+// issuance is deferred until after the change, so users in this state
+// never have a session cookie — the sidebar simply doesn't render and
+// no bypass surface exists. The MustChangePassword claim is NOT set
+// on cookies issued under the new flow.
 //
-// Mirrors the SuperAdmin-side enforcement that already happens in
-// SuperAdminAuthController.Login post-auth.
+// FALLBACK path (this middleware): catches users whose cookies were
+// issued under the legacy Phase 29 path (claim=true) — typically a
+// long-running session from before the fix was deployed, or the rare
+// case where an admin force-flips a user's MustChangePassword=true
+// during a live session. Those users get redirected here to
+// /Account/ChangePassword to complete the change.
+//
+// The claim is cleared by re-signing-in at the end of
+// AccountController.ChangePassword (Phase 29
+// RefreshClaimsWithoutMustChangePasswordAsync). New cookies have no
+// claim, the middleware no-ops, normal flow resumes.
 //
 // Allowlisted paths (must NOT redirect, else infinite loop / lockout):
 //   /Account/ChangePassword       — the destination itself
