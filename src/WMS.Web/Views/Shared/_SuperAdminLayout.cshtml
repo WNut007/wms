@@ -1,0 +1,259 @@
+@{
+    var title = ViewData["Title"] as string ?? "SuperAdmin";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>@title · WMS SuperAdmin</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@@tabler/icons-webfont@2.40.0/tabler-icons.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@@400;500;600;700&family=JetBrains+Mono&display=swap">
+    <style>
+        :root {
+            --sa-bg: #0F172A;            /* slate-900 — dark admin shell */
+            --sa-surface: #1E293B;       /* slate-800 */
+            --sa-surface-2: #334155;     /* slate-700 */
+            --sa-border: #475569;        /* slate-600 */
+            --sa-text: #F1F5F9;          /* slate-100 */
+            --sa-text-secondary: #94A3B8;/* slate-400 */
+            --sa-accent: #DC2626;        /* red-600 — admin warning hue */
+            --sa-accent-hover: #B91C1C;  /* red-700 */
+            --sa-success: #16A34A;
+            --sa-danger: #EF4444;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--sa-bg);
+            color: var(--sa-text);
+            min-height: 100vh;
+        }
+        .sa-shell {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        .sa-topbar {
+            background: linear-gradient(90deg, #7F1D1D, #991B1B);
+            color: #fff;
+            padding: 14px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            border-bottom: 2px solid #DC2626;
+        }
+        .sa-brand {
+            font-weight: 700;
+            font-size: 16px;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .sa-brand .ti {
+            color: #FCA5A5;
+            font-size: 22px;
+        }
+        .sa-brand-meta {
+            color: #FCA5A5;
+            font-size: 11px;
+            margin-left: 8px;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        .sa-nav {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .sa-nav-link, .sa-nav-link:visited {
+            color: #FECACA;
+            text-decoration: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            transition: 150ms ease;
+        }
+        .sa-nav-link:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .sa-logout-form { display: inline; margin: 0; }
+        .sa-logout-btn {
+            background: rgba(0,0,0,0.2);
+            color: #fff;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 6px;
+            padding: 6px 14px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .sa-logout-btn:hover { background: rgba(0,0,0,0.4); }
+        .sa-main {
+            flex: 1;
+            padding: 24px;
+            max-width: 1280px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        .sa-card {
+            background: var(--sa-surface);
+            border: 1px solid var(--sa-border);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        .sa-title {
+            font-size: 22px;
+            font-weight: 600;
+            color: #fff;
+            margin: 0 0 16px 0;
+        }
+        .sa-subtitle {
+            font-size: 14px;
+            color: var(--sa-text-secondary);
+            margin: -8px 0 16px 0;
+        }
+        .sa-input {
+            width: 100%;
+            background: var(--sa-bg);
+            color: var(--sa-text);
+            border: 1px solid var(--sa-border);
+            border-radius: 6px;
+            padding: 9px 12px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        .sa-input:focus {
+            outline: none;
+            border-color: var(--sa-accent);
+            box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.2);
+        }
+        .sa-label {
+            display: block;
+            font-size: 12px;
+            color: var(--sa-text-secondary);
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+        .sa-btn {
+            background: var(--sa-accent);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 18px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: 150ms ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .sa-btn:hover { background: var(--sa-accent-hover); }
+        .sa-btn-secondary {
+            background: transparent;
+            border: 1px solid var(--sa-border);
+            color: var(--sa-text);
+        }
+        .sa-btn-secondary:hover {
+            background: var(--sa-surface-2);
+            border-color: var(--sa-text-secondary);
+        }
+        .sa-banner-ok {
+            background: rgba(22, 163, 74, 0.15);
+            border: 1px solid #16A34A;
+            color: #BBF7D0;
+            padding: 10px 14px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-size: 13px;
+        }
+        .sa-banner-err {
+            background: rgba(220, 38, 38, 0.15);
+            border: 1px solid #DC2626;
+            color: #FECACA;
+            padding: 10px 14px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-size: 13px;
+        }
+        .sa-warn-banner {
+            background: rgba(217, 119, 6, 0.15);
+            border: 1px solid #D97706;
+            color: #FEF3C7;
+            padding: 10px 14px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-size: 13px;
+        }
+        .sa-field-error {
+            display: block;
+            color: #FCA5A5;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+        .sa-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .sa-table th, .sa-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--sa-border);
+            text-align: left;
+        }
+        .sa-table th {
+            color: var(--sa-text-secondary);
+            font-weight: 500;
+            background: rgba(255,255,255,0.02);
+        }
+        .sa-table tr:hover td { background: rgba(255,255,255,0.04); cursor: pointer; }
+        .sa-mono {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: #FCA5A5;
+        }
+        .sa-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .sa-badge-active   { background: rgba(22, 163, 74, 0.2); color: #86EFAC; }
+        .sa-badge-suspend  { background: rgba(217, 119, 6, 0.2); color: #FCD34D; }
+        .sa-badge-inactive { background: rgba(100, 116, 139, 0.2); color: #CBD5E1; }
+    </style>
+</head>
+<body>
+<div class="sa-shell">
+    @if (User.Identity?.IsAuthenticated == true)
+    {
+        <header class="sa-topbar">
+            <div class="sa-brand">
+                <i class="ti ti-shield-cog"></i>
+                <span>WMS SuperAdmin</span>
+                <span class="sa-brand-meta">PLATFORM CONSOLE</span>
+            </div>
+            <div class="sa-nav">
+                <a class="sa-nav-link" href="/SuperAdmin/Dashboard">Dashboard</a>
+                <a class="sa-nav-link" href="/SuperAdmin/Tenants">Tenants</a>
+                <a class="sa-nav-link" href="/SuperAdmin/ChangePassword">Change password</a>
+                <span class="sa-nav-link" style="color: #FCA5A5;">@User.Identity.Name</span>
+                <form class="sa-logout-form" method="post" action="/SuperAdmin/Logout">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="sa-logout-btn">Logout</button>
+                </form>
+            </div>
+        </header>
+    }
+    <main class="sa-main">
+        @RenderBody()
+    </main>
+</div>
+@RenderSection("Scripts", required: false)
+</body>
+</html>
