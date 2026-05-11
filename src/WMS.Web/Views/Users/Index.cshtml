@@ -1,0 +1,124 @@
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Users";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Users</p>
+        <div class="wms-breadcrumb">
+            <span>Security</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Users</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <a asp-action="Create" class="wms-btn wms-btn-purple">
+            <i class="ti ti-user-plus" style="font-size: 14px;" aria-hidden="true"></i>
+            New user
+        </a>
+    </div>
+</div>
+
+@if (TempData["UserMessage"] is string okMsg)
+{
+    <div class="wms-banner wms-banner-success" style="margin-bottom: 12px;">@okMsg</div>
+}
+@if (TempData["UserError"] is string errMsg)
+{
+    <div class="wms-banner wms-banner-danger" style="margin-bottom: 12px;">@errMsg</div>
+}
+
+<div x-data="usersList()" x-init="load()">
+    <div class="wms-card" style="padding: 0;">
+        <div class="wms-filter-bar" style="padding: 12px 16px; gap: 12px;">
+            <div class="wms-filter-search" style="flex: 1;">
+                <i class="ti ti-search wms-filter-search-icon" aria-hidden="true"></i>
+                <input type="text" class="wms-input" placeholder="Search by email or name..."
+                       x-model="search" @@input.debounce.300ms="page = 1; load()" />
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 6px; padding: 0 16px 12px 16px; flex-wrap: wrap;">
+            <template x-for="s in statuses" :key="s.id">
+                <button type="button" class="wmsp-chip" :class="status === s.id ? 'wmsp-chip-active' : ''"
+                        @@click="status = s.id; page = 1; load()">
+                    <span x-text="s.label"></span>
+                    <span class="wmsp-chip-count" x-text="counts[s.id] ?? 0"></span>
+                </button>
+            </template>
+        </div>
+
+        <table class="wms-table">
+            <thead>
+                <tr>
+                    <th>Email</th>
+                    <th>Full name</th>
+                    <th>Roles</th>
+                    <th>Status</th>
+                    <th>Last login</th>
+                    <th>Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-if="loading">
+                    <tr><td colspan="6" style="text-align: center; padding: 24px;">Loading...</td></tr>
+                </template>
+                <template x-if="!loading && items.length === 0">
+                    <tr><td colspan="6" style="text-align: center; padding: 32px; color: var(--wms-text-secondary);">No users match the current filter.</td></tr>
+                </template>
+                <template x-for="u in items" :key="u.id">
+                    <tr style="cursor: pointer;" @@click="window.location = `/Users/Detail/${u.id}`">
+                        <td><span class="rp-mono" x-text="u.email"></span></td>
+                        <td x-text="u.fullName || '—'"></td>
+                        <td><span style="font-size: 12px; color: var(--wms-text-secondary);" x-text="u.roleCodes || 'no roles'"></span></td>
+                        <td><span class="wms-badge" :class="u.statusVariant" x-text="u.status"></span></td>
+                        <td x-text="u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : '—'"></td>
+                        <td x-text="new Date(u.createdAt).toLocaleDateString()"></td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px;">
+            <span style="font-size: 12px; color: var(--wms-text-secondary);">
+                <span x-text="total"></span> users · page <span x-text="page"></span> of <span x-text="totalPages || 1"></span>
+            </span>
+            <div style="display: flex; gap: 6px;">
+                <button type="button" class="wms-btn" :disabled="page <= 1" @@click="page--; load()">Prev</button>
+                <button type="button" class="wms-btn" :disabled="page >= totalPages" @@click="page++; load()">Next</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function usersList() {
+        return {
+            items: [], total: 0, page: 1, pageSize: 20, totalPages: 0,
+            search: '', status: 'all', loading: false,
+            counts: { all: 0, active: 0, inactive: 0, locked: 0 },
+            statuses: [
+                { id: 'all',      label: 'All' },
+                { id: 'active',   label: 'Active' },
+                { id: 'inactive', label: 'Inactive' },
+                { id: 'locked',   label: 'Locked' },
+            ],
+            async load() {
+                this.loading = true;
+                const params = new URLSearchParams({
+                    page: this.page, pageSize: this.pageSize,
+                    search: this.search,
+                    status: this.status === 'all' ? '' : this.status,
+                });
+                const res = await fetch(`/Users/Data?${params}`);
+                const data = await res.json();
+                this.items = data.items;
+                this.total = data.total;
+                this.totalPages = data.totalPages;
+                this.counts = data.counts;
+                this.loading = false;
+            }
+        }
+    }
+</script>
