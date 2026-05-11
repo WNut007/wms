@@ -299,6 +299,20 @@ main.page-main {
   border-radius: 50%;
 }
 
+/* TD-115 — parent menu item state when a CHILD route is active.
+   Provides visual "this section is open" without competing with the
+   leaf's `.active` dot. No yellow dot, no white left strip, just a
+   subtle highlight + chevron rotation. */
+.wms-sidebar-item.expanded {
+  background: rgba(255, 255, 255, 0.06);
+  color: white;
+}
+
+.wms-sidebar-item.expanded .wms-sidebar-item-chevron {
+  transform: rotate(180deg);
+  opacity: 0.9;
+}
+
 .wms-sidebar-item-icon {
   font-size: 16px;
   flex-shrink: 0;
@@ -457,6 +471,14 @@ main.page-main {
   top: 6px;
   right: 6px;
   transform: none;
+}
+
+/* TD-115 — parent .expanded in collapsed mode keeps the subtle
+   highlight so operator can still see which section is open. No
+   yellow dot (that's the leaf's). */
+.sidebar-collapsed .wms-sidebar-item.expanded {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
 }
 
 .sidebar-collapsed .wms-sidebar-divider {

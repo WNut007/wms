@@ -40,10 +40,14 @@
     {
         // Phase 9A — Inbound expands to Purchase Orders submenu (and
         // future GR + ASN entries when 9B + 9C land).
-        var inboundActive = IsActive("INBOUND") || IsActive("PurchaseOrders")
-            || IsActive("GoodsReceipt") || IsActive("Receiving") || IsActive("Receive");
+        // TD-115 (post-30A): parent gets `.expanded` (highlighted but
+        // no yellow leaf-dot), child gets `.active`. Yellow dot is
+        // reserved for the leaf so it never duplicates.
+        var inboundExpanded = IsActive("INBOUND") || IsActive("PurchaseOrders")
+            || IsActive("GoodsReceipt") || IsActive("Receiving") || IsActive("Receive")
+            || IsActive("Putaway");
         <a href="@Url.Action("Index", "PurchaseOrders")"
-           class="wms-sidebar-item @(inboundActive ? "active" : "")"
+           class="wms-sidebar-item @(inboundExpanded ? "expanded" : "")"
            title="@module.DisplayName">
             <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
             <span class="wms-sidebar-item-text">@module.DisplayName</span>
@@ -76,9 +80,10 @@
     {
         // Phase 12 — Cycle Counts (desktop). Phase 21 — Cycle Count
         // (mobile): /count/ PWA queue + per-session count entry.
-        var countsActive = IsActive("COUNTS") || IsActive("CycleCounts") || IsActive("Count");
+        // TD-115 — see INBOUND block for the .expanded vs .active split.
+        var countsExpanded = IsActive("COUNTS") || IsActive("CycleCounts") || IsActive("Count");
         <a href="@Url.Action("Index", "CycleCounts")"
-           class="wms-sidebar-item @(countsActive ? "active" : "")"
+           class="wms-sidebar-item @(countsExpanded ? "expanded" : "")"
            title="@module.DisplayName">
             <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
             <span class="wms-sidebar-item-text">@module.DisplayName</span>
@@ -99,9 +104,10 @@
     {
         // Phase 11A + 13 — Inventory submenu: Adjustments + Transfers.
         // Future: Stock browser, Lots, Pallets.
-        var inventoryActive = IsActive("INVENTORY") || IsActive("Adjustments") || IsActive("Transfers") || IsActive("Locate");
+        // TD-115 — see INBOUND block for the .expanded vs .active split.
+        var inventoryExpanded = IsActive("INVENTORY") || IsActive("Adjustments") || IsActive("Transfers") || IsActive("Locate");
         <a href="@Url.Action("Index", "Adjustments")"
-           class="wms-sidebar-item @(inventoryActive ? "active" : "")"
+           class="wms-sidebar-item @(inventoryExpanded ? "expanded" : "")"
            title="@module.DisplayName">
             <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
             <span class="wms-sidebar-item-text">@module.DisplayName</span>
@@ -128,12 +134,13 @@
         // Phase 14C/D/E added Pick / Pack / Shipment execution surfaces.
         // Phase 15A added list pages (Index actions) — submenu fills out
         // T1/T2/T3 chunk-by-chunk as each list lands.
-        var outboundActive = IsActive("OUTBOUND")
+        // TD-115 — see INBOUND block for the .expanded vs .active split.
+        var outboundExpanded = IsActive("OUTBOUND")
             || IsActive("SalesOrders") || IsActive("PickTasks")
             || IsActive("PackTasks") || IsActive("Shipments")
             || IsActive("Pick") || IsActive("Pack");
         <a href="@Url.Action("Index", "SalesOrders")"
-           class="wms-sidebar-item @(outboundActive ? "active" : "")"
+           class="wms-sidebar-item @(outboundExpanded ? "expanded" : "")"
            title="@module.DisplayName">
             <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
             <span class="wms-sidebar-item-text">@module.DisplayName</span>
@@ -191,10 +198,11 @@
             // Module surfaces when user has SECURITY.* (USERS / ROLES /
             // AUDIT_LOG). ADMIN holds all via BLL bypass; MANAGER holds
             // AUDIT_LOG view only by default — see Migration_044.
-            var securityActive = IsActive("SECURITY") || IsActive("Users")
+            // TD-115 — see INBOUND block for the .expanded vs .active split.
+            var securityExpanded = IsActive("SECURITY") || IsActive("Users")
                 || IsActive("Roles") || IsActive("AuditLog");
             <a href="@Url.Action("Index", "Users")"
-               class="wms-sidebar-item @(securityActive ? "active" : "")"
+               class="wms-sidebar-item @(securityExpanded ? "expanded" : "")"
                title="@module.DisplayName">
                 <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
                 <span class="wms-sidebar-item-text">@module.DisplayName</span>
@@ -221,9 +229,10 @@
             // analytics, Operational KPIs. Module surfaces when the user
             // has REPORTS.VIEW (seeded by Migration_033, granted to
             // MANAGER by Migration_034; ADMIN gets it via BLL bypass).
-            var reportsActive = IsActive("REPORTS") || IsActive("Reports");
+            // TD-115 — see INBOUND block for the .expanded vs .active split.
+            var reportsExpanded = IsActive("REPORTS") || IsActive("Reports");
             <a href="@Url.Action("Index", "Reports")"
-               class="wms-sidebar-item @(reportsActive ? "active" : "")"
+               class="wms-sidebar-item @(reportsExpanded ? "expanded" : "")"
                title="@module.DisplayName">
                 <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
                 <span class="wms-sidebar-item-text">@module.DisplayName</span>
@@ -252,9 +261,10 @@
         {
             // Master Data — Phase 3 wired Warehouses; Phase 4 added
             // Products + Customers list/detail pages.
-            var masterActive = IsActive("MASTER") || IsActive("Warehouses") || IsActive("Products") || IsActive("Customers");
+            // TD-115 — see INBOUND block for the .expanded vs .active split.
+            var masterExpanded = IsActive("MASTER") || IsActive("Warehouses") || IsActive("Products") || IsActive("Customers");
             <a href="@Url.Action("Index", "Warehouses")"
-               class="wms-sidebar-item @(masterActive ? "active" : "")"
+               class="wms-sidebar-item @(masterExpanded ? "expanded" : "")"
                title="@module.DisplayName">
                 <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
                 <span class="wms-sidebar-item-text">@module.DisplayName</span>
