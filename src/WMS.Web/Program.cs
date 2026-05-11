@@ -291,7 +291,14 @@ var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/Home/Error");
+    // Phase 26 — production error handling. UseExceptionHandler catches
+    // unhandled exceptions; StatusCodePagesWithReExecute routes 4xx/5xx
+    // responses (without a body) through the ErrorController so the
+    // operator sees a styled page instead of a blank Kestrel reply.
+    // Both gated to non-Development so the dev exception page stays in
+    // place locally.
+    app.UseExceptionHandler("/Error/500");
+    app.UseStatusCodePagesWithReExecute("/Error/{0}");
     app.UseHsts();
 }
 

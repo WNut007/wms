@@ -1,0 +1,24 @@
+@model WMS.Web.Controllers.ErrorPageViewModel
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Server error · WMS";
+}
+
+<div class="rp-chart-card" style="max-width: 540px; margin: 60px auto; text-align: center; padding: 40px 30px;">
+    <div style="width: 64px; height: 64px; border-radius: 50%; background: #FEE2E2; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 16px;">
+        <i class="ti ti-alert-triangle" style="font-size: 32px; color: #DC2626;" aria-hidden="true"></i>
+    </div>
+    <h2 style="margin: 0 0 8px; font-size: 22px; color: #1F2937;">@Model.Title</h2>
+    <p style="color: var(--wms-text-secondary); margin: 0 0 20px;">@Model.Message</p>
+    <p style="font-size: 12px; color: var(--wms-text-tertiary); margin: 0 0 20px;">
+        Error code: @Model.Code · The team has been notified.
+    </p>
+    <div style="display: flex; gap: 8px; justify-content: center;">
+        <a href="/" class="wms-btn wms-btn-purple">
+            <i class="ti ti-arrow-left" aria-hidden="true"></i> Back to dashboard
+        </a>
+        <a href="javascript:history.back()" class="wms-btn">
+            <i class="ti ti-arrow-back" aria-hidden="true"></i> Try again
+        </a>
+    </div>
+</div>
