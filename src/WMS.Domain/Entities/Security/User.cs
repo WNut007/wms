@@ -14,4 +14,11 @@ public sealed class User : BaseEntity
     public int FailedLoginAttempts { get; set; }
     public DateTime? LockedUntil { get; set; }
     public decimal? ApprovalLimit { get; set; }
+
+    // Phase 27 — Migration_20260514_035. Bootstrap users provisioned
+    // through SuperAdmin tenant-onboarding start with MustChangePassword
+    // = true; first-login middleware redirects to /Account/ChangePassword
+    // and refuses to proceed until cleared. UpdatePasswordHashAsync
+    // clears this flag as a side-effect of the password change.
+    public bool MustChangePassword { get; set; }
 }

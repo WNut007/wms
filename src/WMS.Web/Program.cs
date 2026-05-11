@@ -175,6 +175,9 @@ builder.Services.AddScoped<IFunctionRepositoryFactory, FunctionRepositoryFactory
 builder.Services.AddScoped<IAuditLogRepositoryFactory, AuditLogRepositoryFactory>();
 builder.Services.AddScoped<ISecurityService, SecurityService>();
 
+// Phase 27 — SuperAdmin (master DB) + tenant provisioning.
+builder.Services.AddScoped<ISuperAdminRepository, SuperAdminRepository>();
+
 // Phase 17 — pack-video retention. Binds RetentionDays + CronSchedule
 // from "PackVideoRetention" section. Job registered as Scoped so
 // Hangfire's per-execution scope provides fresh repo factories.
@@ -360,5 +363,23 @@ app.MapHangfireDashboard("/hangfire", new Hangfire.DashboardOptions
 app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Home}/{action=Index}/{id?}");
+
+// Phase 27 — bootstrap initial SuperAdmin from config on first run.
+// Idempotent + skips silently when InitialSuperAdmin config is absent.
+using (var scope = app.Services.CreateScope())
+{
+    var bootstrapLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        await SuperAdminBootstrap.EnsureAsync(scope.ServiceProvider, bootstrapLogger);
+    }
+    catch (Exception ex)
+    {
+        // Don't crash boot — bootstrap failure (DB unreachable, etc.)
+        // should be loud in logs but the app still starts so the
+        // operator can investigate.
+        bootstrapLogger.LogError(ex, "SuperAdmin bootstrap failed — continuing startup.");
+    }
+}
 
 app.Run();
