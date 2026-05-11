@@ -12,6 +12,7 @@ using WMS.BLL.Services.Auth;
 using WMS.BLL.Services.Security;
 using WMS.BLL.Services.SuperAdmin;
 using WMS.Web.Auth;
+using WMS.Web.Services.SuperAdmin;
 using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
 using WMS.BLL.Services.Counts;
@@ -197,6 +198,7 @@ builder.Services.AddScoped<ISecurityService, SecurityService>();
 builder.Services.AddScoped<ISuperAdminRepository, SuperAdminRepository>();
 builder.Services.AddScoped<ISystemAuditLogRepository, SystemAuditLogRepository>();
 builder.Services.AddScoped<ISuperAdminAuthService, SuperAdminAuthService>();
+builder.Services.AddScoped<ITenantProvisioningService, TenantProvisioningService>();
 
 // Phase 17 — pack-video retention. Binds RetentionDays + CronSchedule
 // from "PackVideoRetention" section. Job registered as Scoped so
