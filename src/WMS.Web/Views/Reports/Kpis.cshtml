@@ -1,6 +1,28 @@
+@using System.Text.Json
+@using WMS.Web.ViewModels.Reports
+@model KpiReportViewModel
 @{
     Layout = "_OfficeLayout";
     ViewData["Title"] = "Operational KPIs";
+
+    // Build a unified day-axis so picks + packs share the same x-axis.
+    var allDays = Model.PicksByDay.Select(p => p.Day)
+        .Union(Model.PacksByDay.Select(p => p.Day))
+        .OrderBy(d => d)
+        .ToList();
+    var picksLookup = Model.PicksByDay.ToDictionary(p => p.Day, p => p.Operations);
+    var packsLookup = Model.PacksByDay.ToDictionary(p => p.Day, p => p.Operations);
+
+    var dayLabels  = JsonSerializer.Serialize(allDays.Select(d => d.ToString("yyyy-MM-dd")));
+    var picksData  = JsonSerializer.Serialize(allDays.Select(d => picksLookup.GetValueOrDefault(d, 0)));
+    var packsData  = JsonSerializer.Serialize(allDays.Select(d => packsLookup.GetValueOrDefault(d, 0)));
+
+    var pickerLabels = JsonSerializer.Serialize(Model.TopPickers.Select(p => p.UserName));
+    var pickerSeries = JsonSerializer.Serialize(Model.TopPickers.Select(p => p.OperationCount));
+
+    string Active(string p) => Model.Preset == p ? "rp-preset-active" : "";
+    string OnTimeColor(decimal pct) => pct >= 95 ? "#1D9E75" : pct >= 85 ? "#D97706" : "#DC2626";
+    string AccuracyColor(decimal pct) => pct >= 99 ? "#1D9E75" : pct >= 95 ? "#D97706" : "#DC2626";
 }
 
 <div class="wms-page-header">
@@ -14,9 +36,244 @@
             <span class="wms-breadcrumb-current">KPIs</span>
         </div>
     </div>
+    <div class="wms-page-actions">
+        <a asp-action="ExportKpis" asp-route-range="@Model.Preset" class="wms-btn wms-btn-purple">
+            <i class="ti ti-table-export" style="font-size: 14px;" aria-hidden="true"></i>
+            Export Excel
+        </a>
+    </div>
 </div>
 
-<div class="wms-card" style="padding: 24px; text-align: center;">
-    <i class="ti ti-loader" style="font-size: 32px; color: #6B7280; margin-bottom: 8px;"></i>
-    <p style="color: #6B7280; margin: 0;">Operational KPIs wire up in T4.</p>
+<div class="rp-preset-bar">
+    <span class="rp-preset-label">Range:</span>
+    <a asp-action="Kpis" asp-route-range="today"   class="rp-preset @Active("today")">Today</a>
+    <a asp-action="Kpis" asp-route-range="week"    class="rp-preset @Active("week")">Last 7 days</a>
+    <a asp-action="Kpis" asp-route-range="month"   class="rp-preset @Active("month")">Last 30 days</a>
+    <a asp-action="Kpis" asp-route-range="quarter" class="rp-preset @Active("quarter")">Last 90 days</a>
+    <a asp-action="Kpis" asp-route-range="year"    class="rp-preset @Active("year")">Last year</a>
+    <span class="rp-preset-hint">Showing @Model.PresetLabel · @Model.FromUtc.ToString("yyyy-MM-dd") → @Model.ToUtc.ToString("yyyy-MM-dd") UTC</span>
 </div>
+
+<div class="rp-stats">
+    <div class="rp-stat" style="border-left-color: #534AB7;">
+        <p class="rp-stat-label">Total picks</p>
+        <p class="rp-stat-value" style="color: #534AB7;">@Model.TotalPicks</p>
+        <p class="rp-stat-meta">tasks completed</p>
+    </div>
+    <div class="rp-stat" style="border-left-color: #1D9E75;">
+        <p class="rp-stat-label">Total packs</p>
+        <p class="rp-stat-value" style="color: #1D9E75;">@Model.TotalPacks</p>
+        <p class="rp-stat-meta">cartons sealed</p>
+    </div>
+    <div class="rp-stat" style="border-left-color: @OnTimeColor(Model.OnTimePercentage);">
+        <p class="rp-stat-label">On-time shipping</p>
+        <p class="rp-stat-value" style="color: @OnTimeColor(Model.OnTimePercentage);">@Model.OnTimePercentage.ToString("F1")%</p>
+        <p class="rp-stat-meta">@Model.OnTimeShipping.OnTimeShipped / @Model.OnTimeShipping.TotalShipped shipped</p>
+    </div>
+    <div class="rp-stat" style="border-left-color: @AccuracyColor(Model.AccuracyPercentage);">
+        <p class="rp-stat-label">Count accuracy</p>
+        <p class="rp-stat-value" style="color: @AccuracyColor(Model.AccuracyPercentage);">@Model.AccuracyPercentage.ToString("F1")%</p>
+        <p class="rp-stat-meta">@Model.CycleCountVariance.VarianceLines variance / @Model.CycleCountVariance.CountedLines counted</p>
+    </div>
+</div>
+
+<div class="rp-chart-card" style="margin-bottom: 20px;">
+    <p class="rp-chart-title">Throughput — picks vs packs per day</p>
+    <p class="rp-chart-desc">Daily completed pick tasks and sealed pack tasks within range.</p>
+    <div id="throughputChart" style="height: 360px;"></div>
+</div>
+
+<div class="rp-chart-grid">
+    <div class="rp-chart-card">
+        <p class="rp-chart-title">Top 10 pickers</p>
+        <p class="rp-chart-desc">Operators by completed pick task count.</p>
+        @if (Model.TopPickers.Count == 0)
+        {
+            <p class="rp-empty">No pick tasks completed in this range.</p>
+        }
+        else
+        {
+            <div id="pickerChart" style="height: 320px;"></div>
+        }
+    </div>
+    <div class="rp-chart-card">
+        <p class="rp-chart-title">Cycle count summary</p>
+        <p class="rp-chart-desc">Sessions applied within range — variance lines vs counted lines.</p>
+        <table class="rp-kpi-table">
+            <tr>
+                <td>Total sessions</td>
+                <td class="rp-num">@Model.CycleCountVariance.TotalSessions</td>
+            </tr>
+            <tr>
+                <td>Applied sessions</td>
+                <td class="rp-num">@Model.CycleCountVariance.AppliedSessions</td>
+            </tr>
+            <tr>
+                <td>Counted lines (in applied sessions)</td>
+                <td class="rp-num">@Model.CycleCountVariance.CountedLines</td>
+            </tr>
+            <tr>
+                <td>Variance lines</td>
+                <td class="rp-num" style="color: @AccuracyColor(Model.AccuracyPercentage);">
+                    @Model.CycleCountVariance.VarianceLines
+                </td>
+            </tr>
+            <tr>
+                <td><strong>Variance rate</strong></td>
+                <td class="rp-num"><strong style="color: @AccuracyColor(Model.AccuracyPercentage);">@Model.VariancePercentage.ToString("F2")%</strong></td>
+            </tr>
+        </table>
+    </div>
+</div>
+
+<style>
+    .rp-preset-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+    }
+    .rp-preset-label {
+        font-size: 12px;
+        color: var(--wms-text-secondary);
+        margin-right: 4px;
+    }
+    .rp-preset {
+        padding: 6px 12px;
+        font-size: 12px;
+        background: #fff;
+        border: 1px solid #E5E7EB;
+        border-radius: 999px;
+        color: var(--wms-text-secondary);
+        text-decoration: none;
+        transition: 150ms ease;
+    }
+    .rp-preset:hover {
+        background: #F3F4F6;
+        color: #1F2937;
+    }
+    .rp-preset-active {
+        background: #534AB7;
+        border-color: #534AB7;
+        color: #fff;
+    }
+    .rp-preset-active:hover {
+        background: #4F46E5;
+        color: #fff;
+    }
+    .rp-preset-hint {
+        font-size: 11px;
+        color: var(--wms-text-tertiary);
+        margin-left: 6px;
+        font-style: italic;
+    }
+    .rp-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin-bottom: 20px;
+    }
+    .rp-stat {
+        background: #fff;
+        border: 1px solid #E5E7EB;
+        border-radius: 10px;
+        padding: 16px;
+        border-left: 3px solid #534AB7;
+    }
+    .rp-stat-label {
+        font-size: 11px;
+        color: var(--wms-text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        margin: 0 0 6px 0;
+    }
+    .rp-stat-value {
+        font-size: 28px;
+        font-weight: 600;
+        color: #1F2937;
+        margin: 0 0 4px 0;
+    }
+    .rp-stat-meta {
+        font-size: 11px;
+        color: var(--wms-text-tertiary);
+        margin: 0;
+    }
+    .rp-chart-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+        margin-bottom: 20px;
+    }
+    @@media (max-width: 900px) {
+        .rp-chart-grid { grid-template-columns: 1fr; }
+    }
+    .rp-chart-card {
+        background: #fff;
+        border: 1px solid #E5E7EB;
+        border-radius: 10px;
+        padding: 18px;
+    }
+    .rp-chart-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: #1F2937;
+        margin: 0 0 4px 0;
+    }
+    .rp-chart-desc {
+        font-size: 12px;
+        color: var(--wms-text-secondary);
+        margin: 0 0 14px 0;
+    }
+    .rp-empty {
+        text-align: center;
+        color: var(--wms-text-secondary);
+        padding: 20px 0;
+        margin: 0;
+    }
+    .rp-kpi-table {
+        width: 100%;
+        font-size: 13px;
+        border-collapse: collapse;
+    }
+    .rp-kpi-table td {
+        padding: 8px 4px;
+        border-bottom: 1px solid #F3F4F6;
+    }
+    .rp-num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        new ApexCharts(document.getElementById('throughputChart'), {
+            chart: { type: 'line', toolbar: { show: false }, fontFamily: 'Inter, system-ui, sans-serif' },
+            series: [
+                { name: 'Picks', data: @Html.Raw(picksData) },
+                { name: 'Packs', data: @Html.Raw(packsData) }
+            ],
+            xaxis: { categories: @Html.Raw(dayLabels), labels: { rotate: -45, style: { fontSize: '10px' } } },
+            stroke: { curve: 'smooth', width: 3 },
+            colors: ['#534AB7', '#1D9E75'],
+            markers: { size: 4 },
+            dataLabels: { enabled: false },
+            legend: { position: 'top', horizontalAlign: 'right' },
+            grid: { borderColor: '#F3F4F6' }
+        }).render();
+
+        var pickerEl = document.getElementById('pickerChart');
+        if (pickerEl) {
+            new ApexCharts(pickerEl, {
+                chart: { type: 'bar', toolbar: { show: false }, fontFamily: 'Inter, system-ui, sans-serif' },
+                series: [{ name: 'Picks', data: @Html.Raw(pickerSeries) }],
+                xaxis: { categories: @Html.Raw(pickerLabels) },
+                colors: ['#7F77DD'],
+                plotOptions: { bar: { borderRadius: 4, horizontal: true, barHeight: '60%' } },
+                dataLabels: { enabled: true, style: { fontSize: '11px' } },
+                grid: { borderColor: '#F3F4F6' }
+            }).render();
+        }
+    });
+</script>

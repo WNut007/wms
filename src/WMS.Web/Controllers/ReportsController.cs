@@ -80,5 +80,24 @@ public sealed class ReportsController : Controller
     }
 
     [HttpGet("Kpis")]
-    public IActionResult Kpis() => View();
+    public async Task<IActionResult> Kpis(string? range = null, CancellationToken ct = default)
+    {
+        var (fromUtc, toUtc, label) = DateRangePreset.Resolve(range);
+        var repo = _repos.For(_tenant.RequireTenantId());
+
+        var vm = new KpiReportViewModel
+        {
+            PicksByDay         = await repo.GetPicksByDayAsync(fromUtc, toUtc, ct),
+            PacksByDay         = await repo.GetPacksByDayAsync(fromUtc, toUtc, ct),
+            CycleCountVariance = await repo.GetCycleCountVarianceAsync(fromUtc, toUtc, ct),
+            OnTimeShipping     = await repo.GetOnTimeShippingAsync(fromUtc, toUtc, ct),
+            TopPickers         = await repo.GetTopPickersAsync(fromUtc, toUtc, limit: 10, ct),
+            Preset             = DateRangePreset.NormalisePreset(range),
+            PresetLabel        = label,
+            FromUtc            = fromUtc,
+            ToUtc              = toUtc,
+        };
+
+        return View(vm);
+    }
 }
