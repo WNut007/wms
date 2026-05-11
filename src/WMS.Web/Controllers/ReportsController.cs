@@ -59,7 +59,25 @@ public sealed class ReportsController : Controller
     }
 
     [HttpGet("Orders")]
-    public IActionResult Orders() => View();
+    public async Task<IActionResult> Orders(string? range = null, CancellationToken ct = default)
+    {
+        var (fromUtc, toUtc, label) = DateRangePreset.Resolve(range);
+        var repo = _repos.For(_tenant.RequireTenantId());
+
+        var vm = new OrderAnalyticsViewModel
+        {
+            OrdersByStatus   = await repo.GetOrdersByStatusAsync(fromUtc, toUtc, ct),
+            OrdersByDate     = await repo.GetOrdersByDateAsync(fromUtc, toUtc, ct),
+            TopCustomers     = await repo.GetTopCustomersAsync(fromUtc, toUtc, limit: 10, ct),
+            FulfillmentCycle = await repo.GetFulfillmentCycleAsync(fromUtc, toUtc, ct),
+            Preset           = DateRangePreset.NormalisePreset(range),
+            PresetLabel      = label,
+            FromUtc          = fromUtc,
+            ToUtc            = toUtc,
+        };
+
+        return View(vm);
+    }
 
     [HttpGet("Kpis")]
     public IActionResult Kpis() => View();
