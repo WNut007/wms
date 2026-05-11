@@ -176,26 +176,45 @@ public sealed class TenantProvisioningService : ITenantProvisioningService
         Guid tenantId, Guid actorSuperAdminId,
         string? ipAddress, string? userAgent, CancellationToken ct = default)
     {
-        // Resolve tenant DB name from master.Tenants.
+        // Resolve tenant DB name + canonical admin email from master.
+        // master.UserTenantMap is the authoritative source for "who is
+        // this tenant's primary admin" — IsDefault=1 marks the bootstrap
+        // admin set up by SuperAdmin onboarding (Phase 27). This avoids
+        // the P0 #1 / #5 bug where a leaked dev-seed admin (from
+        // Migration_041 pre-gate) was treated as "first ADMIN".
         using var masterConn = _masterFactory.CreateConnection();
-        var dbName = await masterConn.QuerySingleOrDefaultAsync<string?>(
-            new CommandDefinition("SELECT DatabaseName FROM [master].[Tenants] WHERE Id = @tenantId",
-                new { tenantId }, cancellationToken: ct))
-            ?? throw new InvalidOperationException($"Tenant '{tenantId}' not found.");
+        var tenantInfo = await masterConn.QuerySingleOrDefaultAsync<(string DatabaseName, string? AdminEmail)?>(
+            new CommandDefinition(@"
+SELECT
+    t.DatabaseName,
+    (SELECT TOP 1 m.UserEmail
+       FROM [master].[UserTenantMap] m
+       WHERE m.TenantId = t.Id AND m.IsDefault = 1
+       ORDER BY m.CreatedAt ASC) AS AdminEmail
+FROM [master].[Tenants] t
+WHERE t.Id = @tenantId",
+                new { tenantId }, cancellationToken: ct));
+
+        if (tenantInfo is null)
+            throw new InvalidOperationException($"Tenant '{tenantId}' not found.");
+
+        var (dbName, adminEmail) = (tenantInfo.Value.DatabaseName, tenantInfo.Value.AdminEmail);
+        if (string.IsNullOrEmpty(adminEmail))
+            throw new InvalidOperationException(
+                $"Tenant '{tenantId}' has no IsDefault=1 admin in master.UserTenantMap — " +
+                "cannot determine target admin for reset.");
 
         var tempPassword = TempPasswordGenerator.Generate();
         var newHash = _auth.HashPassword(tempPassword);
 
-        // Update FIRST active ADMIN user in tenant DB (ADMIN by role code).
-        // OUTPUT clause captures email + name so we can send a reset email
-        // after the audit row is appended.
-        string? adminEmail = null;
+        // Update by email (deterministic). OUTPUT clause captures the
+        // user's FullName for the reset email; Email is already known.
         string? adminFullName = null;
         var tenantConn = BuildTenantConnection(dbName);
         using (var conn = new SqlConnection(tenantConn))
         {
             await conn.OpenAsync(ct);
-            var row = await conn.QuerySingleOrDefaultAsync<(string Email, string? FullName)?>(
+            var row = await conn.QuerySingleOrDefaultAsync<(string? FullName, int Dummy)?>(
                 new CommandDefinition(@"
 UPDATE u
 SET PasswordHash = @newHash,
@@ -204,22 +223,15 @@ SET PasswordHash = @newHash,
     LockedUntil = NULL,
     UpdatedAt = SYSUTCDATETIME(),
     UpdatedBy = NULL
-OUTPUT inserted.Email, inserted.FullName
+OUTPUT inserted.FullName, 1 AS Dummy
 FROM security.Users u
-WHERE u.Id = (
-    SELECT TOP 1 u2.Id
-    FROM security.Users u2
-    INNER JOIN security.UserRoles ur ON ur.UserId = u2.Id
-    INNER JOIN security.Roles r ON r.Id = ur.RoleId
-    WHERE r.Code = 'ADMIN' AND u2.IsActive = 1
-    ORDER BY u2.CreatedAt ASC);",
-                new { newHash }, cancellationToken: ct));
+WHERE u.Email = @adminEmail AND u.IsActive = 1;",
+                new { newHash, adminEmail }, cancellationToken: ct));
 
             if (row is null)
                 throw new InvalidOperationException(
-                    $"No active ADMIN user found in tenant DB '{dbName}'.");
+                    $"Tenant '{tenantId}' admin '{adminEmail}' not found (or inactive) in '{dbName}'.");
 
-            adminEmail = row.Value.Email;
             adminFullName = row.Value.FullName;
         }
 
@@ -227,7 +239,7 @@ WHERE u.Id = (
             Id: Guid.NewGuid(),
             EventType: SystemAuditEventTypes.TenantAdminPasswordReset,
             Severity: SystemAuditEventTypes.SeverityWarning,
-            UserId: actorSuperAdminId, UserEmail: null,
+            UserId: actorSuperAdminId, UserEmail: adminEmail,
             TenantId: tenantId, EntityType: SystemAuditEventTypes.EntityTenant, EntityId: tenantId,
             Details: null,
             IpAddress: ipAddress, Timestamp: DateTime.UtcNow), ct);
@@ -235,7 +247,7 @@ WHERE u.Id = (
         // Best-effort reset email. Reset is committed by this point — if
         // SMTP fails, operator can still read the temp password off the
         // confirmation page.
-        await TrySendPasswordResetEmailAsync(adminEmail!, adminFullName, tempPassword, ct);
+        await TrySendPasswordResetEmailAsync(adminEmail, adminFullName, tempPassword, ct);
 
         return tempPassword;
     }
