@@ -351,4 +351,134 @@ public class SecurityServiceTests
             It.Is<AuditLogEntry>(e => e.EventType == AuditEventTypes.UserUnlocked),
             It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    // ── Password change (self) — Phase 25 ──────────────────────────────
+
+    [Fact]
+    public async Task ChangePassword_HappyPath_HashesAndAudits()
+    {
+        var b = BuildService();
+        var userId = Guid.NewGuid();
+        var existingHash = BCrypt.Net.BCrypt.HashPassword("OldPass123", workFactor: 4);
+        b.UserRepo.Setup(r => r.GetByIdAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new User
+            {
+                Id = userId, Email = "u@x.com",
+                PasswordHash = existingHash, IsActive = true,
+            });
+
+        await b.Service.ChangePasswordAsync(
+            TenantId, userId, "OldPass123", "NewPass456", "127.0.0.1", "test");
+
+        b.UserRepo.Verify(r => r.UpdatePasswordHashAsync(
+            userId, "hashed", userId, It.IsAny<CancellationToken>()), Times.Once);
+        b.AuditRepo.Verify(a => a.AppendAsync(
+            It.Is<AuditLogEntry>(e => e.EventType == AuditEventTypes.PasswordChangedSelf
+                && e.UserId == userId && e.EntityId == userId
+                && e.IpAddress == "127.0.0.1"),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ChangePassword_WrongCurrentPassword_Throws()
+    {
+        var b = BuildService();
+        var userId = Guid.NewGuid();
+        var existingHash = BCrypt.Net.BCrypt.HashPassword("OldPass123", workFactor: 4);
+        b.UserRepo.Setup(r => r.GetByIdAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new User { Id = userId, PasswordHash = existingHash, IsActive = true });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            b.Service.ChangePasswordAsync(TenantId, userId, "wrong", "NewPass456", null, null));
+        b.UserRepo.Verify(r => r.UpdatePasswordHashAsync(
+            It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ChangePassword_PolicyViolation_ThrowsArgumentException()
+    {
+        var b = BuildService();
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            b.Service.ChangePasswordAsync(
+                TenantId, Guid.NewGuid(), "OldPass123", "weak", null, null));
+    }
+
+    [Fact]
+    public async Task ChangePassword_NewEqualsCurrent_Throws()
+    {
+        var b = BuildService();
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            b.Service.ChangePasswordAsync(
+                TenantId, Guid.NewGuid(), "SamePass1", "SamePass1", null, null));
+    }
+
+    [Fact]
+    public async Task ChangePassword_InactiveUser_Throws()
+    {
+        var b = BuildService();
+        var userId = Guid.NewGuid();
+        var existingHash = BCrypt.Net.BCrypt.HashPassword("OldPass123", workFactor: 4);
+        b.UserRepo.Setup(r => r.GetByIdAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new User { Id = userId, PasswordHash = existingHash, IsActive = false });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            b.Service.ChangePasswordAsync(
+                TenantId, userId, "OldPass123", "NewPass456", null, null));
+    }
+
+    // ── Password reset (admin) — Phase 25 ──────────────────────────────
+
+    [Fact]
+    public async Task ResetPassword_HappyPath_HashesAndAudits()
+    {
+        var b = BuildService();
+        var targetId = Guid.NewGuid();
+        b.UserRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new User { Id = targetId });
+
+        await b.Service.ResetPasswordAsync(
+            TenantId, targetId, "NewPass456", ActorId, "127.0.0.1", "test");
+
+        b.UserRepo.Verify(r => r.UpdatePasswordHashAsync(
+            targetId, "hashed", ActorId, It.IsAny<CancellationToken>()), Times.Once);
+        b.AuditRepo.Verify(a => a.AppendAsync(
+            It.Is<AuditLogEntry>(e => e.EventType == AuditEventTypes.PasswordResetAdmin
+                && e.UserId == ActorId && e.EntityId == targetId),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ResetPassword_RefusesSelfReset()
+    {
+        var b = BuildService();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            b.Service.ResetPasswordAsync(TenantId, ActorId, "NewPass456", ActorId, null, null));
+        Assert.Contains("ChangePassword", ex.Message);
+
+        b.UserRepo.Verify(r => r.UpdatePasswordHashAsync(
+            It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ResetPassword_PolicyViolation_ThrowsArgumentException()
+    {
+        var b = BuildService();
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            b.Service.ResetPasswordAsync(
+                TenantId, Guid.NewGuid(), "weak", ActorId, null, null));
+    }
+
+    [Fact]
+    public async Task ResetPassword_TargetUserNotFound_Throws()
+    {
+        var b = BuildService();
+        b.UserRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((User?)null);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            b.Service.ResetPasswordAsync(
+                TenantId, Guid.NewGuid(), "NewPass456", ActorId, null, null));
+    }
 }

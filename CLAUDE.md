@@ -346,11 +346,111 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10-12 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 + 17 + 18 + 19 + 20 + 21 + 22 + 23 + **24** shipped → tags … + **`v2.9.0-reports`** + **`v2.10.0-tenant-admin`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 REPORTS FOUNDATION (v3.0.0 ch. 1) · 🛡️ **TENANT ADMIN SHIPPED** — Users CRUD + Roles permission matrix + immutable AuditLog viewer (v3.0.0 ch. 2)
-**Current Focus**: v3.0.0 SaaS launch features — Phase 25 security hardening (v2.11.0 — password change UI, 2FA, session policy), Phase 26 deployment (v2.12.0), Phase 27 onboarding tooling (v2.13.0); Phase 19.5 serial-aware mobile bundle (TD-040 + TD-042 + TD-043 — needs serial schema first); ADR-004 putaway header (TD-004); carrier FK integration.
+**Active Sprint**: Day 10-13 · Phases 10A-24 + **25** shipped → tags … + **`v2.10.0-tenant-admin`** + **`v2.11.0-security`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 REPORTS (v3.0.0 ch. 1) · 🛡️ TENANT ADMIN (v3.0.0 ch. 2) · 🔒 **SECURITY HARDENING SHIPPED** — password mgmt + rate limiting + Hangfire admin gate + login audit events (v3.0.0 ch. 3)
+**Current Focus**: v3.0.0 — Phase 26 deployment (v2.12.0 — IIS + appsettings + connection-string mgmt + health endpoint), Phase 27 onboarding tooling (v2.13.0 — SuperAdmin tenant CRUD), Phase 28 docs (v2.14.0), Phase 29 beta polish (v2.15.0); Phase 19.5 serial-aware mobile bundle (TD-040 + TD-042 + TD-043 — needs serial schema first); ADR-004 putaway header (TD-004).
 **Blockers**: none
 
 Update this section weekly during standups.
+
+### Day 13 — Phase 25 (Security Hardening · v3.0.0 chapter 3)
+
+**Branch**: `feat/security-hardening` → merged to `main` · **Tag**: `v2.11.0-security` · **Strategy**: v3.0.0 Land + Expand — enterprise procurement gate (password mgmt expected, rate limiting expected, audit trail for auth expected, Hangfire dashboard properly secured = SOC2-prep readiness signal)
+
+Third v3.0.0 chapter. No new schema this phase — every Phase 25 deliverable plugs into existing tables (security.Users for password / lockout, security.AuditLog for event emission) and existing services.
+
+**Audit findings (Scenario A — extensions only)**:
+- ✅ Password hashing: `IAuthService.HashPassword` (BCrypt, cost 12 prod / 4 test) from Phase 3
+- ✅ Cookie config: 8h sliding already set (`Program.cs:59-60`); NO Remember Me — extension needed
+- ✅ HangfireDashboardAuthFilter: exists, authenticated-only (Phase 17 TD-039 noted "tighten to ADMIN role")
+- ✅ AuditEventTypes: Phase 24 added User/Role events; extend with login/password constants
+- ✅ AuthController: exists at /Auth/Login, captures IP+UA, calls `_auth.AuthenticateAsync(email, password, ip, ua, ct)`
+- ✅ MemoryCache: registered in Program.cs:44 — reusable for rate limiter
+- ✅ User schema: `FailedLoginAttempts` + `LockedUntil` columns exist (Phase 1 Migration_034)
+
+**T1 — Password management + policy**:
+- `PasswordPolicy` static validator (Min 8 chars + uppercase + lowercase + digit; no symbol requirement). Single source — both controller boundary check (`Validate`) and service-level guard (`ThrowIfInvalid`) call it. First-failure-only message for focused error UX
+- `AuditEventTypes` extended: `LoginSuccess`, `LoginFailure`, `AccountLockout`, `PasswordChangedSelf`, `PasswordResetAdmin`
+- `IUserRepository.UpdatePasswordHashAsync` — pure hash UPDATE; also resets FailedLoginAttempts + LockedUntil (same shape as successful login)
+- `IUserRepository.SetLockedUntilAsync` — stamp lockout timestamp WITHOUT touching the failed-attempt counter (count is the proof of trigger + survives for audit)
+- `ISecurityService.ChangePasswordAsync` (self) — verifies current pw via `BCrypt.Verify`, enforces policy, refuses no-op (new==current), refuses on inactive account, updates hash + clears lockout, audits `PasswordChangedSelf`
+- `ISecurityService.ResetPasswordAsync` (admin) — **refuses self-reset (D2 bypass guard — admin must use `/Account/ChangePassword` for own account so current-password verification is enforced)**, enforces policy, updates hash, audits `PasswordResetAdmin` (UserId=actor, EntityId=target)
+- `AccountController` `/Account/ChangePassword` — new self-service surface. `[Authorize]` only (no SECURITY.USERS perm — user is acting on themselves). 3-field form (current / new / confirm) with DataAnnotations + manual `PasswordPolicy.Validate` at controller boundary for inline NewPassword field errors
+- `UsersController.ResetPassword` POST — admin force-set. Embedded as `<details>` disclosure in User Detail Quick Actions sidebar (collapsed by default; expands to 2-field form)
+
+**T2 — Login rate limiter + lockout + audit emissions**:
+- `ILoginRateLimiter` + `LoginRateLimiter` (singleton, `IMemoryCache`-backed)
+  - 5 attempts per 60-second window per IP (configurable via ctor for tests)
+  - `TryRegisterAttempt(ip)` — atomic check+increment, returns allow/deny
+  - `Clear(ip)` on successful login so a stray earlier mistype doesn't burn the operator's quota
+  - **Anonymous IPs (null/empty) bypass the throttle** — per-user lockout via `User.LockedUntil` is the fallback when IP isn't available
+- `AuthService` extended (optional ctor params keep Phase 3 `AuthServiceTests` fixture unchanged):
+  - `IAuditLogRepositoryFactory?` for tenant-scoped audit emission to user's PRIMARY tenant DB (`UserTenantMap` ordered IsDefault DESC, Code ASC)
+  - `ILoginRateLimiter?` for per-IP throttle
+- New `AuthenticateAsync` flow:
+  1. Rate-limit check (5/min/IP) → `RateLimited` failure on bust
+  2. Tenant resolution → `UnknownEmail` on miss (NO AuditLog emission — AuditLog is tenant-scoped; `master.LoginAttempts` captures unknown-email failures)
+  3. `VerifyPasswordAsync` (kept pure — no audits, no IP/UA awareness)
+  4. On null → `EmitLoginFailureAuditAsync` reads post-increment FailedLoginAttempts; if ≥ 5 → stamp `LockedUntil = now + 30min` + emit `AccountLockout`; emit `LoginFailure` either way
+  5. On success → `Clear(ip)` on rate limiter + emit `LoginSuccess` audit
+- `AuthController.Login` — distinct user-facing message: `Too many login attempts. Please wait a minute and try again.` for `RateLimited`; `Invalid email or password.` for everything else (UnknownEmail / InvalidPassword / AccountLocked all collapse into the same message to avoid email-enumeration leaks; only AuditLog differentiates them)
+
+**T3 — Remember Me + Hangfire admin gate**:
+- `LoginViewModel.RememberMe` bool (default false — secure default)
+- Login view checkbox below password field (16px purple accent)
+- `AuthController.Login` writes parallel `wms.rememberme` cookie (5-min lifetime, matches preauth flow) when checked at Step 1
+- Step 3 (`CompleteWarehouseSelectionAsync`) reads the marker cookie + builds `AuthenticationProperties { IsPersistent = true, ExpiresUtc = now + 30days }`. Marker cookie cleared at `SignInAsync` time
+- Default (no Remember Me): session cookie expires per existing `Program.cs:59-60` cookie options (8h sliding)
+- **Hangfire dashboard tightened** (closes Phase 17 TD-039 family):
+  - `HangfireDashboardAuthFilter`: was `IsAuthenticated only`; now requires `IsAuthenticated` + holds **ADMIN role** in primary tenant
+  - Resolves `IUserRoleRepositoryFactory` + `IRoleRepositoryFactory` from `http.RequestServices` (mirrors `RequirePermissionAttribute` pattern)
+  - Sync-over-async via `.GetAwaiter().GetResult()` — `IDashboardAuthorizationFilter.Authorize` is sync; load on `/hangfire` is admin-only by definition so acceptable
+  - Non-admin authenticated users → 401/403 per Hangfire default rejection
+
+**T4 — Tests** (+31 net):
+- `PasswordPolicyTests` (9) — Theory across 7 known failure inputs returns expected message; 4-case happy path; `ThrowIfInvalid` on failure + success
+- `LoginRateLimiterTests` (13) — up-to-threshold all allowed; over-threshold rejected; different IPs tracked separately; anonymous IPs always allowed (3-case Theory); Clear resets per-IP; Clear anonymous IP no-op; ctor invalid maxAttempts throws
+- `SecurityServiceTests` extended (9 new) — ChangePassword happy + wrong-current + policy-violation + new-equals-current + inactive-user; ResetPassword happy + refuses-self-reset + policy-violation + target-not-found
+- Test posture: **992 passing** (was 961 / **+31 net**). 333 unit + 659 integration + 5 skipped
+
+**Critical safeguards verified by tests**:
+- ✅ Admin cannot reset own password via admin endpoint (forces `/Account/ChangePassword` for current-pw verification)
+- ✅ Cannot bypass lockout via direct service call — rate limiter is checked first; per-user lockout still gates VerifyPasswordAsync
+- ✅ Cannot disable rate limiter from UI (no UI for it; hardcoded constants)
+- ✅ Hangfire dashboard requires ADMIN role (not just authenticated)
+- ✅ All security operations emit AuditLog (LoginSuccess + LoginFailure + AccountLockout + PasswordChangedSelf + PasswordResetAdmin)
+- ✅ Last-admin protection (Phase 24) still applies — password reset doesn't bypass deactivation invariants
+- ✅ Password policy enforced at BOTH controller boundary AND service layer (defence in depth)
+
+**Out of scope** (logged as TDs):
+- **TD-055** — 2FA / TOTP implementation (v3.1+)
+- **TD-056** — Email password reset flow (needs SMTP infra; Phase 26+ deployment groundwork required first)
+- **TD-057** — Password policy per-tenant config (allow tenant admins to set their own min-length / complexity)
+- **TD-058** — Password history (no-reuse last N)
+- **TD-059** — Password expiration / forced rotation
+- **TD-060** — Distributed rate limiter (Redis / DistributedCache) for multi-instance deployments
+- **TD-061** — Per-tenant session length config
+- **TD-062** — Forbidden-attempt audit logging (`[Authorize]` failures, `RequirePermissionAttribute` rejections)
+- **TD-063** — Logout + session-timeout audit logging
+- **TD-064** — SuperAdmin tenant concept (Phase 27 onboarding territory)
+
+**Patterns established**:
+- **Optional ctor params keep test fixtures stable** — `AuthService` gained 2 new deps without breaking Phase 3 `AuthServiceTests.NewService()` helper. `IAuditLogRepositoryFactory?` and `ILoginRateLimiter?` default null; production wires them, tests skip them
+- **Tenant-scoped audit emit from cross-tenant entry point** — AuthenticateAsync runs in master DB scope (UserTenantMap resolution); after primary tenant is resolved, audit emits to THAT tenant's AuditLog. Unknown-email failures fall back to `master.LoginAttempts` only since there's no tenant to attribute to
+- **Marker cookie for cross-redirect intent carrying** — Remember Me captured at Step 1, applied at Step 3 SignInAsync via a parallel `wms.rememberme` cookie. Same pattern useful for any "set intent now, apply later in the flow" requirement that survives redirects but not browser close
+- **Refresh-on-increment sliding window** — IMemoryCache absolute-expiration limitation worked around with re-Set on every TryRegisterAttempt. Race overlap = couple extra attempts get through during window edge; acceptable for a brute-force throttle. Distributed-cache backed version is TD-060
+
+**Spec compliance check** (D1-D7 from brief):
+- ✅ D1 Password policy = Basic (8+ chars, mixed case, ≥1 digit)
+- ✅ D2 Password UI = Self (with current-pw verify) + Admin force-reset (refuses self)
+- ✅ D3 2FA skipped (TD-055)
+- ✅ D4 Sliding 8h + Remember Me 30d
+- ✅ D5 Rate limit = 5/min per IP + 30-min user lockout via existing columns + MemoryCache-backed
+- ✅ D6 Hangfire = Admin role check
+- ✅ D7 Audit events: LOGIN_SUCCESS / LOGIN_FAILURE / ACCOUNT_LOCKOUT / PASSWORD_CHANGE_SELF / PASSWORD_RESET_ADMIN all wired
+
+**Notes**: All 6 modules landed in 3 commits + tests commit. AuthService refactor (T2) was the trickiest design call — initial pass put audit emission inside VerifyPasswordAsync which forced IP/UA plumbing through that method; backed out to keep VerifyPasswordAsync pure and added `EmitLoginFailureAuditAsync` orchestrator on AuthenticateAsync. Build clean throughout. No regressions in Phase 3/24 test suites.
+
+---
 
 ### Day 12 — Phase 24 (Tenant Admin — Users + Roles + AuditLog viewer · v3.0.0 chapter 2)
 
@@ -2471,5 +2571,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-12 (Day 12 — Phase 24 Tenant Admin; v2.10.0-tenant-admin · 🛡️ second v3.0.0 chapter phase — Users CRUD + Roles permission matrix + AuditLog viewer; +34 tests, 961 passing)
-**Version**: 1.38
+**Last updated**: 2026-05-13 (Day 13 — Phase 25 Security Hardening; v2.11.0-security · 🔒 third v3.0.0 chapter phase — password mgmt + rate limiting + Hangfire admin gate + login audit; +31 tests, 992 passing)
+**Version**: 1.39
