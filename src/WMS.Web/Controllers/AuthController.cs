@@ -82,6 +82,96 @@ public sealed class AuthController : BaseController
         // Phase 25 — stash Remember Me intent in a parallel cookie so it
         // survives the 3-step flow. Read + cleared at SignInAsync time.
         if (model.RememberMe) WriteRememberMeCookie();
+
+        // P0 #4 — user must change their password before continuing.
+        // Token is flagged (RequiresPasswordChange=true). Redirect to the
+        // in-flow change-password step on the same _AuthLayout shell;
+        // session cookie is NOT issued yet, so no sidebar leakage.
+        if (result.RequiresPasswordChange)
+            return RedirectToAction(nameof(ChangePassword));
+
+        return RedirectToAction(nameof(SelectTenant));
+    }
+
+    // P0 #4 — in-flow forced password change step. Renders inside
+    // _AuthLayout (no sidebar / nav chrome). Cookie issuance is deferred
+    // until the password is changed, so unlike the legacy redirect-to-
+    // /Account/ChangePassword path the user cannot navigate elsewhere.
+    [HttpGet]
+    public async Task<IActionResult> ChangePassword(CancellationToken ct)
+    {
+        var (_, preAuth) = await ResolvePreAuthAsync(ct);
+        if (preAuth is null)
+            return RedirectToAction(nameof(Login));
+
+        // Wrong-token-type guard: this endpoint only accepts forced-change
+        // tokens. A regular preauth token (from a user without
+        // MustChangePassword) means someone hit the URL directly mid-flow;
+        // bounce them to the normal next step.
+        if (!preAuth.RequiresPasswordChange)
+            return RedirectToAction(nameof(SelectTenant));
+
+        return View(new ForcedPasswordChangeViewModel { UserEmail = preAuth.UserEmail });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ChangePassword(
+        ForcedPasswordChangeViewModel model,
+        CancellationToken ct)
+    {
+        var (oldToken, preAuth) = await ResolvePreAuthAsync(ct);
+        if (preAuth is null)
+            return RedirectToAction(nameof(Login));
+
+        if (!preAuth.RequiresPasswordChange)
+            return RedirectToAction(nameof(SelectTenant));
+
+        // Carry email forward so the re-render after a validation error
+        // still shows the "set a new password for {email}" line.
+        model.UserEmail = preAuth.UserEmail;
+
+        if (!ModelState.IsValid)
+            return View(model);
+
+        var result = await _auth.ApplyForcedPasswordChangeAsync(
+            oldToken!, model.NewPassword,
+            HttpContext.Connection.RemoteIpAddress?.ToString(),
+            Request.Headers.UserAgent.ToString(),
+            ct);
+
+        if (!result.Success)
+        {
+            // FailureReason is either a stable token ("InvalidToken",
+            // "WrongTokenType", "UserNotFound") or a PasswordPolicy
+            // message. Map the stable tokens to user-facing copy; pass
+            // the policy message through verbatim.
+            var msg = result.FailureReason switch
+            {
+                "InvalidToken" or "WrongTokenType" =>
+                    "Your session expired. Please sign in again.",
+                "UserNotFound" =>
+                    "Your account is no longer available. Please contact your administrator.",
+                _ => result.FailureReason ?? "Password could not be changed.",
+            };
+
+            if (result.FailureReason is "InvalidToken" or "WrongTokenType" or "UserNotFound")
+            {
+                // No useful state to re-render against — bounce to Login.
+                ClearPreAuthCookie();
+                TempData["LoginNotice"] = msg;
+                return RedirectToAction(nameof(Login));
+            }
+
+            // Policy violation — keep the user on the form to fix it.
+            ModelState.AddModelError(nameof(model.NewPassword), msg);
+            return View(model);
+        }
+
+        // Success — swap the cookie to the new token (flag=false) and
+        // re-enter the normal Step 2 chain. SelectTenant will smart-skip
+        // when the user has a single tenant.
+        WritePreAuthCookie(result.PreAuthToken!);
         return RedirectToAction(nameof(SelectTenant));
     }
 
