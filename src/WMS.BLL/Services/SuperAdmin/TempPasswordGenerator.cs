@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 
-namespace WMS.Web.Services.SuperAdmin;
+namespace WMS.BLL.Services.SuperAdmin;
 
 // Phase 27 — cryptographically strong temp password generator for the
 // bootstrap ADMIN user created at tenant provisioning time.

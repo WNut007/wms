@@ -1,0 +1,74 @@
+@using WMS.DAL.Repositories.Master
+@{
+    Layout = "_SuperAdminLayout";
+    ViewData["Title"] = "Dashboard";
+    var counts = ((int Total, int Active, int Suspended, int Inactive))ViewBag.Counts;
+    var recent = ViewBag.RecentAudit as IReadOnlyList<SystemAuditLogEntry> ?? Array.Empty<SystemAuditLogEntry>();
+}
+
+<h1 class="sa-title">Platform overview</h1>
+<p class="sa-subtitle">All tenants across the platform. Suspended tenants are blocked from login but their data is preserved.</p>
+
+<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;">
+    <div class="sa-card">
+        <p style="color: var(--sa-text-secondary); font-size: 11px; margin: 0 0 6px; letter-spacing: 0.5px;">TOTAL TENANTS</p>
+        <p style="font-size: 28px; font-weight: 600; margin: 0;">@counts.Total</p>
+    </div>
+    <div class="sa-card" style="border-left: 3px solid #16A34A;">
+        <p style="color: var(--sa-text-secondary); font-size: 11px; margin: 0 0 6px; letter-spacing: 0.5px;">ACTIVE</p>
+        <p style="font-size: 28px; font-weight: 600; margin: 0; color: #86EFAC;">@counts.Active</p>
+    </div>
+    <div class="sa-card" style="border-left: 3px solid #D97706;">
+        <p style="color: var(--sa-text-secondary); font-size: 11px; margin: 0 0 6px; letter-spacing: 0.5px;">SUSPENDED</p>
+        <p style="font-size: 28px; font-weight: 600; margin: 0; color: #FCD34D;">@counts.Suspended</p>
+    </div>
+    <div class="sa-card" style="border-left: 3px solid #64748B;">
+        <p style="color: var(--sa-text-secondary); font-size: 11px; margin: 0 0 6px; letter-spacing: 0.5px;">INACTIVE</p>
+        <p style="font-size: 28px; font-weight: 600; margin: 0; color: #CBD5E1;">@counts.Inactive</p>
+    </div>
+</div>
+
+<div class="sa-card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h2 style="margin: 0; font-size: 16px;">Recent platform events</h2>
+        <a href="/SuperAdmin/Tenants" class="sa-btn sa-btn-secondary" style="font-size: 12px; padding: 6px 12px;">Manage tenants →</a>
+    </div>
+
+    @if (recent.Count == 0)
+    {
+        <p style="color: var(--sa-text-secondary);">No platform events yet.</p>
+    }
+    else
+    {
+        <table class="sa-table">
+            <thead>
+                <tr><th>Time (UTC)</th><th>Event</th><th>Actor</th><th>Tenant</th><th>Severity</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var e in recent)
+                {
+                    <tr>
+                        <td>@e.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                        <td><span class="sa-mono">@e.EventType</span></td>
+                        <td>@(e.UserEmail ?? "(system)")</td>
+                        <td>
+                            @if (e.TenantId.HasValue)
+                            {
+                                <a href="/SuperAdmin/Tenants/@e.TenantId" class="sa-mono" style="text-decoration: underline;">@e.TenantId.Value.ToString("N").Substring(0, 8)</a>
+                            }
+                            else { <text>—</text> }
+                        </td>
+                        <td>
+                            <span class="sa-badge @(e.Severity switch {
+                                "Info" => "sa-badge-active",
+                                "Warning" => "sa-badge-suspend",
+                                "Error" => "sa-badge-inactive",
+                                _ => "sa-badge-inactive"
+                            })">@e.Severity</span>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>

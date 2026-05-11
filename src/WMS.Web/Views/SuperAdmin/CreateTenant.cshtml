@@ -1,0 +1,68 @@
+@model WMS.Web.ViewModels.SuperAdmin.TenantCreateViewModel
+@{
+    Layout = "_SuperAdminLayout";
+    ViewData["Title"] = "Provision tenant";
+}
+
+<div style="max-width: 600px; margin: 0 auto;">
+    <h1 class="sa-title">Provision new tenant</h1>
+    <p class="sa-subtitle">
+        Creates the master.Tenants row → SQL Server database → schema migrations → bootstrap ADMIN user.
+        Synchronous; ~10-30 seconds total. Bootstrap admin will see a temp password ONCE on the next page —
+        copy it before navigating away.
+    </p>
+
+    @if (!ViewData.ModelState.IsValid)
+    {
+        var summary = ViewData.ModelState[""]?.Errors.Select(e => e.ErrorMessage).ToList();
+        if (summary is { Count: > 0 })
+        {
+            <div class="sa-banner-err">@string.Join("; ", summary)</div>
+        }
+    }
+
+    <form asp-action="CreateTenant" method="post" class="sa-card">
+        @Html.AntiForgeryToken()
+
+        <div style="margin-bottom: 14px;">
+            <label class="sa-label" asp-for="Code">Tenant code (alphanumeric, 2-20 chars)</label>
+            <input asp-for="Code" class="sa-input" autofocus placeholder="e.g. ACME" />
+            <span asp-validation-for="Code" class="sa-field-error"></span>
+            <p style="font-size: 11px; color: var(--sa-text-secondary); margin: 4px 0 0;">
+                Used in the database name: <span class="sa-mono">WMS_Tenant_{Code}</span>
+            </p>
+        </div>
+        <div style="margin-bottom: 14px;">
+            <label class="sa-label" asp-for="Name">Display name</label>
+            <input asp-for="Name" class="sa-input" placeholder="e.g. ACME Corporation" />
+            <span asp-validation-for="Name" class="sa-field-error"></span>
+        </div>
+
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid var(--sa-border);" />
+
+        <p style="color: var(--sa-text-secondary); font-size: 13px; margin: 0 0 14px;">
+            Bootstrap admin — gets the ADMIN role + a temp password they must rotate on first login.
+        </p>
+        <div style="margin-bottom: 14px;">
+            <label class="sa-label" asp-for="AdminEmail"></label>
+            <input asp-for="AdminEmail" type="email" class="sa-input" placeholder="admin@customer.com" />
+            <span asp-validation-for="AdminEmail" class="sa-field-error"></span>
+        </div>
+        <div style="margin-bottom: 18px;">
+            <label class="sa-label" asp-for="AdminFullName"></label>
+            <input asp-for="AdminFullName" class="sa-input" placeholder="Jane Operator" />
+            <span asp-validation-for="AdminFullName" class="sa-field-error"></span>
+        </div>
+
+        <div style="display: flex; gap: 8px;">
+            <button type="submit" class="sa-btn">
+                <i class="ti ti-server-cog"></i> Provision tenant
+            </button>
+            <a href="/SuperAdmin/Tenants" class="sa-btn sa-btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

@@ -1,0 +1,117 @@
+@model WMS.Web.ViewModels.SuperAdmin.TenantDetailViewModel
+@{
+    Layout = "_SuperAdminLayout";
+    ViewData["Title"] = $"Tenant · {Model.Code}";
+    var resetTempPw = TempData["ResetAdminTempPassword"] as string;
+}
+
+<div style="max-width: 800px; margin: 0 auto;">
+    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+        <h1 class="sa-title" style="margin: 0;">
+            <span class="sa-mono">@Model.Code</span>
+            <span style="color: var(--sa-text-secondary); font-weight: 400; margin-left: 8px;">@Model.Name</span>
+        </h1>
+        <span class="sa-badge @(Model.Status switch {
+            "Active" => "sa-badge-active",
+            "Suspended" => "sa-badge-suspend",
+            _ => "sa-badge-inactive"
+        })">@Model.Status</span>
+    </div>
+
+    @if (TempData["SuperAdminMessage"] is string okMsg)
+    {
+        <div class="sa-banner-ok">@okMsg</div>
+    }
+    @if (TempData["SuperAdminError"] is string errMsg)
+    {
+        <div class="sa-banner-err">@errMsg</div>
+    }
+
+    @if (!string.IsNullOrEmpty(resetTempPw))
+    {
+        <div class="sa-card" style="border-left: 4px solid #D97706; margin-bottom: 16px;">
+            <h2 style="margin: 0 0 8px; color: #FCD34D; font-size: 16px;">
+                <i class="ti ti-key"></i> New temp password
+            </h2>
+            <p style="color: var(--sa-text-secondary); margin: 0 0 14px; font-size: 13px;">
+                Admin password has been reset. Copy this temp password — it won't be shown again.
+                The admin must rotate it on next login.
+            </p>
+            <div style="background: #0F172A; border: 1px solid #D97706; border-radius: 8px; padding: 14px; text-align: center;">
+                <p style="font-family: 'JetBrains Mono', monospace; font-size: 22px; color: #FEF3C7; margin: 0; user-select: all;">
+                    @resetTempPw
+                </p>
+                <button type="button" onclick="navigator.clipboard.writeText('@resetTempPw'); this.textContent='Copied!'" class="sa-btn sa-btn-secondary" style="font-size: 12px; padding: 6px 12px; margin-top: 10px;">
+                    <i class="ti ti-copy"></i> Copy
+                </button>
+            </div>
+        </div>
+    }
+
+    <div class="sa-card">
+        <table class="sa-table" style="margin-bottom: 12px;">
+            <tr><th style="width: 30%;">Database</th><td><span class="sa-mono">@Model.DatabaseName</span></td></tr>
+            <tr><th>Tenant ID</th><td><span class="sa-mono" style="font-size: 11px;">@Model.Id</span></td></tr>
+            <tr><th>Admin email</th><td>@(Model.AdminEmail ?? "(no default mapping)")</td></tr>
+            <tr><th>User count</th><td>@Model.UserCount mapped</td></tr>
+            <tr><th>Created</th><td>@Model.CreatedAt.ToString("yyyy-MM-dd HH:mm") UTC</td></tr>
+            @if (Model.UpdatedAt.HasValue)
+            {
+                <tr><th>Last updated</th><td>@Model.UpdatedAt.Value.ToString("yyyy-MM-dd HH:mm") UTC</td></tr>
+            }
+        </table>
+    </div>
+
+    <h2 style="font-size: 16px; margin: 24px 0 12px;">Actions</h2>
+    <div class="sa-card">
+        @if (Model.Status == "Active")
+        {
+            <p style="color: var(--sa-text-secondary); font-size: 13px; margin: 0 0 14px;">
+                <strong>Suspending</strong> blocks logins for all tenant users. Data is preserved; reactivate to restore access.
+            </p>
+            <details>
+                <summary class="sa-btn sa-btn-secondary" style="display: inline-flex; cursor: pointer;">
+                    <i class="ti ti-player-pause"></i> Suspend tenant
+                </summary>
+                <form asp-action="Suspend" asp-route-id="@Model.Id" method="post" style="margin-top: 12px;">
+                    @Html.AntiForgeryToken()
+                    <label class="sa-label">Reason (3+ chars, visible in audit log)</label>
+                    <input type="text" name="Reason" class="sa-input" required minlength="3" maxlength="500" style="margin-bottom: 10px;" />
+                    <button type="submit" class="sa-btn" style="background: #D97706;">
+                        Confirm suspend
+                    </button>
+                </form>
+            </details>
+        }
+        else if (Model.Status == "Suspended")
+        {
+            <p style="color: var(--sa-text-secondary); font-size: 13px; margin: 0 0 14px;">
+                <strong>Reactivating</strong> restores login access. All tenant data is intact.
+            </p>
+            <form asp-action="Reactivate" asp-route-id="@Model.Id" method="post" style="display: inline;">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="sa-btn" style="background: #16A34A;">
+                    <i class="ti ti-player-play"></i> Reactivate tenant
+                </button>
+            </form>
+        }
+
+        <hr style="margin: 18px 0; border: none; border-top: 1px solid var(--sa-border);" />
+
+        <p style="color: var(--sa-text-secondary); font-size: 13px; margin: 0 0 14px;">
+            <strong>Reset admin password</strong> generates a new temp password for the tenant's bootstrap ADMIN user.
+            The admin must rotate it on next login.
+        </p>
+        <form asp-action="ResetAdminPassword" asp-route-id="@Model.Id" method="post" style="display: inline;"
+              onsubmit="return confirm('Reset the admin password? The current password becomes invalid.');">
+            @Html.AntiForgeryToken()
+            <button type="submit" class="sa-btn sa-btn-secondary">
+                <i class="ti ti-key"></i> Reset admin password
+            </button>
+        </form>
+    </div>
+
+    <p style="margin-top: 20px;">
+        <a href="/SuperAdmin/Tenants" class="sa-btn sa-btn-secondary">← All tenants</a>
+    </p>
+</div>
