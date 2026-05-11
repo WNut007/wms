@@ -327,13 +327,25 @@ main.page-main {
   opacity: 0.5;
 }
 
-/* Sub-menu container */
+/* Sub-menu container.
+   TD-115 follow-up: default to collapsed. Show only when the
+   immediately-preceding parent `.wms-sidebar-item` carries `.expanded`
+   (i.e. the active route belongs to this submenu). Adjacent-sibling
+   selector below handles the show-state; no JS required.
+   Click on a parent navigates to its first child -> page reload ->
+   only THAT parent gets .expanded -> only THAT submenu is visible.
+   Net result: one submenu open at a time, matching the active route. */
 .wms-sidebar-submenu {
+  display: none;
   position: relative;
   margin-left: 32px;
   padding: 4px 0 6px;
   background: transparent;
   border-left: none;
+}
+
+.wms-sidebar-item.expanded + .wms-sidebar-submenu {
+  display: block;
 }
 
 /* Vertical line guide (subtle) */
@@ -437,6 +449,14 @@ main.page-main {
 .sidebar-collapsed .wms-sidebar-item-text,
 .sidebar-collapsed .wms-sidebar-item-chevron,
 .sidebar-collapsed .wms-sidebar-submenu {
+  display: none;
+}
+
+/* TD-115 follow-up: collapsed mode beats the `.expanded` show-rule
+   (which has specificity 0,3,0; this one is 0,4,0). Without this,
+   the active submenu would force itself open even when the sidebar
+   is collapsed to icons-only. */
+.sidebar-collapsed .wms-sidebar-item.expanded + .wms-sidebar-submenu {
   display: none;
 }
 
