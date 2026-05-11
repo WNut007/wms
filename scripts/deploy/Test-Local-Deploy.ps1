@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Phase 30A — local deployment test runner. Publishes WMS.Web to a
+    Phase 30A - local deployment test runner. Publishes WMS.Web to a
     folder, applies migrations, and (optionally) launches it under
     Kestrel for smoke testing.
 
@@ -10,7 +10,7 @@
     env vars, broken migrations, file-permission issues, and config
     drift cheaper than a remote rollback.
 
-    NOT a production deployment script — produces a self-contained
+    NOT a production deployment script - produces a self-contained
     artifact under -PublishPath but does NOT configure IIS, TLS, or
     Windows services. That's Phase 30B territory.
 
@@ -42,7 +42,7 @@
 
 .EXAMPLE
     .\scripts\deploy\Test-Local-Deploy.ps1
-    Full chain — publish, migrate Master, start Kestrel on :5500.
+    Full chain - publish, migrate Master, start Kestrel on :5500.
 
 .EXAMPLE
     .\scripts\deploy\Test-Local-Deploy.ps1 -SkipBuild -SkipMigrate -LaunchBrowser
@@ -88,7 +88,7 @@ function Write-Fail($msg) {
     Write-Host "    [fail] $msg" -ForegroundColor Red
 }
 
-# ── 1. Validate env vars ────────────────────────────────────────────
+# -- 1. Validate env vars --------------------------------------------
 Write-Step "Validating environment"
 Write-Info "Environment = $Environment"
 Write-Info "Port        = $Port"
@@ -114,7 +114,7 @@ if (-not $env:ConnectionStrings__TenantTemplate) {
 }
 Write-Ok "Connection strings present"
 
-# ── 2. Publish ──────────────────────────────────────────────────────
+# -- 2. Publish ------------------------------------------------------
 $resolvedPublish = Join-Path $repoRoot $PublishPath
 if ($SkipBuild) {
     Write-Step "Skipping publish (per -SkipBuild)"
@@ -123,7 +123,7 @@ if ($SkipBuild) {
         exit 1
     }
 } else {
-    Write-Step "Publishing WMS.Web → $resolvedPublish"
+    Write-Step "Publishing WMS.Web -> $resolvedPublish"
     if (Test-Path $resolvedPublish) {
         Write-Info "Clearing prior publish output"
         Remove-Item -Recurse -Force $resolvedPublish
@@ -139,7 +139,7 @@ if ($SkipBuild) {
     Write-Ok "Published"
 }
 
-# ── 3. Migrate ──────────────────────────────────────────────────────
+# -- 3. Migrate ------------------------------------------------------
 if ($SkipMigrate) {
     Write-Step "Skipping migration (per -SkipMigrate)"
 } else {
@@ -159,7 +159,7 @@ if ($SkipMigrate) {
         --configuration Release `
         --nologo -- up tenants
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Tenant fan-out exited $LASTEXITCODE — may be empty (no tenants yet) or partial failure."
+        Write-Warning "Tenant fan-out exited $LASTEXITCODE - may be empty (no tenants yet) or partial failure."
         Write-Info "Review output above; continue with Y to proceed anyway."
         $continue = Read-Host "Continue? [y/N]"
         if ($continue -notin @("y", "Y")) { exit 1 }
@@ -168,7 +168,7 @@ if ($SkipMigrate) {
     }
 }
 
-# ── 4. Health probe (config validation only — pre-launch) ───────────
+# -- 4. Health probe (config validation only - pre-launch) -----------
 Write-Step "Smoke-testing publish artifact"
 $entryDll = Join-Path $resolvedPublish "WMS.Web.dll"
 if (-not (Test-Path $entryDll)) {
@@ -182,11 +182,11 @@ $bllDll = Join-Path $resolvedPublish "WMS.BLL.dll"
 if (Test-Path $bllDll) {
     Write-Ok "WMS.BLL.dll present (email templates embedded)"
 } else {
-    Write-Fail "WMS.BLL.dll missing — publish output looks broken"
+    Write-Fail "WMS.BLL.dll missing - publish output looks broken"
     exit 1
 }
 
-# ── 5. Launch Kestrel ───────────────────────────────────────────────
+# -- 5. Launch Kestrel -----------------------------------------------
 if ($NoStart) {
     Write-Step "Build + migrate complete (per -NoStart)"
     Write-Info "To launch manually:"

@@ -9,7 +9,7 @@
     BCrypt(ChangeMe!2026) into every tenant DB the Phase 26 fan-out
     coordinator touched. The fix gates that migration on
     DB_NAME() = 'WMS_Tenant_Template' so new tenants get a clean
-    security.Users — but existing tenants (e.g. anything provisioned
+    security.Users - but existing tenants (e.g. anything provisioned
     via SuperAdmin between v2.13.0 and v2.16.1) still have the
     leaked row.
 
@@ -18,12 +18,12 @@
       2. For each, looks for the seeded admin (nwuthipongworachoke
          @gmail.com) AND another active ADMIN user
       3. If both exist, prompts before deleting the leaked one
-      4. Cascades cleanly: UserRoles → Users (FK_UserRoles_Users
+      4. Cascades cleanly: UserRoles -> Users (FK_UserRoles_Users
          ON DELETE CASCADE). AuditLog FK is ON DELETE NO ACTION so
          we null UserId on the leaked admin's audit rows first
 
-    Safe to re-run — idempotent. If only ONE admin exists, the
-    script refuses to delete (defensive — won't strand the tenant).
+    Safe to re-run - idempotent. If only ONE admin exists, the
+    script refuses to delete (defensive - won't strand the tenant).
 
 .PARAMETER Server
     SQL Server instance. Default: localhost.
@@ -94,11 +94,11 @@ Write-Host ""
 Write-Host "Cleanup-LeakedTenantAdmin" -ForegroundColor Cyan
 Write-Host "  Server:       $Server"
 Write-Host "  Leaked email: $LeakedEmail"
-Write-Host "  Template DB:  $TemplateDb (excluded — keeps the dev seed)"
+Write-Host "  Template DB:  $TemplateDb (excluded - keeps the dev seed)"
 Write-Host "  Mode:         $(if ($WhatIf) { 'WhatIf (dry run)' } else { 'LIVE' })"
 Write-Host ""
 
-# Step 1 — enumerate tenant DBs
+# Step 1 - enumerate tenant DBs
 $dbs = Query "master" "SELECT name FROM sys.databases WHERE name LIKE 'WMS_Tenant_%' AND name <> @template ORDER BY name" @{ template = $TemplateDb }
 
 if ($dbs.Count -eq 0) {
@@ -110,7 +110,7 @@ Write-Host "Tenant DBs to check:"
 $dbs | ForEach-Object { Write-Host "  $($_.name)" }
 Write-Host ""
 
-# Step 2 — per-tenant check + cleanup
+# Step 2 - per-tenant check + cleanup
 foreach ($dbRow in $dbs) {
     $db = $dbRow.name
     Write-Host "=== $db ===" -ForegroundColor Cyan
@@ -125,7 +125,7 @@ ORDER BY u.CreatedAt
 "@
 
     if ($admins.Count -eq 0) {
-        Write-Host "  No ADMIN users found — skipping." -ForegroundColor Yellow
+        Write-Host "  No ADMIN users found - skipping." -ForegroundColor Yellow
         continue
     }
 
@@ -133,7 +133,7 @@ ORDER BY u.CreatedAt
     $others = $admins | Where-Object { $_.Email -ne $LeakedEmail }
 
     if (-not $leaked) {
-        Write-Host "  Clean — no leaked admin present." -ForegroundColor Green
+        Write-Host "  Clean - no leaked admin present." -ForegroundColor Green
         continue
     }
 

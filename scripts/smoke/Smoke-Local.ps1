@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Phase 30A — automated smoke runner against a live WMS.Web instance.
+    Phase 30A - automated smoke runner against a live WMS.Web instance.
 
 .DESCRIPTION
     Hits the public surfaces an operator + load balancer + browser
@@ -92,7 +92,7 @@ Write-Host "Smoke target: $BaseUrl" -ForegroundColor Cyan
 Write-Host "Timeout: ${TimeoutSec}s per request" -ForegroundColor Gray
 Write-Host ""
 
-# ── Health endpoints ────────────────────────────────────────────────
+# -- Health endpoints ------------------------------------------------
 Test-Scenario "H1" "/healthz/live returns 200" {
     $r = Invoke-WebRequest -Uri "$BaseUrl/healthz/live" -TimeoutSec $TimeoutSec -UseBasicParsing
     if ($r.StatusCode -ne 200) { throw "Expected 200, got $($r.StatusCode)" }
@@ -101,7 +101,7 @@ Test-Scenario "H1" "/healthz/live returns 200" {
 Test-Scenario "H2" "/healthz/ready exposes master-db entry" {
     $r = Invoke-WebRequest -Uri "$BaseUrl/healthz/ready" -TimeoutSec $TimeoutSec -UseBasicParsing
     if ($r.StatusCode -ne 200) { throw "Expected 200, got $($r.StatusCode)" }
-    if ($r.Content -notmatch "master-db") { throw "Response body lacks 'master-db' entry — check JSON envelope" }
+    if ($r.Content -notmatch "master-db") { throw "Response body lacks 'master-db' entry - check JSON envelope" }
 }
 
 Test-Scenario "H3" "/healthz alias works" {
@@ -114,7 +114,7 @@ Test-Scenario "H4" "/health legacy endpoint" {
     if ($r.StatusCode -ne 200) { throw "Expected 200, got $($r.StatusCode)" }
 }
 
-# ── Public-facing pages ─────────────────────────────────────────────
+# -- Public-facing pages ---------------------------------------------
 Test-Scenario "P1" "Root returns 200 or redirects to /Auth/Login" {
     $r = Invoke-WebRequest -Uri "$BaseUrl/" -TimeoutSec $TimeoutSec -MaximumRedirection 0 -ErrorAction SilentlyContinue -UseBasicParsing
     if ($null -eq $r -or ($r.StatusCode -notin @(200, 302, 301))) {
@@ -132,7 +132,7 @@ Test-Scenario "P3" "/SuperAdmin/Auth/Login renders (separate cookie scheme)" {
     if ($r.StatusCode -ne 200) { throw "Expected 200, got $($r.StatusCode)" }
 }
 
-# ── Security headers (Phase 26 middleware) ──────────────────────────
+# -- Security headers (Phase 26 middleware) --------------------------
 $headerProbe = $null
 try {
     $headerProbe = Invoke-WebRequest -Uri "$BaseUrl/Auth/Login" -TimeoutSec $TimeoutSec -UseBasicParsing
@@ -166,7 +166,7 @@ Test-Scenario "S4" "Server header stripped" {
     }
 }
 
-# ── Error pages ─────────────────────────────────────────────────────
+# -- Error pages -----------------------------------------------------
 Test-Scenario "E1" "404 error page branded" {
     try {
         $r = Invoke-WebRequest -Uri "$BaseUrl/this-route-does-not-exist-$([Guid]::NewGuid())" -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop
@@ -182,7 +182,7 @@ Test-Scenario "E1" "404 error page branded" {
     }
 }
 
-# ── Summary ─────────────────────────────────────────────────────────
+# -- Summary ---------------------------------------------------------
 $pass = ($results | Where-Object Status -eq "PASS").Count
 $fail = ($results | Where-Object Status -eq "FAIL").Count
 $total = $results.Count
