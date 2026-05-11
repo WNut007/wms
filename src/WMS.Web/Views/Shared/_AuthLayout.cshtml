@@ -19,6 +19,10 @@
        CSS vars; class namespace `.av-*`. *@
     <link rel="stylesheet" href="~/css/auth-validator.css" asp-append-version="true" />
     <script defer src="~/js/password-validator.js" asp-append-version="true"></script>
+    @* TD-116 — AJAX login + 4-state renderer. Only consumed by
+       /Auth/Login but loading from _AuthLayout keeps the script
+       cache-friendly across the auth surfaces. *@
+    <script defer src="~/js/auth-login.js" asp-append-version="true"></script>
 
     @* Phase 8.5 — Alpine for the warehouse picker's client-side
        filter (search + region chips). Login + tenant-select pages
