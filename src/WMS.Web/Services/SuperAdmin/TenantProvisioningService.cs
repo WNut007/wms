@@ -7,6 +7,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using WMS.BLL.Services.Auth;
+using WMS.BLL.Services.Email;
 using WMS.BLL.Services.SuperAdmin;
 using WMS.Common.Multitenancy;
 using WMS.DAL.Repositories.Master;
@@ -26,6 +27,8 @@ public sealed class TenantProvisioningService : ITenantProvisioningService
     private readonly IConfiguration _config;
     private readonly IAuthService _auth;
     private readonly ISystemAuditLogRepository _audit;
+    private readonly IEmailService _email;
+    private readonly EmailTemplateRenderer _templates;
     private readonly ILogger<TenantProvisioningService> _logger;
 
     public TenantProvisioningService(
@@ -33,12 +36,16 @@ public sealed class TenantProvisioningService : ITenantProvisioningService
         IConfiguration config,
         IAuthService auth,
         ISystemAuditLogRepository audit,
+        IEmailService email,
+        EmailTemplateRenderer templates,
         ILogger<TenantProvisioningService> logger)
     {
         _masterFactory = masterFactory;
         _config = config;
         _auth = auth;
         _audit = audit;
+        _email = email;
+        _templates = templates;
         _logger = logger;
     }
 
@@ -104,6 +111,14 @@ public sealed class TenantProvisioningService : ITenantProvisioningService
 
             _logger.LogInformation("Tenant '{Code}' ({TenantId}) provisioned by SuperAdmin {Actor}.",
                 code, tenantId, actorSuperAdminId);
+
+            // Step 6 — best-effort welcome email. Provisioning is already
+            // committed at this point (DB created, ADMIN seeded, audit
+            // appended). Email failure shouldn't undo any of that — the
+            // operator can still display the temp password on the success
+            // page and read it out manually if SMTP is down.
+            await TrySendTenantCreatedEmailAsync(
+                adminEmail, adminFullName, name, code, tempPassword, ct);
 
             return new TenantProvisioningResult(
                 TenantId: tenantId,
@@ -172,11 +187,16 @@ public sealed class TenantProvisioningService : ITenantProvisioningService
         var newHash = _auth.HashPassword(tempPassword);
 
         // Update FIRST active ADMIN user in tenant DB (ADMIN by role code).
+        // OUTPUT clause captures email + name so we can send a reset email
+        // after the audit row is appended.
+        string? adminEmail = null;
+        string? adminFullName = null;
         var tenantConn = BuildTenantConnection(dbName);
         using (var conn = new SqlConnection(tenantConn))
         {
             await conn.OpenAsync(ct);
-            var rowsAffected = await conn.ExecuteAsync(new CommandDefinition(@"
+            var row = await conn.QuerySingleOrDefaultAsync<(string Email, string? FullName)?>(
+                new CommandDefinition(@"
 UPDATE u
 SET PasswordHash = @newHash,
     MustChangePassword = 1,
@@ -184,6 +204,7 @@ SET PasswordHash = @newHash,
     LockedUntil = NULL,
     UpdatedAt = SYSUTCDATETIME(),
     UpdatedBy = NULL
+OUTPUT inserted.Email, inserted.FullName
 FROM security.Users u
 WHERE u.Id = (
     SELECT TOP 1 u2.Id
@@ -194,9 +215,12 @@ WHERE u.Id = (
     ORDER BY u2.CreatedAt ASC);",
                 new { newHash }, cancellationToken: ct));
 
-            if (rowsAffected == 0)
+            if (row is null)
                 throw new InvalidOperationException(
                     $"No active ADMIN user found in tenant DB '{dbName}'.");
+
+            adminEmail = row.Value.Email;
+            adminFullName = row.Value.FullName;
         }
 
         await _audit.AppendAsync(new SystemAuditLogEntry(
@@ -208,7 +232,86 @@ WHERE u.Id = (
             Details: null,
             IpAddress: ipAddress, Timestamp: DateTime.UtcNow), ct);
 
+        // Best-effort reset email. Reset is committed by this point — if
+        // SMTP fails, operator can still read the temp password off the
+        // confirmation page.
+        await TrySendPasswordResetEmailAsync(adminEmail!, adminFullName, tempPassword, ct);
+
         return tempPassword;
+    }
+
+    private async Task TrySendTenantCreatedEmailAsync(
+        string adminEmail, string? adminFullName, string tenantName, string tenantCode,
+        string tempPassword, CancellationToken ct)
+    {
+        try
+        {
+            var loginUrl = _config["Email:LoginUrl"] ?? "/Auth/Login";
+            var nowUtc = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+            var rendered = _templates.Render(EmailTemplateType.TenantCreated,
+                new Dictionary<string, string>
+                {
+                    ["UserName"] = adminFullName ?? adminEmail,
+                    ["UserEmail"] = adminEmail,
+                    ["TenantName"] = tenantName,
+                    ["TenantCode"] = tenantCode,
+                    ["TempPassword"] = tempPassword,
+                    ["LoginUrl"] = loginUrl,
+                    ["KickoffDate"] = "your scheduled kickoff",
+                    ["IssuedAtUtc"] = nowUtc,
+                });
+
+            await _email.SendAsync(new EmailMessage
+            {
+                To = new[] { adminEmail },
+                Subject = $"Your WMS workspace '{tenantName}' is ready",
+                HtmlBody = rendered.HtmlBody,
+                TextBody = rendered.TextBody,
+                CorrelationId = $"tenant-created:{tenantCode}",
+            }, ct);
+        }
+        catch (Exception ex)
+        {
+            // Swallow — provisioning already succeeded. Operator has the
+            // temp password on the success page either way.
+            _logger.LogWarning(ex,
+                "TenantCreated email to {AdminEmail} for tenant '{TenantCode}' failed; provisioning succeeded.",
+                adminEmail, tenantCode);
+        }
+    }
+
+    private async Task TrySendPasswordResetEmailAsync(
+        string adminEmail, string? adminFullName, string tempPassword, CancellationToken ct)
+    {
+        try
+        {
+            var loginUrl = _config["Email:LoginUrl"] ?? "/Auth/Login";
+            var nowUtc = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+            var rendered = _templates.Render(EmailTemplateType.PasswordReset,
+                new Dictionary<string, string>
+                {
+                    ["UserName"] = adminFullName ?? adminEmail,
+                    ["TempPassword"] = tempPassword,
+                    ["LoginUrl"] = loginUrl,
+                    ["IssuedAtUtc"] = nowUtc,
+                    ["ActorName"] = "your administrator",
+                });
+
+            await _email.SendAsync(new EmailMessage
+            {
+                To = new[] { adminEmail },
+                Subject = "Your WMS password has been reset",
+                HtmlBody = rendered.HtmlBody,
+                TextBody = rendered.TextBody,
+                CorrelationId = $"pw-reset:{adminEmail}",
+            }, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "PasswordReset email to {AdminEmail} failed; reset itself succeeded.",
+                adminEmail);
+        }
     }
 
     // ── Internals ──────────────────────────────────────────────────────
