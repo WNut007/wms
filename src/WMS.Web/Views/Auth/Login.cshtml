@@ -51,31 +51,50 @@
                 </div>
             }
 
-            <form asp-action="Login" method="post" novalidate>
+            <form asp-action="Login" method="post" novalidate data-av-login-form>
                 <input type="hidden" asp-for="ReturnUrl" />
 
-                <div asp-validation-summary="ModelOnly" class="wms-error-msg mb-3"></div>
+                @* TD-116 — dynamic banner slot populated by
+                   auth-login.js based on the JSON response status
+                   (auth_failed / locked / rate_limited / success). *@
+                <div data-av-login-banner></div>
 
-                <div class="wms-login-field">
+                @* ModelState fallback for non-JS clients only. JS path
+                   never renders ModelState — it parses JSON instead. *@
+                <noscript>
+                    <div asp-validation-summary="ModelOnly" class="wms-error-msg mb-3"></div>
+                </noscript>
+
+                <div class="wms-login-field av-field">
                     <label class="wms-label" asp-for="Email">EMAIL</label>
                     <input asp-for="Email"
                            class="wms-input wms-login-form-input"
                            placeholder="you@company.com"
                            autocomplete="username"
-                           autofocus />
+                           autofocus
+                           data-av-email />
+                    <div class="av-field-msg" data-av-email-msg></div>
                     <span asp-validation-for="Email" class="wms-error-msg"></span>
                 </div>
 
-                <div class="wms-login-field">
+                <div class="wms-login-field av-field">
                     <div class="wms-login-field-header">
                         <label class="wms-label" asp-for="Password">PASSWORD</label>
                         <a href="#" class="wms-login-field-link">Forgot password?</a>
                     </div>
-                    <input asp-for="Password"
-                           type="password"
-                           class="wms-input wms-login-form-input"
-                           placeholder="••••••••"
-                           autocomplete="current-password" />
+                    <div class="av-input-wrap">
+                        <input asp-for="Password"
+                               type="password"
+                               class="wms-input wms-login-form-input"
+                               placeholder="••••••••"
+                               autocomplete="current-password"
+                               data-av-password />
+                        <button type="button" class="av-input-toggle"
+                                aria-label="Show password"
+                                data-av-toggle data-av-toggle-target="#Password">
+                            <i class="ti ti-eye"></i>
+                        </button>
+                    </div>
                     <span asp-validation-for="Password" class="wms-error-msg"></span>
                 </div>
 
@@ -88,9 +107,17 @@
                     </label>
                 </div>
 
-                <button type="submit" class="wms-btn wms-btn-primary wms-login-submit wms-btn-block">
-                    Sign in
-                    <i class="ti ti-arrow-right"></i>
+                <button type="submit"
+                        class="wms-btn wms-btn-primary wms-login-submit wms-btn-block"
+                        data-av-submit>
+                    <span class="av-submit-text">
+                        Sign in
+                        <i class="ti ti-arrow-right"></i>
+                    </span>
+                    <span class="av-submit-loading">
+                        <i class="ti ti-loader-2"></i>
+                        Signing in...
+                    </span>
                 </button>
             </form>
 

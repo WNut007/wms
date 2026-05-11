@@ -30,8 +30,11 @@ public sealed class AuthService : IAuthService
     // 30 minutes. Counters reset on successful login or password
     // change (both go through UpdatePasswordHashAsync /
     // UpdateLastLoginAsync which zero FailedLoginAttempts).
-    private const int LockoutThreshold = 5;
-    private static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(30);
+    // TD-116 — exposed as `public` so the auth controller can compute
+    // attemptsRemaining = Threshold - FailedLoginAttempts for the
+    // structured login error response (no duplicate constant).
+    public const int LockoutThreshold = 5;
+    public static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(30);
 
     private readonly IUserRepositoryFactory _userRepoFactory;
     private readonly IUserTenantMapRepository _userTenantMapRepo;
