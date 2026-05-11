@@ -88,6 +88,14 @@ closed when fixed.
 | TD-086 | Soft delete with N-day recovery window | Low | 2026-05-15 | 'Schedule deletion' marks tenant with DeletionScheduledAt. Daily Hangfire job drops databases past grace period. 7-day SuperAdmin notification. Pair with TD-079 | Phase 27 v1 |
 | TD-087 | SuperAdmin Activity tab (per-SuperAdmin audit feed) | Low | 2026-05-15 | Sibling of TD-054. New page showing one SuperAdmin's history. Sourced from master.SystemAuditLog filtered by UserId. Change-control reviews | Phase 27 v1 |
 | TD-088 | SuperAdmin user management UI | Low | 2026-05-15 | Today: config-driven first-run seed only. Subsequent additions need direct DB insert. Future: `/SuperAdmin/Admins` CRUD page. Lock-out protection: refuse deactivation of last active SuperAdmin | Phase 27 v1. 1-2 SuperAdmins handled out-of-band for v3.0.0 |
+| TD-089 | Thai-language customer-facing docs | Low | 2026-05-16 | When first Thai customer signs. Translates onboarding-playbook + user guides + UI strings. Today: English-primary per ADR-020 | Phase 28 v1 |
+| TD-090 | User guide per module (post-first-customer) | Medium | 2026-05-16 | Per-module guides (Inbound / Inventory / Outbound / Reports / Mobile). Structured around the first customer's actual questions. Markdown + screenshots. Goal: replace 1:1 calls with self-service reading | Phase 28 v1. ADR-020 — customer-driven content > generic upfront content |
+| TD-091 | Video tutorials | Low | 2026-05-16 | Post-launch when UI is stable. ~5-min walkthrough per major workflow. Hosted on YouTube / Loom or self-hosted. Best produced WITH the first customer (real screen, real data) | Phase 28 v1 |
+| TD-092 | API documentation | Low | 2026-05-16 | When/if we expose a public API for integrations. OpenAPI / Swagger spec + Postman collection. Needs API surface first; today everything is server-rendered MVC | Phase 28 v1. Pair with the eventual API exposure phase |
+| TD-093 | Knowledge base / FAQ | Low | 2026-05-16 | Public FAQ + searchable knowledge base. Populated from real customer support questions. Tools: GitBook / ReadMe / Notion public pages / simple Markdown in docs/ | Phase 28 v1 |
+| TD-094 | Translated onboarding materials | Low | 2026-05-16 | Onboarding playbook + sales decks in customer's language. Triggered by first international customer signing | Phase 28 v1 |
+| TD-095 | Marketing site content | Low | 2026-05-16 | v3.1+ SaaS launch needs public-facing site (landing pages, feature pages, pricing, case studies). Today: no public marketing presence | Phase 28 v1 |
+| TD-096 | Architecture diagrams (visual) | Low | 2026-05-16 | Replace the README ASCII diagram with proper visual diagrams (Lucidchart / draw.io / Mermaid). Valuable for sales conversations + enterprise procurement decks | Phase 28 v1. Mermaid is good-enough first step (Markdown-native, GitHub-rendered) |
 
 ---
 
