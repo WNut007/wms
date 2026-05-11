@@ -72,6 +72,15 @@
                     <span asp-validation-for="Password" class="wms-error-msg"></span>
                 </div>
 
+                <div class="wms-login-field" style="display: flex; align-items: center; gap: 8px;">
+                    <input asp-for="RememberMe" type="checkbox"
+                           style="width: 16px; height: 16px; accent-color: #534AB7; cursor: pointer;" />
+                    <label asp-for="RememberMe"
+                           style="margin: 0; cursor: pointer; font-size: 13px; color: var(--wms-text-secondary, #6B7280);">
+                        Remember me on this device
+                    </label>
+                </div>
+
                 <button type="submit" class="wms-btn wms-btn-primary wms-login-submit wms-btn-block">
                     Sign in
                     <i class="ti ti-arrow-right"></i>

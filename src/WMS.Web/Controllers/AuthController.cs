@@ -23,7 +23,9 @@ namespace WMS.Web.Controllers;
 public sealed class AuthController : BaseController
 {
     private const string PreAuthCookieName = "wms.preauth";
+    private const string RememberMeCookieName = "wms.rememberme";
     private static readonly TimeSpan PreAuthCookieLifetime = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan PersistentCookieLifetime = TimeSpan.FromDays(30);
 
     private readonly IAuthService _auth;
     private readonly IUserTenantMapRepository _userTenantMapRepo;
@@ -77,6 +79,9 @@ public sealed class AuthController : BaseController
         }
 
         WritePreAuthCookie(result.PreAuthToken!);
+        // Phase 25 — stash Remember Me intent in a parallel cookie so it
+        // survives the 3-step flow. Read + cleared at SignInAsync time.
+        if (model.RememberMe) WriteRememberMeCookie();
         return RedirectToAction(nameof(SelectTenant));
     }
 
@@ -227,12 +232,42 @@ public sealed class AuthController : BaseController
         claims.Add(new Claim(WmsClaimTypes.WarehouseCode, warehouse.Code));
 
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+        // Phase 25 — Step 3 (Warehouse) finalises the session cookie. If
+        // Remember Me was checked at Step 1, issue a persistent cookie
+        // with 30-day ExpiresUtc; otherwise default (expires per
+        // Program.cs cookie ExpireTimeSpan = 8h sliding).
+        var authProps = BuildAuthProperties();
+        ClearRememberMeCookie();
         await HttpContext.SignInAsync(
             CookieAuthenticationDefaults.AuthenticationScheme,
-            new ClaimsPrincipal(identity));
+            new ClaimsPrincipal(identity),
+            authProps);
 
         return Redirect("/");
     }
+
+    private AuthenticationProperties BuildAuthProperties()
+    {
+        var rememberMe = Request.Cookies[RememberMeCookieName] == "1";
+        return new AuthenticationProperties
+        {
+            IsPersistent = rememberMe,
+            ExpiresUtc = rememberMe ? DateTimeOffset.UtcNow.Add(PersistentCookieLifetime) : null,
+        };
+    }
+
+    private void WriteRememberMeCookie() =>
+        Response.Cookies.Append(RememberMeCookieName, "1", new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = Request.IsHttps,
+            SameSite = SameSiteMode.Lax,
+            MaxAge = PreAuthCookieLifetime,    // matches preauth flow lifetime
+            Path = "/Auth",
+        });
+
+    private void ClearRememberMeCookie() =>
+        Response.Cookies.Delete(RememberMeCookieName, new CookieOptions { Path = "/Auth" });
 
     private bool TryGetTenantId(out Guid tenantId)
     {
