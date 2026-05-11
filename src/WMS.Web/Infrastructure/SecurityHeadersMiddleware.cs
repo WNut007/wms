@@ -28,22 +28,27 @@ public sealed class SecurityHeadersMiddleware
         // composes its own response (e.g. status code pages).
         context.Response.OnStarting(() =>
         {
-            var h = context.Response.Headers;
-            TrySet(h, "X-Frame-Options", _options.FrameOptions);
-            TrySet(h, "X-Content-Type-Options", _options.ContentTypeOptions);
-            TrySet(h, "Referrer-Policy", _options.ReferrerPolicy);
-            TrySet(h, "Content-Security-Policy", _options.ContentSecurityPolicy);
-            TrySet(h, "Permissions-Policy", _options.PermissionsPolicy);
-
-            // Remove server fingerprint header — IIS / Kestrel both
-            // emit Server: by default. Silent hardening (security
-            // through obscurity isn't a defense, but no need to
-            // advertise the stack either).
-            h.Remove("Server");
+            ApplyHeaders(context.Response.Headers, _options);
             return Task.CompletedTask;
         });
 
         return _next(context);
+    }
+
+    // Phase 26 — extracted as static so unit tests can drive the header
+    // logic directly without needing TestServer to fire OnStarting.
+    public static void ApplyHeaders(IHeaderDictionary headers, SecurityHeadersOptions opts)
+    {
+        TrySet(headers, "X-Frame-Options", opts.FrameOptions);
+        TrySet(headers, "X-Content-Type-Options", opts.ContentTypeOptions);
+        TrySet(headers, "Referrer-Policy", opts.ReferrerPolicy);
+        TrySet(headers, "Content-Security-Policy", opts.ContentSecurityPolicy);
+        TrySet(headers, "Permissions-Policy", opts.PermissionsPolicy);
+
+        // Remove server fingerprint header — IIS / Kestrel both emit
+        // Server: by default. Silent hardening (security through
+        // obscurity isn't a defense, but no need to advertise the stack).
+        headers.Remove("Server");
     }
 
     private static void TrySet(IHeaderDictionary headers, string name, string? value)
