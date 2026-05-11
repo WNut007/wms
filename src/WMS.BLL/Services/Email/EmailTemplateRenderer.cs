@@ -23,9 +23,20 @@ namespace WMS.BLL.Services.Email;
 //   loads both so the caller can build a multipart/alternative
 //   message in one call.
 //
-// Placeholders are {{Name}}. HtmlEncode applied automatically to
-// every replacement value so caller-supplied strings (operator names,
-// emails) can't break out of the HTML template.
+// Placeholders are {{Name}} — alphanumeric / underscore only.
+// HtmlEncode applied automatically to every replacement value so
+// caller-supplied strings (operator names, emails) can't break out of
+// the HTML template.
+//
+// NOT SUPPORTED: Mustache section tags ({{#Var}}...{{/Var}}),
+// inverted sections ({{^Var}}), partials ({{>Var}}), or any control
+// flow. The placeholder regex requires \w+ inside {{...}} so those
+// tags are left as literal text. If you find yourself wanting a
+// conditional, resolve it at the call site (provide a default string
+// like "your administrator") instead of branching in the template.
+// P0 #2 surfaced this footgun — PasswordReset.html briefly used
+// {{#ActorName}}...{{/ActorName}} which rendered as literal text;
+// fix was to drop the conditional and always supply ActorName.
 public sealed class EmailTemplateRenderer
 {
     private static readonly Regex PlaceholderRegex = new(@"\{\{(\w+)\}\}", RegexOptions.Compiled);
