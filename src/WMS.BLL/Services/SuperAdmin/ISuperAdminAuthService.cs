@@ -18,12 +18,32 @@ public interface ISuperAdminAuthService
         string? userAgent,
         CancellationToken ct = default);
 
-    // Force-change-password flow. Verifies current password, applies
-    // new (with PasswordPolicy), clears MustChangePassword. Audits
-    // SuperAdminPasswordChange.
+    // Voluntary self-service password change. Verifies current
+    // password, applies new (with PasswordPolicy), clears
+    // MustChangePassword. Audits SuperAdminPasswordChange.
+    //
+    // For the FORCED first-login change use ApplyForcedPasswordChangeAsync
+    // instead — that path doesn't require the current password (caller
+    // just typed it at /SuperAdmin/Login) and runs without a session
+    // cookie.
     Task ChangePasswordAsync(
         Guid superAdminId,
         string currentPassword,
+        string newPassword,
+        string? ipAddress,
+        string? userAgent,
+        CancellationToken ct = default);
+
+    // P0 #4 — in-flow forced password change for /SuperAdmin/Login.
+    // Caller has NOT yet been signed in (no session cookie). Verifies
+    // the admin still exists + is active + still has
+    // MustChangePassword=true (defends against the rare race where an
+    // operator hits the form after another mechanism cleared the flag),
+    // validates new password via PasswordPolicy, applies the change,
+    // emits SuperAdminPasswordChange audit, returns the refreshed admin
+    // entity so the controller can SignInAsync.
+    Task<SuperAdminLoginResult> ApplyForcedPasswordChangeAsync(
+        Guid superAdminId,
         string newPassword,
         string? ipAddress,
         string? userAgent,

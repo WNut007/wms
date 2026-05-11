@@ -16,6 +16,11 @@
             <span style="color: #FCA5A5;">Not for warehouse operators — use <a href="/Auth/Login" style="color: #FCA5A5;">/Auth/Login</a> instead.</span>
         </p>
 
+        @if (TempData["LoginNotice"] is string notice && !string.IsNullOrEmpty(notice))
+        {
+            <div class="sa-banner-err" style="background: rgba(217, 119, 6, 0.18); border-color: rgba(217, 119, 6, 0.4); color: #FCD34D;">@notice</div>
+        }
+
         <div asp-validation-summary="ModelOnly" class="sa-banner-err" style="display: none;"></div>
         @if (!ViewData.ModelState.IsValid)
         {
