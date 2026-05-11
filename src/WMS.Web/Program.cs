@@ -6,6 +6,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using Serilog;
 using WMS.Web.Infrastructure;
+using WMS.Web.Infrastructure.HealthChecks;
 using WMS.Web.Services.Outbound;
 using WMS.BLL.Services.Auth;
 using WMS.BLL.Services.Security;
@@ -30,6 +31,10 @@ using WMS.Web.Multitenancy;
 using WMS.Web.Services.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Phase 26 — fail-fast on missing production config (empty MasterDb /
+// TenantTemplate). Dev gets a warning + continues; Production throws.
+ConfigurationValidator.Validate(builder.Configuration, builder.Environment);
 
 builder.Host.UseSerilog((context, services, configuration) =>
 {
@@ -269,13 +274,37 @@ builder.Services.AddHangfireServer(opts =>
     opts.ServerName = $"{Environment.MachineName}:wms-web";
 });
 
+// Phase 26 — health checks. /healthz/live = process alive; /healthz/ready
+// = process alive + Master DB reachable. Both anonymous; load-balancer
+// probes shouldn't need auth.
+builder.Services.AddHealthChecks()
+    .AddCheck<MasterDbHealthCheck>("master-db", tags: new[] { "ready" });
+
+// Phase 26 — security headers. Bind from SecurityHeaders config section
+// so CSP is tunable per environment.
+var securityHeaders = new SecurityHeadersOptions();
+builder.Configuration.GetSection(SecurityHeadersOptions.SectionName)
+    .Bind(securityHeaders);
+builder.Services.AddSingleton(securityHeaders);
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/Home/Error");
+    // Phase 26 — production error handling. UseExceptionHandler catches
+    // unhandled exceptions; StatusCodePagesWithReExecute routes 4xx/5xx
+    // responses (without a body) through the ErrorController so the
+    // operator sees a styled page instead of a blank Kestrel reply.
+    // Both gated to non-Development so the dev exception page stays in
+    // place locally.
+    app.UseExceptionHandler("/Error/500");
+    app.UseStatusCodePagesWithReExecute("/Error/{0}");
     app.UseHsts();
 }
+
+// Phase 26 — security headers. Sits as early as possible in the
+// pipeline so even error responses carry the hardening headers.
+app.UseSecurityHeaders(securityHeaders);
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
@@ -286,6 +315,24 @@ app.UseAuthentication();
 app.UseTenantValidation();
 app.UseAuthorization();
 
+// Phase 26 — health probes. /healthz/live is fast (no DB), /healthz/ready
+// runs the Master DB check. /health kept for backwards compat with any
+// existing monitoring hooks; routes to /healthz/live shape.
+app.MapHealthChecks("/healthz/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = _ => false,    // no checks executed; pure liveness
+});
+app.MapHealthChecks("/healthz/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready"),
+    ResponseWriter = HealthCheckResponseWriter.WriteJson,
+});
+app.MapHealthChecks("/healthz", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready"),
+    ResponseWriter = HealthCheckResponseWriter.WriteJson,
+});
+// Backwards-compat with the Phase 17 minimal endpoint.
 app.MapGet("/health", () => "Healthy");
 
 // Phase 17 — Hangfire dashboard. Auth filter requires

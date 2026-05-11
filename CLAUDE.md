@@ -346,11 +346,113 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10-13 · Phases 10A-24 + **25** shipped → tags … + **`v2.10.0-tenant-admin`** + **`v2.11.0-security`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 REPORTS (v3.0.0 ch. 1) · 🛡️ TENANT ADMIN (v3.0.0 ch. 2) · 🔒 **SECURITY HARDENING SHIPPED** — password mgmt + rate limiting + Hangfire admin gate + login audit events (v3.0.0 ch. 3)
-**Current Focus**: v3.0.0 — Phase 26 deployment (v2.12.0 — IIS + appsettings + connection-string mgmt + health endpoint), Phase 27 onboarding tooling (v2.13.0 — SuperAdmin tenant CRUD), Phase 28 docs (v2.14.0), Phase 29 beta polish (v2.15.0); Phase 19.5 serial-aware mobile bundle (TD-040 + TD-042 + TD-043 — needs serial schema first); ADR-004 putaway header (TD-004).
+**Active Sprint**: Day 10-14 · Phases 10A-25 + **26** shipped → tags … + **`v2.11.0-security`** + **`v2.12.0-deployment`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 REPORTS (v3.0.0 ch. 1) · 🛡️ TENANT ADMIN (ch. 2) · 🔒 SECURITY HARDENING (ch. 3) · 🚀 **DEPLOYMENT FOUNDATION SHIPPED** — production config + health endpoints + security headers + tenant migration coordinator + IIS docs (v3.0.0 ch. 4 · Level 1: code-ready, not yet deployed)
+**Current Focus**: v3.0.0 — Phase 27 onboarding tooling (v2.13.0 — SuperAdmin tenant CRUD), Phase 28 docs (v2.14.0), Phase 29 beta polish (v2.15.0), Phase 30 first customer onboarding = v3.0.0; Phase 19.5 serial-aware mobile bundle (TD-040 + TD-042 + TD-043 — needs serial schema first); ADR-004 putaway header (TD-004).
 **Blockers**: none
 
 Update this section weekly during standups.
+
+### Day 14 — Phase 26 (Deployment Foundation · v3.0.0 chapter 4 · Level 1: code-ready)
+
+**Branch**: `feat/deployment-foundation` → merged to `main` · **Tag**: `v2.12.0-deployment` · **Strategy**: v3.0.0 Land + Expand — Level 1 only (deployable artifacts; no actual server setup yet). Phase 30 will deploy.
+
+Fourth v3.0.0 chapter. NO schema changes. Pure infrastructure + config + docs work that makes the codebase "ready when needed" for production deployment to Windows Server + IIS.
+
+**Audit findings (Scenario A — extensions only)**:
+- ✅ Serilog: configured via `builder.Host.UseSerilog`, reads from `Serilog` config section, Console sink only, `UseSerilogRequestLogging` enabled — need File sink for production
+- ✅ Connection strings: `MasterDb` + `TenantTemplate` in `appsettings.json` with localhost defaults — need env-var fallback + startup validation
+- ✅ Health checks: single `app.MapGet("/health", ...)` from Phase 17; TenantValidationMiddleware already skips `/health` paths — need full HealthChecks
+- ✅ Error handling: `UseExceptionHandler("/Home/Error")` + `UseHsts()` in non-dev — need custom 404/403/500 pages + StatusCodePagesWithReExecute
+- ✅ Security headers: HSTS + HTTPS redirection in place — missing X-Frame-Options / X-CTO / Referrer-Policy / CSP
+- ✅ Migration runner: `tools/WMS.Migrate` runs single connection (master OR tenant-template) — need multi-tenant fan-out coordinator
+- ✅ `appsettings.Production.json`: exists with just Serilog overrides — expand with prod-shaped placeholders
+
+**T1 — Config management + Serilog file sink + startup validation**:
+- `appsettings.Production.json` expanded: empty `ConnectionStrings` (env var convention `ConnectionStrings__MasterDb` etc.), Serilog `WriteTo: [Console, File]` with daily rolling + 30d retention + 100MB cap + shared writer, `SecurityHeaders` section, documentation header
+- `ConfigurationValidator.cs` (Infrastructure/) — runs first thing in Program.cs. Production: throws on missing `MasterDb` / `TenantTemplate`. Dev/Staging: writes warning to stderr + continues so fresh checkouts can `dotnet run` without user-secrets setup
+- Serilog.Sinks.File 6.0.0 added to WMS.Web package refs
+
+**T2 — Health endpoints + security headers middleware**:
+- `MasterDbHealthCheck` (Infrastructure/HealthChecks/) — `IHealthCheck` impl. Opens connection from `IMasterConnectionFactory`, runs `SELECT 1` with 5s command timeout, tagged 'ready'. Tenant DBs deliberately NOT probed (N of them; per-tenant outage shouldn't fail global readiness)
+- `HealthCheckResponseWriter` — JSON envelope matching AspNetCore.Diagnostics.HealthChecks UI shape: `{ status, totalDuration, entries: { ... } }`
+- 3 endpoints wired (all anonymous, TenantValidation skipped):
+  - `/healthz/live` — no checks, pure process-alive (k8s liveness probe target; <100ms)
+  - `/healthz/ready` — `master-db` tag (load balancer readiness probe; 1-2s under load)
+  - `/healthz` — alias for `/healthz/ready` (backwards compat)
+  - `/health` — kept (Phase 17 minimal endpoint; plain "Healthy" text)
+- `SecurityHeadersMiddleware` (Infrastructure/) — emits in `OnStarting` so headers stick even on error / status-code-pages responses. Static `ApplyHeaders` extraction makes the logic testable without TestServer. Configurable via `SecurityHeaders` section:
+  - `X-Frame-Options: DENY`
+  - `X-Content-Type-Options: nosniff`
+  - `Referrer-Policy: strict-origin-when-cross-origin`
+  - `Content-Security-Policy: ...` (Production-specific in appsettings.Production.json)
+  - `Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=()`
+  - Strips `Server:` header to remove stack fingerprint
+- Empty/null config values cause the middleware to skip that header — opt-out per header without code changes. Existing downstream headers (e.g. controller-set CSP on pack-video) are NOT overwritten.
+
+**T3 — Production error pages + tenant migration coordinator**:
+- `ErrorController` under `/Error/{code}` with 4 views:
+  - `NotFound.cshtml` (404) — map-off icon, amber
+  - `Forbidden.cshtml` (403) — shield-x icon, red, hints at admin grant
+  - `InternalError.cshtml` (500) — alert-triangle, 'team has been notified'
+  - `Generic.cshtml` (other codes) — circle-off neutral fallback
+- `UseExceptionHandler("/Error/500")` + `UseStatusCodePagesWithReExecute("/Error/{0}")` wired in Program.cs (non-Development only — keeps the dev exception page locally). Response status code preserved through re-execute.
+- `tools/WMS.Migrate/Program.cs` extended with **`tenants` DB mode**:
+  - `up tenants` reads `master.Tenants WHERE Status='Active'`, iterates, runs Tenant-tagged migrations against each tenant's `DatabaseName`
+  - Stops on first failure (fail-fast); safe to re-run (FluentMigrator `VersionInfo` per-DB makes each application idempotent)
+  - `down tenants` refused — explicit message directing to single-conn downgrade per tenant
+  - Connection-string token substitution: `{0}` positional → `string.Format`; `WMS_TenantTemplate` literal → `Replace`; fallback → `SqlConnectionStringBuilder.InitialCatalog` rewrite
+  - Added `Microsoft.Extensions.Configuration.EnvironmentVariables` 10.0.7 to migrator so CI/CD can override connection strings without committing them
+
+**T4 — Tests + deployment docs**:
+- 4 new docs under `/docs/deployment/`:
+  - `configuration.md` — env-var conventions, IIS / web.config / user-secrets, verification recipe
+  - `iis-setup.md` — prerequisites (.NET Hosting Bundle), App Pool (No Managed Code, AlwaysRunning), site bindings, Application Initialization, TLS/HSTS, Hangfire dashboard note
+  - `migration.md` — pre-migration checklist, master + tenants order, rollback (only single-conn supported), suspend/resume tenants
+  - `checklist.md` — pre/during/post deploy checklist with smoke recommendations
+- Tests (+12 net):
+  - `ConfigurationValidatorTests` (7 in WMS.IntegrationTests) — Production both-missing throws, master-only missing throws, both-present no-op, NonProduction (Dev/Staging) allows-missing-with-warning, whitespace-treated-as-missing
+  - `SecurityHeadersMiddlewareTests` (5 in WMS.IntegrationTests) — sets all configured headers / empty config skips header / removes Server header / doesn't overwrite downstream header / InvokeAsync calls next
+- Test posture: **1004 passing** (was 992 / **+12 net**). 333 unit + 671 integration + 5 skipped
+
+**Out of scope** (logged as TDs):
+- **TD-065** — Hybrid DB strategy (v3.1+ when SMB expansion arrives)
+- **TD-066** — Azure Key Vault for secrets (when on Azure)
+- **TD-067** — CI/CD pipeline (GitHub Actions)
+- **TD-068** — Application Insights monitoring (Phase 25 deferred this too — pair with TD-067)
+- **TD-069** — IIS-specific deployment automation scripts (PowerShell DSC / Octopus)
+- **TD-070** — Production seed data tooling (a "minimal viable tenant" SQL script library)
+- **TD-071** — Backup automation (currently manual per checklist.md)
+- **TD-072** — Distributed cache (Redis) for multi-instance deployments (pair with TD-060 from Phase 25)
+- **TD-073** — Performance benchmarking baseline before launch
+- **TD-074** — Auto-scaling configuration (Azure / IIS web farm)
+- **TD-075** — Disaster recovery runbook
+
+**Patterns established**:
+- **Fail-fast config validator** — `ConfigurationValidator.Validate(config, env)` runs BEFORE `builder.Host.UseSerilog` because Serilog also reads config. Production throws; Dev warns + continues so fresh checkouts boot without user-secrets setup. ~30 LOC; one entry point at the top of Program.cs
+- **Static `ApplyHeaders` extraction for testable middleware** — DefaultHttpContext's OnStarting callbacks don't fire on a MemoryStream body write, so the testable seam is a static method that takes IHeaderDictionary + Options. Middleware InvokeAsync registers an OnStarting that calls the static. Test calls static directly. Cleaner than spinning up TestServer for a 30-line middleware
+- **Per-tenant fan-out coordinator** — read coordination table (`master.Tenants`) → iterate → invoke single-tenant runner against each. Stop on first failure (fail-fast). Idempotent re-run via VersionInfo per-DB. Same pattern fits Hangfire fan-out jobs, tenant data exports, multi-tenant maintenance windows
+- **Two-shape connection-string templates** — `{0}` positional + literal-token substitution (`WMS_TenantTemplate`) covers both `string.Format`-friendly templates and templates that were typed naturally with the placeholder DB name. `SqlConnectionStringBuilder` rewrite as last-resort fallback handles any other shape
+
+**Deployment-readiness check**:
+- ✅ App runs with `appsettings.Production.json` — env vars `ConnectionStrings__MasterDb` + `__TenantTemplate` required (validated at startup)
+- ✅ Health endpoints respond (`/healthz/live`, `/healthz/ready`, `/healthz`, `/health`)
+- ✅ Security headers present (verifiable via `curl -I` once deployed)
+- ✅ Logs written to file (`logs/wms-{Date}.log` daily, 30d retention)
+- ✅ Production error pages render for 404/403/500
+- ✅ Tenant migration coordinator works for fan-out
+- ✅ Hangfire dashboard ADMIN-only (Phase 25)
+
+**What's NOT in scope (Level 1 vs full deploy)**:
+- 🚫 NOT setting up actual Windows Server VM
+- 🚫 NOT building CI/CD pipeline (TD-067)
+- 🚫 NOT deploying to production
+- 🚫 NOT configuring real DNS / TLS certs / firewall
+
+These come in Phase 30 when the first customer onboards.
+
+**Notes**: Test fixture cleanup at T4 — initially placed Phase 26 tests in `WMS.UnitTests` but it targets `net8.0` (not `net8.0-windows`) and can't reference `WMS.Web`. Moved to `WMS.IntegrationTests`. Same constraint Phase 6B-7 hit per memory `project_windows_tfm_constraint.md`. Also caught a `DefaultHttpContext` OnStarting limitation during T4 testing — refactored middleware to expose `ApplyHeaders` as a static method so tests don't need TestServer.
+
+---
 
 ### Day 13 — Phase 25 (Security Hardening · v3.0.0 chapter 3)
 
@@ -2571,5 +2673,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-13 (Day 13 — Phase 25 Security Hardening; v2.11.0-security · 🔒 third v3.0.0 chapter phase — password mgmt + rate limiting + Hangfire admin gate + login audit; +31 tests, 992 passing)
-**Version**: 1.39
+**Last updated**: 2026-05-14 (Day 14 — Phase 26 Deployment Foundation; v2.12.0-deployment · 🚀 fourth v3.0.0 chapter phase — production config + health endpoints + security headers + tenant migration coordinator + IIS deployment docs; +12 tests, 1004 passing)
+**Version**: 1.40
