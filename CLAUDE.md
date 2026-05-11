@@ -346,11 +346,95 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10-11 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 + 17 + 18 + 19 + 20 + 21 + 22 shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` + `v2.2.0-mobile-pick` + `v2.3.0-pack-video` + `v2.4.0-mobile-receive` + `v2.5.0-mobile-pack` + `v2.6.0-mobile-putaway` + `v2.7.0-mobile-count` + `v2.8.0-mobile-locate` · 🎉 **MOBILE SUITE COMPLETE — 6 of 6 mobile ops shipped** (Pick + Receive + Pack + Putaway + Cycle Count + Locate)
-**Current Focus**: Phase 19.5 serial-aware mobile bundle (TD-040 + TD-042 + TD-043 — needs serial schema first); ADR-004 putaway header (TD-004); per-location wizard for cycle count (TD-044); carrier FK integration; manifest workflow; post-Submit reversal flows; v3.0.0 SaaS launch features.
+**Active Sprint**: Day 10-11 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 + 17 + 18 + 19 + 20 + 21 + 22 + **23** shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` + `v2.2.0-mobile-pick` + `v2.3.0-pack-video` + `v2.4.0-mobile-receive` + `v2.5.0-mobile-pack` + `v2.6.0-mobile-putaway` + `v2.7.0-mobile-count` + `v2.8.0-mobile-locate` + **`v2.9.0-reports`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 **REPORTS FOUNDATION SHIPPED** — first v3.0.0 chapter phase (Inventory dashboard + Order analytics + Operational KPIs + Excel export)
+**Current Focus**: v3.0.0 SaaS launch features — Phase 24 tenant admin (v2.10.0), Phase 25 security hardening (v2.11.0), Phase 26 deployment (v2.12.0), Phase 27 onboarding tooling (v2.13.0); Phase 19.5 serial-aware mobile bundle (TD-040 + TD-042 + TD-043 — needs serial schema first); ADR-004 putaway header (TD-004); carrier FK integration.
 **Blockers**: none
 
 Update this section weekly during standups.
+
+### Day 11 — Phase 23 (Reports Foundation — first v3.0.0 chapter phase)
+
+**Branch**: `feat/reports-foundation` → merged to `main` · **Tag**: `v2.9.0-reports` · **Strategy**: v3.0.0 Land + Expand (enterprise must-have #1, high demo value for prospects)
+
+First post-mobile-suite phase. Inaugural v3.0.0 chapter. Reports = enterprise prospect must-have — covers Inventory dashboard, Order analytics, Operational KPIs, with Excel export across all three.
+
+**Audit findings (Scenario A — clean room with one library add)**:
+1. ✅ ApexCharts 3.45.2 already loaded via CDN in `_OfficeLayout.cshtml:32`. Dashboard (Day 5) uses it. **Decision: reuse ApexCharts**, no library install.
+2. ✅ `SidebarMenuViewComponent` already places `REPORTS` in `ModuleOrder` with `ti-chart-bar` icon (built for future use). Sidebar is permission-driven — adding REPORTS.VIEW function surfaces module automatically.
+3. ❌ No `ReportsController`, no `Views/Reports/`. Clean room.
+4. ❌ No `REPORTS.*` function seeded (Migration_042 lacks). New migrations needed.
+5. ❌ No ClosedXML/EPPlus. **Decision: add ClosedXML 0.104.1** (MIT, mature, no Excel-install dep — EPPlus moved to commercial).
+6. ✅ Aggregation pattern (`SUM(CASE WHEN ...)`) already used across every chip-count repo. Mirror the pattern.
+7. ⚠️ **6th-instance spec rename audit TRIGGERED** (per `feedback_spec_rename_audit.md`). Brief mentioned "total stock value (current_qty × product_cost)". Reality: Product entity has NO `Cost` field. Pricing lives in `master.ProductOwners.SettlementPrice` (owner-scoped per ADR-007 — same product can have different prices per Owner). Applied silently → report shows stock **quantity**, logged as TD-045 for owner-scoped value rollup.
+
+**Data layer** (new `WMS.DAL.Repositories.Reports/` namespace):
+- `ReportRows.cs` — 14 read-projection records: `InventorySummary`, `StockByWarehouseRow`, `StockAgingBucket`, `TopProductRow`, `SlowMoverRow`, `OrderStatusCount`, `OrdersByDateRow`, `TopCustomerRow`, `FulfillmentCycleRow`, `MovementByDayRow`, `CycleCountVarianceSummary`, `OnTimeShippingSummary`, `TopOperatorRow`.
+- `IReportRepository` + `ReportRepository` + `ReportRepositoryFactory` — 13 aggregation methods. Single class, one tenant-bound connection per call (factory pattern matching every other repo in the codebase).
+- All SQL inline Dapper, JOIN-rich, idempotent. No new tables (pure reads against existing schema).
+
+**Query highlights**:
+- **`GetStockAgingBucketsAsync`** — CTE-driven; left-joins all 4 buckets so empty buckets still render with zeros (chart axis stays stable).
+- **`GetSlowMoversAsync`** — CTE aggregates Stock per product → MAX(LastMovementAt), then filters by `DATEDIFF >= threshold` OR `IS NULL` (never-moved). Sort prioritises never-moved first.
+- **`GetFulfillmentCycleAsync`** — JOINs Shipments back to SalesOrders, groups by `YEAR*100+MONTH` int for stable sort + `DATENAME(MONTH)` label for display, single pass.
+- **`GetOnTimeShippingAsync`** — SO with NULL `RequestedShipDate` counts as on-time (no deadline = no miss). Single-row aggregate.
+- **`GetCycleCountVarianceAsync`** — 4 correlated subqueries in one SELECT (Total sessions / Applied sessions / Variance lines / Counted lines) for the KPI stat row.
+
+**Surfaces** (4 view actions + 3 export actions on the new ReportsController):
+- `GET /Reports` — landing page. 3 cards (Inventory / Orders / KPIs) with gradient icons + descriptions. CTA arrows animate on hover.
+- `GET /Reports/Inventory` — 4 stat tiles (Total on hand / Allocated / Distinct products / Locations) + 3 ApexCharts (bar: stock by warehouse; donut: 4 aging buckets; horizontal bar: top 10 SKUs) + table (slow movers, 20 rows).
+- `GET /Reports/Orders?range=...` — 4 stat tiles (Total / Active / Cancelled with % / Top customer count) + 4 ApexCharts (donut: by status; area: trend over time; horizontal bar: top customers; line: avg fulfillment days/month). Preset bar chip strip (today/week/month/quarter/year, default month).
+- `GET /Reports/Kpis?range=...` — 4 stat tiles with color-coded thresholds (Picks / Packs / On-time % green ≥95/amber ≥85/red / Accuracy % green ≥99/amber ≥95/red) + multi-line chart (picks vs packs daily, shared x-axis) + horizontal bar (top 10 pickers) + stat table (cycle count variance summary).
+- `GET /Reports/ExportInventory|ExportOrders|ExportKpis` — `FileContentResult` with multi-sheet `.xlsx` (5 sheets each — Summary first, then per-data-source detail sheets). ClosedXML, bold purple header row (#534AB7), tabular numbers, AdjustToContents for column widths.
+
+**Date range presets**:
+- `DateRangePreset.Resolve(name)` — closed set: today / week / month / quarter / year. Default = month (30 days). UTC-anchored half-open `[from, to)`.
+- `NormalisePreset(name)` — folds unknown / empty / null to default. Used by ViewModels to display the active chip.
+- Custom date picker = TD-047.
+
+**ViewModel builders** (private methods on controller):
+- `BuildInventoryAsync` / `BuildOrdersAsync` / `BuildKpisAsync` — extracted so view actions AND export actions consume the **exact same query bundle** per report. Single source of truth — view always matches export.
+- View actions: `View(await BuildXxxAsync(...))` one-liners.
+- Export actions: `var vm = await BuildXxxAsync(...); return File(...)`.
+
+**Sidebar**: Reports submenu (4 entries — Overview / Inventory / Order Analytics / Operational KPIs). Submenu renders when user has REPORTS.VIEW. Pattern matches Master / Outbound / Inbound submenu style.
+
+**Permission**: single `REPORTS.VIEW` function seeded by Migration_20260511_033, granted to MANAGER role by Migration_20260511_034 (Picker/Packer omitted — operational roles don't need dashboards). ADMIN gets it via BLL bypass. Per-report split = TD-046.
+
+**Tests** (+26 net):
+- `ReportsControllerTests` (+11) — Index returns View; Inventory builds VM and returns ViewResult; Orders parses range param + flows to VM (Theory across 7 inputs); Kpis returns VM with computed properties; 3 Export* tests verify `FileContentResult` + content type + filename pattern.
+- `DateRangePresetTests` (+15) — Theory across 7 preset inputs for label, 1 for half-open range invariant, 7 for NormalisePreset closed-set fallback.
+- Real SQL aggregation queries lack integration tests (TD-048 — same TD-006 family).
+
+Test posture: **927 passing** (was 901 / +26). 288 unit + 639 integration + 5 skipped.
+
+**Out of scope** (logged as TDs):
+- **TD-045** — Stock VALUE roll-up (current is quantity-only). Requires `master.ProductOwners.SettlementPrice` JOIN; owner-scoped per ADR-007. Spec rename pattern applied.
+- **TD-046** — Per-report permission split (REPORTS.INVENTORY / REPORTS.ORDERS / REPORTS.KPIS for SoD on enterprise tenants).
+- **TD-047** — Reports sub-features deferred: custom date picker, PDF export, CSV export, scheduled reports (Hangfire-driven), saved filters, per-warehouse/customer scoping, drill-through links, real-time auto-refresh.
+- **TD-048** — Integration tests for the 13 SQL aggregation queries — needs SQL fixture (TD-006 family).
+
+**Patterns established**:
+- **ApexCharts in WMS**: server-side `JsonSerializer.Serialize` of chart data inline in Razor → `@Html.Raw` into `<script>` body. Unicode + escape handling for free, no AJAX. Loaded via existing `_OfficeLayout` CDN reference.
+- **ClosedXML helper pattern**: static class, one method per VM, returns `(byte[] Bytes, string FileName, string ContentType)` tuple. Controller wraps in `File()`. Multi-sheet workbooks via `wb.Worksheets.Add(name)`. Bold + purple-tint header rows for visual consistency.
+- **Half-open date range presets**: `[from, to)` UTC-anchored; SQL filters use `>= @from AND < @to` consistently. UTC keeps reports deterministic across globally distributed tenants.
+- **View + export share a builder**: extract private `BuildXxxAsync` from each view action; export action reuses it. Single source of truth per report — operator's screen always matches their downloaded file.
+
+**Spec compliance check**:
+- ✅ /Reports accessible from sidebar (permission-gated)
+- ✅ 3 sub-reports (Inventory / Orders / KPIs)
+- ✅ Inventory: total stock + warehouse breakdown + aging + top SKUs + slow movers
+- ✅ Orders: by status + top customers + cycle time + trend
+- ✅ KPIs: picks/packs per day + variance + on-time % + top performers
+- ✅ Date range filter (fixed presets — today/week/month/quarter/year)
+- ✅ Excel export per report (3 endpoints, multi-sheet)
+- ✅ Charts (ApexCharts — bar / donut / line / area variants)
+- ⚠️ Total stock VALUE → quantity only (TD-045 spec rename: no Cost field; owner-scoped price in ProductOwners)
+- ⚠️ Custom date picker → TD-047
+- ⚠️ PDF + CSV export → TD-047
+
+**Notes**: Audit completed in ~10 min. ApexCharts CDN already loaded was the biggest unlock — zero new chart-library decision needed. ClosedXML 0.104.1 was the only library install (~25 KB pkg + transitives). Pre-implementation 6th-instance spec rename audit caught the Cost-vs-SettlementPrice gap before T2 — memory `feedback_spec_rename_audit.md` proved its value at 6th instance. v3.0.0 "Land + Expand" first move: reports module is operator-visible immediately + makes enterprise demos compelling.
+
+---
 
 ### Day 11 — Phase 22 (Mobile Locate PWA — Scenario A, closes mobile suite)
 
@@ -2298,5 +2382,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-11 (Day 11 — Phase 22 Mobile Locate PWA; v2.8.0-mobile-locate · 🎉 MOBILE SUITE COMPLETE — 6 of 6 mobile ops shipped · retrospective in CLAUDE.md log)
-**Version**: 1.36
+**Last updated**: 2026-05-11 (Day 11 — Phase 23 Reports Foundation; v2.9.0-reports · 📊 first v3.0.0 chapter phase — Inventory dashboard + Order analytics + Operational KPIs + Excel export)
+**Version**: 1.37
