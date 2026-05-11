@@ -34,4 +34,23 @@ public interface IUserRepository
 
     // For the "last ADMIN can't be deactivated" invariant.
     Task<int> CountActiveAdminsAsync(string adminRoleCode, CancellationToken ct = default);
+
+    // Phase 25 — admin reset + self-change both update PasswordHash. Pure
+    // hash UPDATE (no other column changes); audit row written by the
+    // service caller so the storage layer stays simple.
+    Task UpdatePasswordHashAsync(
+        Guid userId,
+        string newPasswordHash,
+        Guid? actorId,
+        CancellationToken ct = default);
+
+    // Phase 25 — explicit lockout stamp used by AuthService when the
+    // failed-login threshold is hit. UpdateLastLoginAsync + Reset already
+    // clear the counter on success; this method is the inverse: stamp
+    // LockedUntil + leave FailedLoginAttempts alone (the count is the
+    // proof of the lockout trigger and survives for audit).
+    Task SetLockedUntilAsync(
+        Guid userId,
+        DateTime lockedUntilUtc,
+        CancellationToken ct = default);
 }

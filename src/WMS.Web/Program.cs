@@ -227,12 +227,20 @@ builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 // AuthService BCrypt cost factor: 12 in prod (~250ms/hash), 4 in
 // Development (~5ms) so dev seed scripts and local testing don't crawl.
 // Test suite already uses 4 directly via AuthServiceTests.
+//
+// Phase 25 wires IAuditLogRepositoryFactory + ILoginRateLimiter — audits
+// LoginSuccess / LoginFailure / AccountLockout to the user's primary
+// tenant DB; rate-limits brute-force attempts at 5/min per IP.
+builder.Services.AddSingleton<ILoginRateLimiter>(sp =>
+    new LoginRateLimiter(sp.GetRequiredService<IMemoryCache>()));
 builder.Services.AddScoped<IAuthService>(sp => new AuthService(
     sp.GetRequiredService<IUserRepositoryFactory>(),
     sp.GetRequiredService<IUserTenantMapRepository>(),
     sp.GetRequiredService<IMasterConnectionFactory>(),
     sp.GetRequiredService<ILogger<AuthService>>(),
-    bcryptCostFactor: builder.Environment.IsDevelopment() ? 4 : 12));
+    bcryptCostFactor: builder.Environment.IsDevelopment() ? 4 : 12,
+    auditRepoFactory: sp.GetRequiredService<IAuditLogRepositoryFactory>(),
+    rateLimiter: sp.GetRequiredService<ILoginRateLimiter>()));
 
 // Phase 17 — Hangfire on the MasterDb (system DB; single dashboard,
 // single job queue across the deployment — NOT per-tenant). Schema

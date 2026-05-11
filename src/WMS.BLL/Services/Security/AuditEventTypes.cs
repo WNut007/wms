@@ -18,6 +18,13 @@ public static class AuditEventTypes
 
     public const string RolePermissionChanged = "RolePermissionChanged";
 
+    // Phase 25 — authentication + password events.
+    public const string LoginSuccess         = "LoginSuccess";
+    public const string LoginFailure         = "LoginFailure";
+    public const string AccountLockout       = "AccountLockout";
+    public const string PasswordChangedSelf  = "PasswordChangedSelf";
+    public const string PasswordResetAdmin   = "PasswordResetAdmin";
+
     // EntityType values
     public const string EntityUser = "User";
     public const string EntityRole = "Role";

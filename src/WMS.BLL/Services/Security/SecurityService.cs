@@ -241,6 +241,89 @@ public sealed class SecurityService : ISecurityService
         }, ct);
     }
 
+    // ── Passwords ──────────────────────────────────────────────────────
+
+    public async Task ChangePasswordAsync(
+        Guid tenantId,
+        Guid userId,
+        string currentPassword,
+        string newPassword,
+        string? ipAddress,
+        string? userAgent,
+        CancellationToken ct = default)
+    {
+        PasswordPolicy.ThrowIfInvalid(newPassword);
+        if (string.Equals(currentPassword, newPassword, StringComparison.Ordinal))
+            throw new InvalidOperationException("New password must differ from current password.");
+
+        var users = _userRepos.For(tenantId);
+        var audit = _auditRepos.For(tenantId);
+
+        var user = await users.GetByIdAsync(userId, ct)
+            ?? throw new InvalidOperationException("User not found.");
+        if (!user.IsActive)
+            throw new InvalidOperationException("Account is inactive.");
+
+        // Verify @currentPassword against stored hash. BCrypt.Verify is
+        // the same primitive AuthService uses at login.
+        if (!BCrypt.Net.BCrypt.Verify(currentPassword, user.PasswordHash))
+            throw new InvalidOperationException("Current password is incorrect.");
+
+        var newHash = _auth.HashPassword(newPassword);
+        await users.UpdatePasswordHashAsync(userId, newHash, userId, ct);
+
+        await audit.AppendAsync(new AuditLogEntry
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,    // actor IS the target on self-change
+            EventType = AuditEventTypes.PasswordChangedSelf,
+            EntityType = AuditEventTypes.EntityUser,
+            EntityId = userId,
+            IpAddress = ipAddress,
+            UserAgent = userAgent,
+        }, ct);
+    }
+
+    public async Task ResetPasswordAsync(
+        Guid tenantId,
+        Guid targetUserId,
+        string newPassword,
+        Guid actorId,
+        string? ipAddress,
+        string? userAgent,
+        CancellationToken ct = default)
+    {
+        // Critical safeguard (D2): admin cannot reset their own password
+        // through the admin endpoint — forces use of the self-change flow
+        // (which requires current-password verification) so the admin
+        // path can't be used to bypass that check on themselves.
+        if (targetUserId == actorId)
+            throw new InvalidOperationException(
+                "Use /Account/ChangePassword to change your own password — it requires verifying your current password.");
+
+        PasswordPolicy.ThrowIfInvalid(newPassword);
+
+        var users = _userRepos.For(tenantId);
+        var audit = _auditRepos.For(tenantId);
+
+        var user = await users.GetByIdAsync(targetUserId, ct)
+            ?? throw new InvalidOperationException("User not found.");
+
+        var newHash = _auth.HashPassword(newPassword);
+        await users.UpdatePasswordHashAsync(targetUserId, newHash, actorId, ct);
+
+        await audit.AppendAsync(new AuditLogEntry
+        {
+            Id = Guid.NewGuid(),
+            UserId = actorId,
+            EventType = AuditEventTypes.PasswordResetAdmin,
+            EntityType = AuditEventTypes.EntityUser,
+            EntityId = targetUserId,
+            IpAddress = ipAddress,
+            UserAgent = userAgent,
+        }, ct);
+    }
+
     public async Task SetPermissionAsync(
         Guid tenantId,
         SetPermissionRequest request,

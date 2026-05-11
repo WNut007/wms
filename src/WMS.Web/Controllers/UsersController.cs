@@ -306,6 +306,46 @@ public sealed class UsersController : Controller
         return RedirectToAction(nameof(Detail), new { id });
     }
 
+    // Phase 25 — admin force-reset password. Service refuses self-reset
+    // (D2: admin must use /Account/ChangePassword for their own account
+    // so current-password verification is enforced).
+    [HttpPost("ResetPassword/{id:guid}")]
+    [ValidateAntiForgeryToken]
+    [RequirePermission("SECURITY.USERS", PermissionAction.Edit)]
+    public async Task<IActionResult> ResetPassword(
+        Guid id,
+        ResetPasswordViewModel model,
+        CancellationToken ct = default)
+    {
+        if (!ModelState.IsValid)
+        {
+            TempData["UserError"] = "Password must be at least 8 characters and match the confirmation.";
+            return RedirectToAction(nameof(Detail), new { id });
+        }
+
+        try
+        {
+            await _security.ResetPasswordAsync(
+                _tenant.RequireTenantId(),
+                id,
+                model.NewPassword,
+                actorId: _currentUser.UserId ?? Guid.Empty,
+                ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString(),
+                userAgent: Request.Headers.UserAgent.ToString(),
+                ct);
+            TempData["UserMessage"] = "Password reset. The user must sign in with the new password.";
+        }
+        catch (ArgumentException ex)
+        {
+            TempData["UserError"] = ex.Message;
+        }
+        catch (InvalidOperationException ex)
+        {
+            TempData["UserError"] = ex.Message;
+        }
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
     private static string StatusLabel(UserListRow row)
     {
         if (row.LockedUntil is not null && row.LockedUntil > DateTime.UtcNow) return "Locked";

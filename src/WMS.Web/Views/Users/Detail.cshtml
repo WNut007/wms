@@ -132,7 +132,7 @@
 
             @if (Model.IsLocked || Model.FailedLoginAttempts > 0)
             {
-                <form asp-action="Unlock" asp-route-id="@Model.Id" method="post">
+                <form asp-action="Unlock" asp-route-id="@Model.Id" method="post" style="margin-bottom: 10px;">
                     @Html.AntiForgeryToken()
                     <button type="submit" class="wms-btn wms-btn-purple" style="width: 100%;">
                         <i class="ti ti-lock-open" aria-hidden="true"></i>
@@ -140,6 +140,30 @@
                     </button>
                 </form>
             }
+
+            <details class="rp-pw-reset" style="margin-top: 8px;">
+                <summary class="wms-btn" style="width: 100%; cursor: pointer; text-align: center;">
+                    <i class="ti ti-key" aria-hidden="true"></i> Reset password
+                </summary>
+                <form asp-action="ResetPassword" asp-route-id="@Model.Id" method="post"
+                      style="margin-top: 10px; padding: 12px; border: 1px solid #E5E7EB; border-radius: 8px;">
+                    @Html.AntiForgeryToken()
+                    <p style="font-size: 11px; color: var(--wms-text-secondary); margin: 0 0 10px;">
+                        Sets a new password. User keeps the same email. Audit-logged as PasswordResetAdmin.
+                    </p>
+                    <input type="password" name="NewPassword" class="wms-input"
+                           placeholder="New password (8+ chars, mixed case, digit)"
+                           autocomplete="new-password" minlength="8" required
+                           style="margin-bottom: 6px;" />
+                    <input type="password" name="ConfirmPassword" class="wms-input"
+                           placeholder="Confirm new password"
+                           autocomplete="new-password" minlength="8" required
+                           style="margin-bottom: 8px;" />
+                    <button type="submit" class="wms-btn wms-btn-purple" style="width: 100%;">
+                        Set new password
+                    </button>
+                </form>
+            </details>
         }
     </div>
 </div>

@@ -19,4 +19,11 @@ public class LoginViewModel
     // resume the original navigation. Sanitised at use-site (IsLocalUrl)
     // to block open-redirect attempts.
     public string? ReturnUrl { get; set; }
+
+    // Phase 25 — when true, the session cookie is issued with
+    // IsPersistent + 30-day ExpiresUtc. False → cookie expires on browser
+    // close (Session lifetime). Default false so the secure path is the
+    // path of least resistance.
+    [Display(Name = "Remember me on this device")]
+    public bool RememberMe { get; set; }
 }

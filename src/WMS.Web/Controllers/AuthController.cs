@@ -23,7 +23,9 @@ namespace WMS.Web.Controllers;
 public sealed class AuthController : BaseController
 {
     private const string PreAuthCookieName = "wms.preauth";
+    private const string RememberMeCookieName = "wms.rememberme";
     private static readonly TimeSpan PreAuthCookieLifetime = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan PersistentCookieLifetime = TimeSpan.FromDays(30);
 
     private readonly IAuthService _auth;
     private readonly IUserTenantMapRepository _userTenantMapRepo;
@@ -62,15 +64,24 @@ public sealed class AuthController : BaseController
 
         if (!result.Success)
         {
-            // Same message regardless of FailureReason — don't tell the
-            // client whether the email is known. (Timing differs between
-            // UnknownEmail vs InvalidPassword; tightening that is a
-            // separate concern.)
-            ModelState.AddModelError(string.Empty, "Invalid email or password.");
+            // Phase 25 — RateLimited gets a distinct message so the
+            // operator knows to back off. UnknownEmail vs InvalidPassword
+            // still share a message to avoid email-enumeration leaks.
+            // AccountLocked-equivalent failures arrive as InvalidPassword
+            // (VerifyPasswordAsync returns null for both) — the audit
+            // log differentiates them, but the operator-facing message
+            // should not.
+            ModelState.AddModelError(string.Empty,
+                result.FailureReason == "RateLimited"
+                    ? "Too many login attempts. Please wait a minute and try again."
+                    : "Invalid email or password.");
             return View(model);
         }
 
         WritePreAuthCookie(result.PreAuthToken!);
+        // Phase 25 — stash Remember Me intent in a parallel cookie so it
+        // survives the 3-step flow. Read + cleared at SignInAsync time.
+        if (model.RememberMe) WriteRememberMeCookie();
         return RedirectToAction(nameof(SelectTenant));
     }
 
@@ -221,12 +232,42 @@ public sealed class AuthController : BaseController
         claims.Add(new Claim(WmsClaimTypes.WarehouseCode, warehouse.Code));
 
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+        // Phase 25 — Step 3 (Warehouse) finalises the session cookie. If
+        // Remember Me was checked at Step 1, issue a persistent cookie
+        // with 30-day ExpiresUtc; otherwise default (expires per
+        // Program.cs cookie ExpireTimeSpan = 8h sliding).
+        var authProps = BuildAuthProperties();
+        ClearRememberMeCookie();
         await HttpContext.SignInAsync(
             CookieAuthenticationDefaults.AuthenticationScheme,
-            new ClaimsPrincipal(identity));
+            new ClaimsPrincipal(identity),
+            authProps);
 
         return Redirect("/");
     }
+
+    private AuthenticationProperties BuildAuthProperties()
+    {
+        var rememberMe = Request.Cookies[RememberMeCookieName] == "1";
+        return new AuthenticationProperties
+        {
+            IsPersistent = rememberMe,
+            ExpiresUtc = rememberMe ? DateTimeOffset.UtcNow.Add(PersistentCookieLifetime) : null,
+        };
+    }
+
+    private void WriteRememberMeCookie() =>
+        Response.Cookies.Append(RememberMeCookieName, "1", new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = Request.IsHttps,
+            SameSite = SameSiteMode.Lax,
+            MaxAge = PreAuthCookieLifetime,    // matches preauth flow lifetime
+            Path = "/Auth",
+        });
+
+    private void ClearRememberMeCookie() =>
+        Response.Cookies.Delete(RememberMeCookieName, new CookieOptions { Path = "/Auth" });
 
     private bool TryGetTenantId(out Guid tenantId)
     {
