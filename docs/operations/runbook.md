@@ -285,6 +285,65 @@ Response:
    ORDER BY Timestamp DESC;
    ```
 
+### SMTP / email delivery failures
+
+Phase 30A added `IEmailService` (Gmail SMTP via `System.Net.Mail`). Best-effort by design — provisioning + password reset commit regardless of email success. Operator can still read temp passwords off the success page.
+
+**Symptom**: TenantCreated / PasswordReset emails not arriving; `/healthz/ready` reports email check Unhealthy or Degraded.
+
+Triage:
+
+1. **Check the health envelope first**:
+   ```
+   curl https://wms.example.com/healthz/ready
+   ```
+   Look at the `email` entry:
+   - `Healthy` + description with SMTP host → credentials present, send path should work
+   - `Degraded` + "TestMode" → app is configured to log emails, not send (intentional dev default). Flip `Email__TestMode=false` in app pool env vars to enable real sending
+   - `Unhealthy` + list of missing keys → env vars not set or named wrong
+
+2. **Verify env var names** (case-sensitive, double underscore):
+   ```powershell
+   # On the server, from an admin PowerShell:
+   Get-Item -Path "IIS:\AppPools\WMS" |
+     Select-Object -ExpandProperty environmentVariables
+   ```
+   Required: `Email__Username`, `Email__Password`, `Email__FromAddress`, `Email__TestMode=false`. Single underscore (`Email_Username`) is silently ignored.
+
+3. **Check application logs** (`C:\wms\logs\wms-{Date}.log`):
+   ```
+   Get-Content C:\wms\logs\wms-*.log -Tail 200 |
+     Select-String -Pattern "Email|SMTP|Gmail"
+   ```
+   Look for:
+   - `Email TestMode` — running in dev mode, won't send
+   - `Email send failed` — provisioning succeeded but SMTP path threw; check exception details (auth, network, quota)
+   - `SmtpException: The server response was: 5.7.0 Authentication Required` — credentials wrong or App Password expired
+
+4. **Common Gmail-specific failures**:
+   - **App Password revoked** — happens when the Google account flips 2FA off/on. Re-generate at `https://myaccount.google.com/apppasswords` and update env vars
+   - **500/day quota exhausted** — Gmail personal accounts cap at 500/day. Move to SendGrid per TD-110 OR Google Workspace (2000/day)
+   - **"Less secure app access" errors** — irrelevant for App Password flow; if you see this, the env vars are pointing at a regular Gmail password instead of an App Password
+   - **TLS / cert errors** — Gmail requires STARTTLS on :587; `Email__UseStartTls=true` is the default
+
+5. **Test send from the server** (without leaving the WMS process):
+   - Provision a throwaway tenant via SuperAdmin → email should arrive at the admin email
+   - OR call `POST /SuperAdmin/Tenants/{id}/ResetAdminPassword` → email arrives at that tenant's bootstrap admin
+
+6. **Suppress until fixed** (operator wants quiet logs):
+   - Set `Email__TestMode=true` in app pool env vars + IIS reset
+   - Service will log "would send" without attempting SMTP — `Healthy` flips to `Degraded` on `/healthz/ready`
+   - Re-enable when SMTP fixed
+
+If emails are arriving but landing in spam:
+
+- DKIM / SPF / DMARC not configured on `FromAddress` domain (TD-107). Set up before scale; for single-customer launch, ask recipients to whitelist
+- Subject lines mention temp passwords — some corporate filters flag aggressively. Tag as TD if it becomes a pattern
+
+If you need to re-send a temp password without resetting it again:
+
+- Phase 30A does NOT store sent emails. The temp password generated for a tenant lives in the operator's success page only — once dismissed, you must reset via `POST /SuperAdmin/Tenants/{id}/ResetAdminPassword` (issues a NEW temp password + emails it + invalidates the prior one)
+
 ---
 
 ## 4. SQL Cheat Sheet

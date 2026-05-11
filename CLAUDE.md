@@ -346,11 +346,102 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10-17 · Phases 10A-28 + **29** shipped → tags … + **`v2.14.0-docs`** + **`v2.15.0-beta-ready`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 REPORTS (ch.1) · 🛡️ TENANT ADMIN (ch.2) · 🔒 SECURITY HARDENING (ch.3) · 🚀 DEPLOYMENT FOUNDATION (ch.4) · 🎩 SUPERADMIN ONBOARDING (ch.5) · 📚 DOCUMENTATION MVP (ch.6) · ✨ **POLISH + BETA READY SHIPPED** — P0 MustChangePassword enforcement gap closed + dropdown polish + Tenants tile NULL guard + demo script for sales (v3.0.0 ch. 7)
-**Current Focus**: v3.0.0 = Phase 30 first-customer onboarding. **6 v3.0.0 chapters complete; codebase is beta-ready.** Pending: ADR-004 putaway header (TD-004); Phase 19.5 serial-aware mobile bundle (TD-040 + TD-042 + TD-043 — needs serial schema first).
+**Active Sprint**: Day 10-18 · Phases 10A-29 + **30A** shipped → tags … + **`v2.15.0-beta-ready`** + **`v2.16.0-deploy-test-ready`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 REPORTS (ch.1) · 🛡️ TENANT ADMIN (ch.2) · 🔒 SECURITY HARDENING (ch.3) · 🚀 DEPLOYMENT FOUNDATION (ch.4) · 🎩 SUPERADMIN ONBOARDING (ch.5) · 📚 DOCUMENTATION MVP (ch.6) · ✨ POLISH + BETA READY (ch.7) · 📧 **EMAIL + LOCAL DEPLOY VALIDATION SHIPPED** — Gmail SMTP infra (TD-078 closed) + deploy script + automated smoke runner + 12-scenario manual checklist (Phase 30A; pre-customer dogfood)
+**Current Focus**: Phase 30B = real-server deployment for the first customer. Phase 30A produced the artifact + smoke tooling; Phase 30B is the same artifact running on Windows Server + IIS. **All 7 v3.0.0 chapters + deploy tooling shipped.** Pending: ADR-004 putaway header (TD-004); Phase 19.5 serial-aware mobile bundle (TD-040 + TD-042 + TD-043 — needs serial schema first).
 **Blockers**: none
 
 Update this section weekly during standups.
+
+### Day 18 — Phase 30A (Local Deployment Validation + SMTP Infrastructure · pre-customer dogfood)
+
+**Branch**: `feat/phase-30a-local-test` → merged to `main` · **Tag**: `v2.16.0-deploy-test-ready` · **Closes**: TD-078 · **Strategy**: build the workstation-validation chain end-to-end BEFORE provisioning a real server; ship email infra so temp passwords stop being read off a web page and forwarded manually.
+
+Pre-Phase-30B dogfood phase. Phase 30B = real customer deploy (Windows Server + IIS + DNS + TLS); Phase 30A = the same publish artifact running on the developer workstation under Kestrel, against local SQL Server. Catches the config / migration / publish-bundle / security-header surfaces cheaper than a remote rollback. ~3h actual vs 8h estimate — pattern reuse from Phase 26 deployment foundation hit ~70%.
+
+**Why bundle email + local deploy in the same phase**: both close a "you can't really deploy to a customer until this is done" gap. Email closes TD-078 (operator-friendly onboarding); deploy scripts close the runbook gap (was: "follow these manual steps"; now: `Test-Local-Deploy.ps1 + Smoke-Local.ps1` runs front-to-back).
+
+**M1 — Gmail SMTP infrastructure + tenant lifecycle wiring**:
+
+- `IEmailService` + `EmailMessage` + `EmailOptions` in `WMS.BLL.Services.Email`. `EmailOptions.SectionName = "Email"`, bound from config; `TestMode=true` safe default.
+- `EmailTemplateRenderer` — embedded resource templates at `WMS.BLL.Services.Email.Templates.*.{html,txt}`. `Regex \{\{(\w+)\}\}` substitution. HTML body auto-`HtmlEncode`s caller-supplied values (defence against operator-supplied markup); text body raw. Missing placeholders stay as literal `{{Name}}` markers (visible-issue principle vs silent empty).
+- 8 templates × 4 types: `Welcome` (TD-109 — not yet wired), `TempPassword`, `TenantCreated`, `PasswordReset`. HTML + plain-text variants for multipart/alternative.
+- `GmailSmtpEmailService` — System.Net.Mail.SmtpClient with `#pragma warning disable SYSLIB0014`. MailKit migration deferred (TD-103, ~30 LOC mechanical). TestMode=true → logs + returns true without network. TestMode=false → validates credentials, sends multipart/alternative via `AlternateView`. Throws `InvalidOperationException` on incomplete config; logs success + failure with CorrelationId.
+- `EmailServiceHealthCheck` (Web/Infrastructure/HealthChecks/) wired to `/healthz/ready` with tag `ready`. Reports Healthy (credentials present) / Degraded (TestMode=true — intentional safe default) / Unhealthy (missing keys with list of `Email:Username` etc. in description).
+- `TenantProvisioningService` constructor grew 2 deps (`IEmailService` + `EmailTemplateRenderer`). `CreateTenantAsync` emits TenantCreated email as Step 6 after audit. `ResetTenantAdminPasswordAsync` refactored to use OUTPUT clause capturing admin Email + FullName from the UPDATE, then emits PasswordReset email. Both wrapped in `TrySendXxxEmailAsync` private helpers that swallow all exceptions + log Warning — provisioning + reset commits stand regardless of SMTP path.
+- `appsettings.json` Email section with safe defaults + Gmail App Password setup notes + 500/day quota note pointing at TD-110 SendGrid switch. `appsettings.Production.json` overrides `TestMode=false` + empty credentials (env vars required).
+
+M1 tests (+16): `EmailTemplateRendererTests` (6 — substitution across all 4 templates, HTML-encode of `<script>`, text-body raw pass-through, missing-placeholder literal, all-templates-non-empty Theory, missing-template throw); `GmailSmtpEmailServiceTests` (4 — TestMode short-circuit, missing-creds throw, empty recipients throw, partial-creds throw); `EmailServiceHealthCheckTests` (4 — Degraded + Unhealthy + partial-creds + Healthy paths).
+
+**M2 — Local deployment script + automated smoke runner + procedure doc**:
+
+- `scripts/deploy/Test-Local-Deploy.ps1` — PowerShell deploy chain runner. Flags: `-Port` (default 5500), `-PublishPath`, `-Environment` (default Production), `-SkipMigrate`, `-SkipBuild`, `-NoStart`, `-LaunchBrowser`. Validates `ConnectionStrings__MasterDb` + `ConnectionStrings__TenantTemplate` env vars (prompts interactively if missing). Publishes via `dotnet publish -c Release`, applies Master migrations, fans out Tenant migrations, verifies publish artifact, then launches Kestrel.
+- `scripts/smoke/Smoke-Local.ps1` — 12-scenario automated request-shape smoke. Hits health (live/ready/legacy alias/Phase 17 endpoint), public pages (root, /Auth/Login, /SuperAdmin/Auth/Login), security headers (XFO=DENY, X-CTO=nosniff, Referrer-Policy present, Server stripped), 404 branded page. Returns exit code 0/1 + summary table. Trusts self-signed TLS (works against local Kestrel dev cert + remote staging).
+- `docs/deployment/local-test-procedure.md` — operator-facing procedure. Env var setup, deploy + smoke invocation, 7 common-failure recovery recipes (ConfigurationValidator strict mode, master DB doesn't exist, empty tenant fan-out, security headers absent in Dev environment, email health check Unhealthy, package restore, port in use). Cleanup + Phase 30B not-in-scope list.
+
+**M3 — E2E manual smoke checklist** (`docs/deployment/local-smoke-checklist.md`):
+
+12 numbered scenarios with Goal / Pre / Steps / Expected / Failures-to-log per scenario:
+- S1 SuperAdmin bootstrap login + forced password change (P0 MustChangePassword from Phase 29)
+- S2 Provision new tenant (DB + ADMIN seed + audit + email)
+- S3 Tenant first login → MustChangePassword redirect path
+- S4 Add team member with role assignment
+- S5 Master Data: Warehouse + Location
+- S6 Inbound desktop: PO → Goods Receipt → Stock + Movement
+- S7 Mobile receive PWA
+- S8 Mobile putaway with suggestion
+- S9 Outbound: SO → FIFO Allocate → mobile Pick
+- S10 Outbound finish: mobile Pack → Ship
+- S11 Reports + Excel export (3 reports × 5 sheets)
+- S12 Suspend + reactivate tenant (auth blocking)
+
+Failures-to-log section per scenario captures gotchas this codebase has actually hit (Phase 29 NULL guard, Phase 27 rollback, TD-040 serial-tracked banner) so operator knows what to watch for.
+
+**M4 — Wrap-up docs + tag**:
+
+- `docs/deployment/phase-30a-test-results.md` — results-capture template for the operator to fill in (pre-flight + deploy + automated smoke + manual smoke + email validation + issues + ready-for-tag recommendation + performance baseline).
+- `docs/deployment/phase-30b-prep-checklist.md` — what's needed for the real-server step. Customer commitments / infrastructure provisioning / IIS config / DB setup / email / security / operational readiness / CI-CD optional / Day 0 go-live procedure / Day 1-7 watching / not-ready-for-30B explicit list / 5 open questions to resolve before 30B starts.
+- `docs/operations/runbook.md` — new "SMTP / email delivery failures" subsection under Incident Response. 6-step triage: check `/healthz/ready` envelope → verify env var naming → check application logs → Gmail-specific failures (revoked App Password, 500/day quota, "less secure app", TLS errors) → test send from production → suppress with TestMode if needed. Spam-folder notes pointing at TD-106 (DKIM/SPF/DMARC).
+- TD-078 closed and moved to Closed Items with Phase 30A M1 commit reference.
+- 12 new TDs (TD-103 through TD-114) capturing the Phase 30A deferred surface:
+  - **TD-103** MailKit migration (close SYSLIB0014)
+  - **TD-104** Email retry queue (Hangfire)
+  - **TD-105** Email send audit log table
+  - **TD-106** DKIM / SPF / DMARC setup docs
+  - **TD-107** Per-tenant email template customization UI
+  - **TD-108** User email preferences / unsubscribe
+  - **TD-109** Welcome email on tenant user CREATE (templates ready; integration point one method call)
+  - **TD-110** SendGrid / Postmark provider switch (scale)
+  - **TD-111** Health-check timeout + concurrency tuning
+  - **TD-112** `Test-Local-Deploy.ps1` could create `WMS_Master` if missing
+  - **TD-113** Smoke runner — auth-required scenario coverage
+  - **TD-114** Phase 30B real-server deployment automation
+
+Test posture: **1053 passing** (was 1037 / +16 net). 366 unit + 688 integration + 5 skipped. Build clean (2 pre-existing warnings unrelated to Phase 30A).
+
+**Out of scope** (still open for Phase 30B):
+- Actual Windows Server + IIS provisioning (TD-069 family + TD-114)
+- TLS cert installation + HSTS preload
+- DNS + firewall configuration
+- CI/CD pipeline (TD-067)
+- Application Insights / monitoring beyond `/healthz/*` (TD-068)
+- Backup automation (TD-071)
+- Distributed cache / multi-instance (TD-072)
+- Performance baseline benchmarks (TD-073)
+- DR runbook + drill (TD-075)
+
+**Patterns established**:
+- **Best-effort email side effects** — post-audit, post-commit; SMTP failure swallowed + logged Warning. Provisioning + reset COMMITS stand even when email fails. Operator can still read temp password from success page. Same pattern fits any future "fire-and-forget after the main thing succeeded" hook.
+- **OUTPUT clause to capture identity for downstream side effects** — `UPDATE … OUTPUT inserted.Email, inserted.FullName` lets a single SQL round-trip both mutate state AND capture the fields needed for the post-mutation notification. Avoids a separate SELECT-then-UPDATE race window.
+- **Template substitution with HTML-encode at boundary** — operator-supplied strings (tenant name, user email) flow into the HTML template via `Regex.Replace` with `HtmlEncoder.Default.Encode` per value. Text template version skips encoding (no markup to escape). Defence-in-depth against operator-supplied markup breaking out of the template.
+- **TestMode safe default for ops-touching services** — `Email.TestMode=true` is the appsettings.json default. Means a fresh checkout `dotnet run` won't burn quota or send mistakes. Production override flips it to false via `appsettings.Production.json`. Same pattern fits SMS / push notification / external API integration services.
+- **Embedded resources for static template assets** — `<EmbeddedResource>` in csproj + `Assembly.GetManifestResourceStream` at runtime. Templates ship inside the assembly DLL, deploy with the publish artifact, never get out of sync with code. Per-tenant override (TD-107) would supplement, not replace.
+
+**Notes**:
+- The M1 commit message described TD-110 as the MailKit migration target, which conflicts with in-code references (`GmailSmtpEmailService.cs:13`, `appsettings.json:30`) that scope TD-110 to the SendGrid switch. Reconciled in TD-103 (MailKit) vs TD-110 (SendGrid) per the in-code-comment authority — they're distinct concerns (deprecation closure vs quota scale).
+- Phase 30A is the first phase that crosses presentation-layer + infrastructure boundaries (email lives in WMS.BLL but `IDocumentStorageService` style precedent kept `GmailSmtpEmailService` registration in WMS.Web's DI). No layering issue — `WMS.BLL.Services.Email` depends only on standard `Microsoft.Extensions.*` + `Microsoft.Extensions.Options`.
+- Customer onboarding playbook (Phase 28) referenced "secure delivery channel" for temp passwords as TD-101 — Phase 30A's email service is the first concrete answer (channel = email; secure = TLS-encrypted via Gmail STARTTLS). TD-101 remains open for the one-time-view share URL pattern.
+
+---
 
 ### Day 17 — Phase 29 (Polish + Beta Ready · v3.0.0 chapter 7 — last build phase before customer)
 
@@ -2744,5 +2835,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-17 (Day 17 — Phase 29 Polish + Beta Ready; v2.15.0-beta-ready · ✨ seventh + final v3.0.0 chapter — P0 MustChangePassword enforcement gap closed + UI dropdown polish + Tenants tile NULL guard + 500-line demo script; +13 tests, 1037 passing. **6 v3.0.0 chapters complete; beta-ready.**)
-**Version**: 1.43
+**Last updated**: 2026-05-18 (Day 18 — Phase 30A Local Deployment Validation + SMTP Infrastructure; v2.16.0-deploy-test-ready · 📧 Gmail SMTP + EmailTemplateRenderer + EmailServiceHealthCheck + wired into TenantProvisioning Create + ResetAdminPassword as best-effort post-audit (TD-078 closed); Test-Local-Deploy.ps1 + Smoke-Local.ps1 (12-scenario request-shape) + 12-scenario manual E2E checklist + Phase 30B prep checklist + runbook SMTP section; +16 tests, 1053 passing. **All 7 v3.0.0 chapters + deploy tooling shipped.**)
+**Version**: 1.44
