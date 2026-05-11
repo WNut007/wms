@@ -346,11 +346,100 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10-11 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 + 17 + 18 + 19 + 20 + 21 + 22 + **23** shipped → tags `v1.0.1-po-detail-complete` + `v1.0.2-inbound-hardened` + `v1.1.0-adjustments` + `v1.2.0-cycle-counts` + `v1.3.0-transfers` + `v1.4.0-so-crud` + `v1.5.0-allocation` + `v1.6.0-pick-task` + `v1.7.0-pack` + `v1.8.0-ship` + **`v2.0.0-outbound-mvp`** milestone + `v2.1.0-list-pages` + `v2.2.0-mobile-pick` + `v2.3.0-pack-video` + `v2.4.0-mobile-receive` + `v2.5.0-mobile-pack` + `v2.6.0-mobile-putaway` + `v2.7.0-mobile-count` + `v2.8.0-mobile-locate` + **`v2.9.0-reports`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 **REPORTS FOUNDATION SHIPPED** — first v3.0.0 chapter phase (Inventory dashboard + Order analytics + Operational KPIs + Excel export)
-**Current Focus**: v3.0.0 SaaS launch features — Phase 24 tenant admin (v2.10.0), Phase 25 security hardening (v2.11.0), Phase 26 deployment (v2.12.0), Phase 27 onboarding tooling (v2.13.0); Phase 19.5 serial-aware mobile bundle (TD-040 + TD-042 + TD-043 — needs serial schema first); ADR-004 putaway header (TD-004); carrier FK integration.
+**Active Sprint**: Day 10-12 · Phase 10A + 10B + 11A + 12 + 13 + 14A + 14B + 14C + 14D + 14E + 15A + 16 + 17 + 18 + 19 + 20 + 21 + 22 + 23 + **24** shipped → tags … + **`v2.9.0-reports`** + **`v2.10.0-tenant-admin`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 REPORTS FOUNDATION (v3.0.0 ch. 1) · 🛡️ **TENANT ADMIN SHIPPED** — Users CRUD + Roles permission matrix + immutable AuditLog viewer (v3.0.0 ch. 2)
+**Current Focus**: v3.0.0 SaaS launch features — Phase 25 security hardening (v2.11.0 — password change UI, 2FA, session policy), Phase 26 deployment (v2.12.0), Phase 27 onboarding tooling (v2.13.0); Phase 19.5 serial-aware mobile bundle (TD-040 + TD-042 + TD-043 — needs serial schema first); ADR-004 putaway header (TD-004); carrier FK integration.
 **Blockers**: none
 
 Update this section weekly during standups.
+
+### Day 12 — Phase 24 (Tenant Admin — Users + Roles + AuditLog viewer · v3.0.0 chapter 2)
+
+**Branch**: `feat/tenant-admin` → merged to `main` · **Tag**: `v2.10.0-tenant-admin` · **Strategy**: v3.0.0 Land + Expand · customer-facing admin tooling (vs Phase 27 v2.13.0 SuperAdmin onboarding)
+
+Second v3.0.0 chapter. The ADMIN role's day-to-day surface — manage their team's users, audit role permissions, review the activity log. Three sub-modules in one phase: Users / Roles / AuditLog.
+
+**Audit findings (Scenario A — schema-rich, code clean room)**:
+- ✅ Schema complete from Phase 1: `security.{Users, Roles, Functions, RoleFunctionPermissions, UserRoles, AuditLog}` all exist + seeded (Migrations 033-044). Phase 23 added REPORTS.VIEW to Functions.
+- ✅ `IUserRepository` read-side + login-specific writes; `IPermissionRepository` read.
+- ❌ No domain entities for Role / UserRole / Function / AuditLog (only User existed).
+- ❌ No repos for the other 4 security tables.
+- ❌ No controllers under /Users, /Roles, /AuditLog.
+- ✅ Permissions seeded: SECURITY.{USERS, ROLES, FUNCTIONS, AUDIT_LOG} — ADMIN via BLL bypass, MANAGER has AUDIT_LOG view only per Migration_044.
+
+**T1 — Users module + audit log write infra**:
+- 3 new domain entities: `Role`, `UserRole`, `AuditLogEntry`
+- `IUserRepository` extended: `GetPagedAsync` (with chip-count `UserStatusCounts` — Active/Inactive/Locked), `EmailExistsAsync(exceptId)` for collision detection, `InsertAsync`, `UpdateAsync`, `SetActiveAsync` (idempotent soft-delete), `CountActiveAdminsAsync` (for last-admin invariant)
+- `IUserRoleRepository` (new) with `ReplaceForUserAsync` diff-then-apply
+- `IRoleRepository` (new) — basic reads + `UpsertPermissionAsync` for T2's matrix editor
+- `IAuditLogRepository` (new) — `AppendAsync` (only write path; rows immutable per migration 039 comment)
+- **`ISecurityService` BLL** orchestrates writes with invariants:
+  - **Last-admin guard**: `CountActiveAdminsAsync('ADMIN')` checked before deactivation; if ≤1 active admin and target user holds ADMIN, refuses with explicit error
+  - **Self-deactivation guard**: actor.UserId == target.UserId on deactivate → throws
+  - **Email uniqueness**: `EmailExistsAsync(email, exceptId)` on Create + Update (exceptId=null on create, populated on edit so own row doesn't collide with itself)
+  - **Password hashing** via existing `IAuthService.HashPassword` (BCrypt cost from Program config — 12 prod, 4 test)
+  - **Every write emits AuditLog row** with JSON Details payload (System.Text.Json on the BLL side)
+- `UsersController` (/Users) — 7 actions: Index + Data JSON (paged with filter chips), Detail (stat tiles + role list + Quick Actions sidebar with conditional Activate/Deactivate + Unlock), Create + Edit (DataAnnotations + FluentValidation; role checkbox grid), ToggleActive, Unlock
+- Permission gating: `SECURITY.USERS View` on read; `Add` on Create; `Edit` on the rest
+- Sidebar: new `SECURITY` module branch with submenu (Users + Roles + Audit Log) — module pre-staged in `SidebarMenuViewComponent.ModuleOrder` from Phase 1
+
+**T2 — Roles list + permission matrix editor**:
+- `Function` entity + `IFunctionRepository` (read-only — Functions are seeded by migrations)
+- `IRoleRepository` extended: `GetAllAsync` (list with per-row UserCount + PermissionCount via correlated subqueries — both shown on the Index card), `GetPermissionsForRoleAsync` (LEFT JOIN through Functions so a role with no grants surfaces the full Function catalogue with zero flags — COALESCE'd)
+- `RolesController` (/Roles) — Index (2 sections: system vs custom roles), Detail (matrix grouped by Module — Master / Inventory / Inbound / Outbound / etc.), `SetPermission` POST (JSON body)
+- **System-role guard** — `SecurityService.SetPermissionAsync` refuses writes to `IsSystemRole=true` roles per Migration_035 invariant. Detail page renders read-only (`disabled` checkboxes + amber banner) for system roles
+- **Inline-edit UX** per D2 decision: each checkbox toggle posts the full 5-flag row to `/Roles/SetPermission`; optimistic UI rollback on server reject; status banner auto-clears after 1.5s. No batch Save button. Anti-forgery token sourced from a hidden form rendered alongside the matrix
+- Custom-role creation deferred (no UI in v1; backend ready)
+
+**T3 — AuditLog viewer**:
+- `IAuditLogRepository` extended (write side declared in T1; T3 wires the reads): `GetPagedAsync` (with filter shape supporting userId / eventType / entityType / date range / free-text search), `GetByIdAsync` for the detail page, `GetDistinctEventTypesAsync` for the filter dropdown
+- `AuditLogController` (/AuditLog) — Index (paged table with debounced search + event-type dropdown + date pickers; reset button), Detail (2-column layout: Event metadata + Actor link back to Users.Detail + UA in monospace pre / Details JSON pretty-printed server-side via `JsonDocument` round-trip + `WriteIndented=true`)
+- Read-only surface — the underlying table is immutable per Migration_039
+- Permission: `SECURITY.AUDIT_LOG View` — MANAGER has this by default; ADMIN via BLL bypass
+
+**T4 — Tests** (+34 net):
+- `SecurityServiceTests` (14 unit) — Create happy + email-collision + short-password; Update happy + collision-with-other; ToggleActive — deactivate-self refused / last-ADMIN refused / non-last-ADMIN succeeds / non-admin-user no-count-check / already-at-target-state idempotent-no-audit; SetPermission — system-role refused / custom-role audits; Unlock — already-unlocked no-op / when-locked resets+audits
+- `UsersControllerTests` (11) — Index/GetData/Detail-404/Detail-flags-current-user/Create-GET/Create-POST-happy/Create-POST-service-throws-renders-form/ToggleActive-happy/ToggleActive-error-tempdata/Edit-POST-route-id-wins/Unlock-happy
+- `RolesControllerTests` (5) — Index list/Detail-404/Detail-groups-by-module/SetPermission-OK/SetPermission-BadRequest-on-service-error
+- `AuditLogControllerTests` (4) — Index populates EventTypes ViewBag / GetData JSON envelope / Detail 404 / Detail returns row
+- Test posture: **961 passing** (was 927 / +34 net). 302 unit + 659 integration + 5 skipped
+
+**Critical safeguards verified by tests**:
+- ✅ Last ADMIN cannot be deactivated
+- ✅ Self cannot be deactivated
+- ✅ System roles (IsSystemRole=true) cannot have permissions edited
+- ✅ Email uniqueness enforced across tenant
+- ✅ AuditLog rows immutable (no UPDATE/DELETE endpoints exist)
+- ✅ All permission changes logged to AuditLog with full flag set + JSON Details
+
+**Out of scope** (logged as TDs):
+- **TD-049** — Password change UI (admin force-set + self-service). Phase 25 security hardening territory.
+- **TD-050** — Custom role creation (POST /Roles + role Edit). System roles only in v1.
+- **TD-051** — Time-bounded role assignments UI (`UserRoles.ValidFrom`/`ValidTo` columns exist but UI assigns with both NULL = effective forever).
+- **TD-052** — Bulk user operations (CSV import, mass deactivate, etc.).
+- **TD-053** — AuditLog JSON pretty-print viewer with collapsible nodes (current is monospace pre with server-side `WriteIndented=true`).
+- **TD-054** — User Activity tab — per-user activity feed sourced from AuditLog. Roles tab on Detail is part of the layout already; per-user audit would be a nice cross-link.
+
+**Patterns established**:
+- **Inline-edit grid with optimistic UI** — checkbox change → fetch POST → on 200, brief status banner + auto-clear; on 4xx, rollback `e.target.checked = !e.target.checked` + error banner. Faster than batch save for sparse grids; rollback hides server errors gracefully.
+- **Last-X invariant via COUNT** — `CountActiveAdminsAsync(role)` keyed lookup + service-level guard. Generic enough to use for "last manager", "last picker", etc. Doesn't lock the row, just refuses the mutation. Idempotent: caller can retry after granting role to another user.
+- **AuditLog write-then-read in same phase** — write infra lands in T1 alongside the consumer (Users module). Read UI lands in T3. Pattern keeps the audit trail populated from day one even before the viewer exists.
+- **Service constructor injection of IAuthService** — reuses `HashPassword` from Phase 3 instead of fabricating a parallel BCrypt path. Cost factor (12 prod / 4 test) flows through automatically.
+
+**Spec compliance check**:
+- ✅ /Users + /Roles + /AuditLog accessible from sidebar (permission-gated)
+- ✅ User CRUD (Create/Edit/Toggle-Active/Unlock; password = TD-049)
+- ✅ Role assignment via checkbox grid on User Create + Edit
+- ✅ Role detail with permission matrix (5 flags per Function)
+- ✅ System roles read-only with explanatory banner
+- ✅ AuditLog list with filters (event-type + date range + search)
+- ✅ AuditLog detail with pretty-printed Details JSON
+- ✅ Last-admin guard + self-deactivation guard + system-role guard
+- ✅ All mutations audited
+- ✅ AuditLog immutable (no edit/delete endpoints)
+
+**Notes**: Audit caught 3 missing domain entities + 4 missing repos but ZERO schema gaps. Everything was migration-ready from Phase 1. The hardest design call was deciding whether to land AuditLog writes in T1 (alongside the consumer) or T3 (alongside the viewer); chose T1 so every Users action audits from day one, no dead AuditLog table while T2 + T3 ship. Service constructor at 5 deps is borderline — would split if it grew to 7+. Sidebar `SECURITY` module pre-staging from Phase 1 was a clean unlock; same pattern Phase 23 enjoyed with REPORTS.
+
+---
 
 ### Day 11 — Phase 23 (Reports Foundation — first v3.0.0 chapter phase)
 
@@ -2382,5 +2471,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-11 (Day 11 — Phase 23 Reports Foundation; v2.9.0-reports · 📊 first v3.0.0 chapter phase — Inventory dashboard + Order analytics + Operational KPIs + Excel export)
-**Version**: 1.37
+**Last updated**: 2026-05-12 (Day 12 — Phase 24 Tenant Admin; v2.10.0-tenant-admin · 🛡️ second v3.0.0 chapter phase — Users CRUD + Roles permission matrix + AuditLog viewer; +34 tests, 961 passing)
+**Version**: 1.38
