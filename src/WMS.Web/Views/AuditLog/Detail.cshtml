@@ -1,0 +1,88 @@
+@model WMS.DAL.Repositories.Security.AuditLogListRow
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = $"Audit · {Model.EventType}";
+
+    // Pretty-print the Details JSON for the operator (best-effort —
+    // server stores compact). Pretty-print = TD-052 if it goes
+    // through enough hands to be worth a server-side helper.
+    string prettyDetails = Model.Details ?? "";
+    if (!string.IsNullOrEmpty(Model.Details))
+    {
+        try
+        {
+            var parsed = System.Text.Json.JsonDocument.Parse(Model.Details);
+            prettyDetails = System.Text.Json.JsonSerializer.Serialize(
+                parsed,
+                new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        }
+        catch { /* leave as-is on parse failure */ }
+    }
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">@Model.EventType</p>
+        <div class="wms-breadcrumb">
+            <span>Security</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <a asp-action="Index" style="color: var(--wms-text-secondary);">Audit Log</a>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Entry</span>
+        </div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 2fr; gap: 16px;">
+    <div class="rp-chart-card">
+        <p class="rp-chart-title">Event</p>
+        <dl class="wmsd-dl">
+            <dt>Timestamp (UTC)</dt><dd>@Model.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+            <dt>Event type</dt><dd><span class="rp-mono">@Model.EventType</span></dd>
+            <dt>Actor</dt>
+            <dd>
+                @if (Model.UserId is null)
+                {
+                    <span style="color: var(--wms-text-secondary);">(system action)</span>
+                }
+                else
+                {
+                    <a asp-controller="Users" asp-action="Detail" asp-route-id="@Model.UserId">
+                        @(Model.UserEmail ?? "(unknown)")
+                    </a>
+                    @if (!string.IsNullOrEmpty(Model.UserFullName))
+                    {
+                        <span style="color: var(--wms-text-secondary);"> · @Model.UserFullName</span>
+                    }
+                }
+            </dd>
+            <dt>Entity type</dt><dd>@(Model.EntityType ?? "—")</dd>
+            <dt>Entity ID</dt><dd>
+                @if (Model.EntityId.HasValue)
+                {
+                    <span class="rp-mono" style="font-size: 11px;">@Model.EntityId</span>
+                }
+                else { <text>—</text> }
+            </dd>
+            <dt>IP address</dt><dd><span class="rp-mono">@(Model.IpAddress ?? "—")</span></dd>
+        </dl>
+
+        @if (!string.IsNullOrEmpty(Model.UserAgent))
+        {
+            <p class="rp-chart-title" style="margin-top: 20px;">User agent</p>
+            <pre style="font-size: 11px; background: #F9FAFB; padding: 10px; border-radius: 6px; border: 1px solid #E5E7EB; white-space: pre-wrap; word-break: break-all; margin: 0;">@Model.UserAgent</pre>
+        }
+    </div>
+
+    <div class="rp-chart-card">
+        <p class="rp-chart-title">Details (JSON)</p>
+        @if (string.IsNullOrEmpty(Model.Details))
+        {
+            <p class="rp-empty">No additional details for this event.</p>
+        }
+        else
+        {
+            <pre style="font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 12px; background: #1F2937; color: #E5E7EB; padding: 14px; border-radius: 8px; overflow-x: auto; line-height: 1.5; margin: 0;">@prettyDetails</pre>
+        }
+    </div>
+</div>
