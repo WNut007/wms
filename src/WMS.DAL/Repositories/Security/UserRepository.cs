@@ -237,4 +237,29 @@ SELECT CAST(CASE WHEN EXISTS (
                 AND r.Code = @adminRoleCode",
             new { adminRoleCode },
             cancellationToken: ct));
+
+    public Task UpdatePasswordHashAsync(
+        Guid userId,
+        string newPasswordHash,
+        Guid? actorId,
+        CancellationToken ct = default) =>
+        _connection.ExecuteAsync(new CommandDefinition(
+            @"UPDATE security.Users
+              SET PasswordHash = @newPasswordHash,
+                  FailedLoginAttempts = 0,
+                  LockedUntil = NULL,
+                  UpdatedAt = SYSUTCDATETIME(),
+                  UpdatedBy = @actorId
+              WHERE Id = @userId",
+            new { userId, newPasswordHash, actorId },
+            cancellationToken: ct));
+
+    public Task SetLockedUntilAsync(
+        Guid userId,
+        DateTime lockedUntilUtc,
+        CancellationToken ct = default) =>
+        _connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE security.Users SET LockedUntil = @lockedUntilUtc WHERE Id = @userId",
+            new { userId, lockedUntilUtc },
+            cancellationToken: ct));
 }

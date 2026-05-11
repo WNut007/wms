@@ -47,6 +47,36 @@ public interface ISecurityService
         string? userAgent,
         CancellationToken ct = default);
 
+    // ── Passwords (Phase 25) ───────────────────────────────────────────
+
+    // Self-service password change. Verifies @currentPassword against
+    // the user's stored hash before applying. Enforces PasswordPolicy
+    // on the new value. New hash CANNOT equal current (would no-op the
+    // change). Successful change clears FailedLoginAttempts + LockedUntil
+    // (same shape as a successful login). Emits PasswordChangedSelf.
+    Task ChangePasswordAsync(
+        Guid tenantId,
+        Guid userId,
+        string currentPassword,
+        string newPassword,
+        string? ipAddress,
+        string? userAgent,
+        CancellationToken ct = default);
+
+    // Admin force-reset. Refuses if @actorId == @targetUserId — the
+    // admin should use ChangePasswordAsync for their own account (so
+    // their current password is verified). Enforces PasswordPolicy.
+    // Successful reset clears FailedLoginAttempts + LockedUntil. Emits
+    // PasswordResetAdmin.
+    Task ResetPasswordAsync(
+        Guid tenantId,
+        Guid targetUserId,
+        string newPassword,
+        Guid actorId,
+        string? ipAddress,
+        string? userAgent,
+        CancellationToken ct = default);
+
     // ── Roles ──────────────────────────────────────────────────────────
 
     // Set one permission cell. Audited per (Role, Function) change.
