@@ -44,6 +44,13 @@
             <h2 class="wms-login-form-title">Welcome back</h2>
             <p class="wms-login-form-subtitle">Sign in to manage your warehouse operations</p>
 
+            @if (TempData["LoginNotice"] is string notice && !string.IsNullOrEmpty(notice))
+            {
+                <div class="wms-error-msg mb-3" style="background: #FEF3C7; border-left: 3px solid #D97706; padding: 10px 14px; color: #92400E;">
+                    @notice
+                </div>
+            }
+
             <form asp-action="Login" method="post" novalidate>
                 <input type="hidden" asp-for="ReturnUrl" />
 

@@ -138,6 +138,48 @@ public sealed class SuperAdminAuthService : ISuperAdminAuthService
             ipAddress, userAgent, details: null, ct);
     }
 
+    // P0 #4 — orchestrates the forced first-login password change for a
+    // SuperAdmin who has NOT been signed in yet. Caller (controller) is
+    // carrying SuperAdminId via a DataProtector-encrypted cookie rather
+    // than a session cookie, so we don't have a User.Identity to rely on.
+    public async Task<SuperAdminLoginResult> ApplyForcedPasswordChangeAsync(
+        Guid superAdminId,
+        string newPassword,
+        string? ipAddress,
+        string? userAgent,
+        CancellationToken ct = default)
+    {
+        var policyError = PasswordPolicy.Validate(newPassword);
+        if (policyError is not null)
+            return SuperAdminLoginResult.Failed(policyError);
+
+        var admin = await _repo.GetByIdAsync(superAdminId, ct);
+        if (admin is null || !admin.IsActive)
+            return SuperAdminLoginResult.Failed("UserNotFound");
+
+        // Race guard: if the flag was cleared by another mechanism
+        // between Login POST and this submission, reject — the caller
+        // should re-login through the normal flow.
+        if (!admin.MustChangePassword)
+            return SuperAdminLoginResult.Failed("WrongTokenType");
+
+        var newHash = _auth.HashPassword(newPassword);
+        await _repo.UpdatePasswordHashAsync(
+            admin.Id, newHash, mustChangePassword: false, admin.Id, ct);
+
+        await EmitAsync(SystemAuditEventTypes.SuperAdminPasswordChange,
+            SystemAuditEventTypes.SeverityInfo,
+            userId: admin.Id, userEmail: admin.Email, entityId: admin.Id,
+            ipAddress, userAgent,
+            details: "{\"context\":\"ForcedChangeOnFirstLogin\"}", ct);
+
+        // Re-read so the returned entity reflects MustChangePassword=false.
+        var refreshed = await _repo.GetByIdAsync(admin.Id, ct);
+        return refreshed is not null
+            ? SuperAdminLoginResult.Succeeded(refreshed)
+            : SuperAdminLoginResult.Failed("UserNotFound");
+    }
+
     private Task EmitFailureAsync(
         SuperAdminEntity admin, string? ip, string? ua, string reason, int? failedAttempts = null,
         CancellationToken ct = default) =>

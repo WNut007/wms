@@ -82,6 +82,96 @@ public sealed class AuthController : BaseController
         // Phase 25 — stash Remember Me intent in a parallel cookie so it
         // survives the 3-step flow. Read + cleared at SignInAsync time.
         if (model.RememberMe) WriteRememberMeCookie();
+
+        // P0 #4 — user must change their password before continuing.
+        // Token is flagged (RequiresPasswordChange=true). Redirect to the
+        // in-flow change-password step on the same _AuthLayout shell;
+        // session cookie is NOT issued yet, so no sidebar leakage.
+        if (result.RequiresPasswordChange)
+            return RedirectToAction(nameof(ChangePassword));
+
+        return RedirectToAction(nameof(SelectTenant));
+    }
+
+    // P0 #4 — in-flow forced password change step. Renders inside
+    // _AuthLayout (no sidebar / nav chrome). Cookie issuance is deferred
+    // until the password is changed, so unlike the legacy redirect-to-
+    // /Account/ChangePassword path the user cannot navigate elsewhere.
+    [HttpGet]
+    public async Task<IActionResult> ChangePassword(CancellationToken ct)
+    {
+        var (_, preAuth) = await ResolvePreAuthAsync(ct);
+        if (preAuth is null)
+            return RedirectToAction(nameof(Login));
+
+        // Wrong-token-type guard: this endpoint only accepts forced-change
+        // tokens. A regular preauth token (from a user without
+        // MustChangePassword) means someone hit the URL directly mid-flow;
+        // bounce them to the normal next step.
+        if (!preAuth.RequiresPasswordChange)
+            return RedirectToAction(nameof(SelectTenant));
+
+        return View(new ForcedPasswordChangeViewModel { UserEmail = preAuth.UserEmail });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ChangePassword(
+        ForcedPasswordChangeViewModel model,
+        CancellationToken ct)
+    {
+        var (oldToken, preAuth) = await ResolvePreAuthAsync(ct);
+        if (preAuth is null)
+            return RedirectToAction(nameof(Login));
+
+        if (!preAuth.RequiresPasswordChange)
+            return RedirectToAction(nameof(SelectTenant));
+
+        // Carry email forward so the re-render after a validation error
+        // still shows the "set a new password for {email}" line.
+        model.UserEmail = preAuth.UserEmail;
+
+        if (!ModelState.IsValid)
+            return View(model);
+
+        var result = await _auth.ApplyForcedPasswordChangeAsync(
+            oldToken!, model.NewPassword,
+            HttpContext.Connection.RemoteIpAddress?.ToString(),
+            Request.Headers.UserAgent.ToString(),
+            ct);
+
+        if (!result.Success)
+        {
+            // FailureReason is either a stable token ("InvalidToken",
+            // "WrongTokenType", "UserNotFound") or a PasswordPolicy
+            // message. Map the stable tokens to user-facing copy; pass
+            // the policy message through verbatim.
+            var msg = result.FailureReason switch
+            {
+                "InvalidToken" or "WrongTokenType" =>
+                    "Your session expired. Please sign in again.",
+                "UserNotFound" =>
+                    "Your account is no longer available. Please contact your administrator.",
+                _ => result.FailureReason ?? "Password could not be changed.",
+            };
+
+            if (result.FailureReason is "InvalidToken" or "WrongTokenType" or "UserNotFound")
+            {
+                // No useful state to re-render against — bounce to Login.
+                ClearPreAuthCookie();
+                TempData["LoginNotice"] = msg;
+                return RedirectToAction(nameof(Login));
+            }
+
+            // Policy violation — keep the user on the form to fix it.
+            ModelState.AddModelError(nameof(model.NewPassword), msg);
+            return View(model);
+        }
+
+        // Success — swap the cookie to the new token (flag=false) and
+        // re-enter the normal Step 2 chain. SelectTenant will smart-skip
+        // when the user has a single tenant.
+        WritePreAuthCookie(result.PreAuthToken!);
         return RedirectToAction(nameof(SelectTenant));
     }
 
@@ -309,9 +399,14 @@ public sealed class AuthController : BaseController
             new(WmsClaimTypes.TenantId, selected.TenantId.ToString()),
             new(WmsClaimTypes.TenantCode, selected.TenantCode),
         };
-        // Phase 29 — carry MustChangePassword as a claim so the tenant-
-        // side middleware can intercept without a per-request DB hit.
-        // Cleared on successful change in AccountController by re-signing-in.
+        // P0 #4 post-30A — both branches below are now BELT-AND-SUSPENDERS.
+        // The in-flow forced-change path (AuthController.ChangePassword)
+        // applies the new password via AuthService.ApplyForcedPasswordChange-
+        // Async BEFORE re-entering this method, so `user.MustChangePassword`
+        // is always false here under the primary flow. The branches remain
+        // for the rare race where the User row's flag isn't yet cleared
+        // when we re-read it (e.g. read replica lag in a future hot path) —
+        // MustChangePasswordMiddleware then catches the next request.
         if (user.MustChangePassword)
             claims.Add(new Claim(WMS.Web.Multitenancy.MustChangePasswordMiddleware.ClaimType,
                 WMS.Web.Multitenancy.MustChangePasswordMiddleware.TrueValue));
@@ -321,10 +416,6 @@ public sealed class AuthController : BaseController
             CookieAuthenticationDefaults.AuthenticationScheme,
             new ClaimsPrincipal(identity));
 
-        // Phase 29 — bootstrap admins (MustChangePassword=true) skip the
-        // warehouse-select step entirely; jump to /Account/ChangePassword.
-        // The middleware would redirect anyway, but going there directly
-        // avoids the visible flicker through SelectWarehouse.
         if (user.MustChangePassword)
             return Redirect("/Account/ChangePassword");
 

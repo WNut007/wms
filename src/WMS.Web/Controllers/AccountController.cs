@@ -17,6 +17,15 @@ namespace WMS.Web.Controllers;
 // Permission: [Authorize] only — every authenticated user can change
 // their own password (no SECURITY.USERS perm needed; they're acting on
 // themselves, not another user).
+//
+// P0 #4 (post-30A) — this endpoint is now PRIMARILY the VOLUNTARY
+// change-password surface (logged-in user hits it from the topbar
+// dropdown). The FORCED first-login change is handled by
+// AuthController.ChangePassword (no session cookie, _AuthLayout, no
+// sidebar). MustChangePasswordMiddleware still routes legacy cookies
+// (issued before T3 of the in-flow fix) HERE as a safety net — the
+// `wasForcedChange` branch below redirects those users to "/" after
+// they complete the change, matching the post-fix UX.
 [Authorize]
 [Route("Account")]
 public sealed class AccountController : Controller

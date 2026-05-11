@@ -57,10 +57,14 @@ public interface IAuthService
 
     // Issues a fresh random base64url token, persists it, returns the
     // string the caller should hand to the user (cookie / redirect param).
+    // `requiresPasswordChange` (P0 #4): when true, the issued token can
+    // only be consumed by the in-flow change-password endpoint, not the
+    // normal tenant-select step.
     Task<string> CreatePreAuthTokenAsync(
         string email,
         string? ipAddress,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        bool requiresPasswordChange = false);
 
     Task<PreAuthData?> ValidatePreAuthTokenAsync(
         string token,
@@ -68,5 +72,22 @@ public interface IAuthService
 
     Task MarkPreAuthTokenUsedAsync(
         string token,
+        CancellationToken ct = default);
+
+    // P0 #4 — in-flow forced password change. Verifies the token has
+    // RequiresPasswordChange=true; verifies the new password against
+    // PasswordPolicy; updates the user's hash + clears MustChangePassword
+    // on the user row; consumes the old token; issues a NEW token (without
+    // the flag) so the caller can continue the normal Step 2 / Step 3
+    // login chain.
+    //
+    // Returns the new token + the user's tenant list on success.
+    // Returns null PreAuthToken on failure (token invalid/expired/wrong
+    // flag/policy violation); FailureReason explains which.
+    Task<LoginResult> ApplyForcedPasswordChangeAsync(
+        string token,
+        string newPassword,
+        string? ipAddress,
+        string? userAgent,
         CancellationToken ct = default);
 }

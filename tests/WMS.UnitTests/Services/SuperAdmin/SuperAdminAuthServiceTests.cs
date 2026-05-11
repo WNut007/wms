@@ -226,4 +226,110 @@ public class SuperAdminAuthServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             b.Service.ChangePasswordAsync(AdminId, "SamePass1", "SamePass1", null, null));
     }
+
+    // ── ApplyForcedPasswordChangeAsync (P0 #4, T4) ─────────────────────
+
+    [Fact]
+    public async Task ApplyForcedPasswordChange_HappyPath_HashesClearsFlagAndAudits()
+    {
+        var b = BuildService();
+        // GetByIdAsync called twice — once to verify state, once to
+        // re-read after update for the returned entity.
+        b.Repo.SetupSequence(r => r.GetByIdAsync(AdminId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SuperAdminEntity
+            {
+                Id = AdminId, Email = "a@x.com",
+                IsActive = true, MustChangePassword = true,
+            })
+            .ReturnsAsync(new SuperAdminEntity
+            {
+                Id = AdminId, Email = "a@x.com",
+                IsActive = true, MustChangePassword = false,
+            });
+
+        var result = await b.Service.ApplyForcedPasswordChangeAsync(
+            AdminId, "GoodPass123", "1.1.1.1", "test");
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.Admin);
+        Assert.False(result.Admin!.MustChangePassword);
+        b.Repo.Verify(r => r.UpdatePasswordHashAsync(
+            AdminId, "hashed-by-test", false, AdminId, It.IsAny<CancellationToken>()),
+            Times.Once);
+        b.Audit.Verify(a => a.AppendAsync(
+            It.Is<SystemAuditLogEntry>(e =>
+                e.EventType == SystemAuditEventTypes.SuperAdminPasswordChange
+                && e.Details!.Contains("ForcedChangeOnFirstLogin")),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ApplyForcedPasswordChange_PolicyViolation_ReturnsFailed_NoDbWrite()
+    {
+        var b = BuildService();
+        var result = await b.Service.ApplyForcedPasswordChangeAsync(
+            AdminId, "weak", null, null);
+
+        Assert.False(result.Success);
+        Assert.NotNull(result.FailureReason);   // policy message — not stable token
+        b.Repo.Verify(r => r.UpdatePasswordHashAsync(
+            It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<bool>(),
+            It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ApplyForcedPasswordChange_AdminNotFound_ReturnsUserNotFound()
+    {
+        var b = BuildService();
+        b.Repo.Setup(r => r.GetByIdAsync(AdminId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SuperAdminEntity?)null);
+
+        var result = await b.Service.ApplyForcedPasswordChangeAsync(
+            AdminId, "GoodPass123", null, null);
+
+        Assert.False(result.Success);
+        Assert.Equal("UserNotFound", result.FailureReason);
+    }
+
+    [Fact]
+    public async Task ApplyForcedPasswordChange_AdminInactive_ReturnsUserNotFound()
+    {
+        var b = BuildService();
+        b.Repo.Setup(r => r.GetByIdAsync(AdminId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SuperAdminEntity
+            {
+                Id = AdminId, IsActive = false, MustChangePassword = true,
+            });
+
+        var result = await b.Service.ApplyForcedPasswordChangeAsync(
+            AdminId, "GoodPass123", null, null);
+
+        Assert.False(result.Success);
+        Assert.Equal("UserNotFound", result.FailureReason);
+    }
+
+    [Fact]
+    public async Task ApplyForcedPasswordChange_FlagAlreadyCleared_ReturnsWrongTokenType()
+    {
+        // Race guard: another mechanism cleared MustChangePassword
+        // between Login POST + this submission. Refuse the change so
+        // the user re-logs through the normal (non-forced) flow.
+        var b = BuildService();
+        b.Repo.Setup(r => r.GetByIdAsync(AdminId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SuperAdminEntity
+            {
+                Id = AdminId, IsActive = true, MustChangePassword = false,
+            });
+
+        var result = await b.Service.ApplyForcedPasswordChangeAsync(
+            AdminId, "GoodPass123", null, null);
+
+        Assert.False(result.Success);
+        Assert.Equal("WrongTokenType", result.FailureReason);
+        b.Repo.Verify(r => r.UpdatePasswordHashAsync(
+            It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<bool>(),
+            It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
 }

@@ -15,11 +15,18 @@ public sealed record LoginResult(
     bool Success,
     string? FailureReason,
     string? PreAuthToken,
-    IReadOnlyList<UserTenantInfo> Tenants)
+    IReadOnlyList<UserTenantInfo> Tenants,
+    bool RequiresPasswordChange = false)
 {
     public static LoginResult Failed(string reason) =>
         new(false, reason, null, Array.Empty<UserTenantInfo>());
 
     public static LoginResult Succeeded(string token, IReadOnlyList<UserTenantInfo> tenants) =>
         new(true, null, token, tenants);
+
+    // P0 #4 — login Step 1 verified credentials, but the user has
+    // MustChangePassword=true. Token is flagged so only the in-flow
+    // change-password endpoint will accept it; tenant select is deferred.
+    public static LoginResult RequiresForcedPasswordChange(string token, IReadOnlyList<UserTenantInfo> tenants) =>
+        new(true, null, token, tenants, RequiresPasswordChange: true);
 }
