@@ -1,0 +1,140 @@
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Audit Log";
+    var eventTypes = ViewBag.EventTypes as IReadOnlyList<string> ?? Array.Empty<string>();
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Audit Log</p>
+        <div class="wms-breadcrumb">
+            <span>Security</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Audit Log</span>
+        </div>
+    </div>
+</div>
+
+<p style="font-size: 12px; color: var(--wms-text-secondary); margin-bottom: 16px;">
+    <i class="ti ti-lock" aria-hidden="true"></i>
+    Audit log entries are immutable. The table grows append-only — no edits, no deletions.
+</p>
+
+<div x-data="auditList()" x-init="load()">
+    <div class="wms-card" style="padding: 0;">
+        <div class="wms-filter-bar" style="padding: 12px 16px; gap: 12px; flex-wrap: wrap;">
+            <div class="wms-filter-search" style="flex: 1; min-width: 200px;">
+                <i class="ti ti-search wms-filter-search-icon" aria-hidden="true"></i>
+                <input type="text" class="wms-input"
+                       placeholder="Search event / entity / email / details..."
+                       x-model="search" @@input.debounce.400ms="page = 1; load()" />
+            </div>
+
+            <select class="wms-input" style="max-width: 200px;"
+                    x-model="eventType" @@change="page = 1; load()">
+                <option value="">All event types</option>
+                @foreach (var et in eventTypes)
+                {
+                    <option value="@et">@et</option>
+                }
+            </select>
+
+            <input type="date" class="wms-input" style="max-width: 160px;"
+                   x-model="fromDate" @@change="page = 1; load()"
+                   title="From date" />
+            <input type="date" class="wms-input" style="max-width: 160px;"
+                   x-model="toDate" @@change="page = 1; load()"
+                   title="To date" />
+
+            <button type="button" class="wms-btn" @@click="reset()">Reset</button>
+        </div>
+
+        <table class="wms-table">
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Actor</th>
+                    <th>Event</th>
+                    <th>Entity</th>
+                    <th>IP</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-if="loading">
+                    <tr><td colspan="6" style="text-align: center; padding: 24px;">Loading...</td></tr>
+                </template>
+                <template x-if="!loading && items.length === 0">
+                    <tr><td colspan="6" style="text-align: center; padding: 32px; color: var(--wms-text-secondary);">No audit events match the current filter.</td></tr>
+                </template>
+                <template x-for="row in items" :key="row.id">
+                    <tr style="cursor: pointer;" @@click="window.location = `/AuditLog/Detail/${row.id}`">
+                        <td style="white-space: nowrap;" x-text="new Date(row.createdAt).toLocaleString()"></td>
+                        <td>
+                            <span x-text="row.userEmail" style="font-size: 12px;"></span>
+                            <span x-show="row.userFullName" x-text="' · ' + row.userFullName"
+                                  style="font-size: 11px; color: var(--wms-text-tertiary);"></span>
+                        </td>
+                        <td><span class="rp-mono" style="font-size: 12px;" x-text="row.eventType"></span></td>
+                        <td>
+                            <span x-show="row.entityType" x-text="row.entityType"
+                                  style="font-size: 12px; color: var(--wms-text-secondary);"></span>
+                            <span x-show="!row.entityType">—</span>
+                        </td>
+                        <td><span class="rp-mono" style="font-size: 11px;" x-text="row.ipAddress || '—'"></span></td>
+                        <td>
+                            <span x-show="row.hasDetails" style="font-size: 11px; color: #534AB7;">
+                                <i class="ti ti-file-text" aria-hidden="true"></i> view
+                            </span>
+                            <span x-show="!row.hasDetails" style="font-size: 11px; color: var(--wms-text-tertiary);">—</span>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px;">
+            <span style="font-size: 12px; color: var(--wms-text-secondary);">
+                <span x-text="total"></span> events · page <span x-text="page"></span> of <span x-text="totalPages || 1"></span>
+            </span>
+            <div style="display: flex; gap: 6px;">
+                <button type="button" class="wms-btn" :disabled="page <= 1" @@click="page--; load()">Prev</button>
+                <button type="button" class="wms-btn" :disabled="page >= totalPages" @@click="page++; load()">Next</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function auditList() {
+        return {
+            items: [], total: 0, page: 1, pageSize: 50, totalPages: 0,
+            search: '', eventType: '', fromDate: '', toDate: '',
+            loading: false,
+            reset() {
+                this.search = ''; this.eventType = '';
+                this.fromDate = ''; this.toDate = '';
+                this.page = 1; this.load();
+            },
+            async load() {
+                this.loading = true;
+                const params = new URLSearchParams({
+                    page: this.page, pageSize: this.pageSize,
+                    search: this.search, eventType: this.eventType,
+                });
+                if (this.fromDate) params.set('fromUtc', new Date(this.fromDate).toISOString());
+                if (this.toDate) {
+                    const to = new Date(this.toDate);
+                    to.setDate(to.getDate() + 1);
+                    params.set('toUtc', to.toISOString());
+                }
+                const res = await fetch(`/AuditLog/Data?${params}`);
+                const data = await res.json();
+                this.items = data.items;
+                this.total = data.total;
+                this.totalPages = data.totalPages;
+                this.loading = false;
+            }
+        }
+    }
+</script>

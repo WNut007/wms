@@ -185,7 +185,37 @@
 
     @foreach (var module in system)
     {
-        if (string.Equals(module.Code, "REPORTS", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(module.Code, "SECURITY", StringComparison.OrdinalIgnoreCase))
+        {
+            // Phase 24 — Tenant Admin: Users + Roles (T2) + AuditLog (T3).
+            // Module surfaces when user has SECURITY.* (USERS / ROLES /
+            // AUDIT_LOG). ADMIN holds all via BLL bypass; MANAGER holds
+            // AUDIT_LOG view only by default — see Migration_044.
+            var securityActive = IsActive("SECURITY") || IsActive("Users")
+                || IsActive("Roles") || IsActive("AuditLog");
+            <a href="@Url.Action("Index", "Users")"
+               class="wms-sidebar-item @(securityActive ? "active" : "")"
+               title="@module.DisplayName">
+                <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
+                <span class="wms-sidebar-item-text">@module.DisplayName</span>
+                <i class="ti ti-chevron-down wms-sidebar-item-chevron"></i>
+            </a>
+            <div class="wms-sidebar-submenu">
+                <a href="@Url.Action("Index", "Users")"
+                   class="wms-sidebar-item @(IsActive("Users") ? "active" : "")">
+                    <span class="wms-sidebar-item-text">Users</span>
+                </a>
+                <a href="@Url.Action("Index", "Roles")"
+                   class="wms-sidebar-item @(IsActive("Roles") ? "active" : "")">
+                    <span class="wms-sidebar-item-text">Roles</span>
+                </a>
+                <a href="@Url.Action("Index", "AuditLog")"
+                   class="wms-sidebar-item @(IsActive("AuditLog") ? "active" : "")">
+                    <span class="wms-sidebar-item-text">Audit Log</span>
+                </a>
+            </div>
+        }
+        else if (string.Equals(module.Code, "REPORTS", StringComparison.OrdinalIgnoreCase))
         {
             // Phase 23 — Reports submenu: Inventory dashboard, Order
             // analytics, Operational KPIs. Module surfaces when the user

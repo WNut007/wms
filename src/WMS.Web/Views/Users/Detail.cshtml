@@ -1,0 +1,145 @@
+@model WMS.Web.ViewModels.Security.UserDetailViewModel
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = $"User · {Model.Email}";
+
+    var statusLabel = Model.IsLocked ? "Locked"
+        : Model.IsActive ? "Active"
+        : "Inactive";
+    var statusVariant = Model.IsLocked ? "s-danger"
+        : Model.IsActive ? "s-success"
+        : "s-neutral";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">@Model.Email</p>
+        <div class="wms-breadcrumb">
+            <span>Security</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <a asp-action="Index" style="color: var(--wms-text-secondary);">Users</a>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Detail</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <a asp-action="Edit" asp-route-id="@Model.Id" class="wms-btn wms-btn-purple">
+            <i class="ti ti-edit" style="font-size: 14px;" aria-hidden="true"></i>
+            Edit user
+        </a>
+    </div>
+</div>
+
+@if (TempData["UserMessage"] is string okMsg)
+{
+    <div class="wms-banner wms-banner-success" style="margin-bottom: 12px;">@okMsg</div>
+}
+@if (TempData["UserError"] is string errMsg)
+{
+    <div class="wms-banner wms-banner-danger" style="margin-bottom: 12px;">@errMsg</div>
+}
+
+<div class="rp-stats">
+    <div class="rp-stat" style="border-left-color: #534AB7;">
+        <p class="rp-stat-label">Status</p>
+        <p class="rp-stat-value" style="font-size: 18px;">
+            <span class="wms-badge @statusVariant">@statusLabel</span>
+        </p>
+        <p class="rp-stat-meta">
+            @if (Model.IsCurrentUser) { <text>this is you</text> }
+            else if (Model.IsLocked) { <text>locked until @Model.LockedUntil?.ToString("yyyy-MM-dd HH:mm") UTC</text> }
+            else { <text>account state</text> }
+        </p>
+    </div>
+    <div class="rp-stat" style="border-left-color: #1D9E75;">
+        <p class="rp-stat-label">Roles</p>
+        <p class="rp-stat-value" style="color: #1D9E75; font-size: 24px;">@Model.Roles.Count</p>
+        <p class="rp-stat-meta">@(string.Join(", ", Model.Roles.Select(r => r.Code)))</p>
+    </div>
+    <div class="rp-stat" style="border-left-color: #D97706;">
+        <p class="rp-stat-label">Last login</p>
+        <p class="rp-stat-value" style="font-size: 18px; color: #D97706;">
+            @(Model.LastLoginAt?.ToString("yyyy-MM-dd HH:mm") ?? "—")
+        </p>
+        <p class="rp-stat-meta">@(Model.LastLoginAt is null ? "never logged in" : "UTC")</p>
+    </div>
+    <div class="rp-stat" style="border-left-color: #3B82F6;">
+        <p class="rp-stat-label">Failed logins</p>
+        <p class="rp-stat-value" style="font-size: 24px; color: #3B82F6;">@Model.FailedLoginAttempts</p>
+        <p class="rp-stat-meta">since last reset</p>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px;">
+    <div class="rp-chart-card">
+        <p class="rp-chart-title">Identity</p>
+        <dl class="wmsd-dl">
+            <dt>Email</dt><dd><span class="rp-mono">@Model.Email</span></dd>
+            <dt>Full name</dt><dd>@(Model.FullName ?? "—")</dd>
+            <dt>Approval limit</dt><dd>@(Model.ApprovalLimit?.ToString("N2") ?? "—")</dd>
+            <dt>Created</dt><dd>@Model.CreatedAt.ToString("yyyy-MM-dd HH:mm") UTC</dd>
+            <dt>Last updated</dt><dd>@(Model.UpdatedAt?.ToString("yyyy-MM-dd HH:mm") ?? "—") @(Model.UpdatedAt is null ? "" : "UTC")</dd>
+        </dl>
+
+        <p class="rp-chart-title" style="margin-top: 24px;">Roles</p>
+        @if (Model.Roles.Count == 0)
+        {
+            <p class="rp-empty">No roles assigned — this user has no permissions.</p>
+        }
+        else
+        {
+            <table class="rp-table">
+                <thead><tr><th>Role</th><th>Name</th><th>Type</th><th>Assigned</th></tr></thead>
+                <tbody>
+                    @foreach (var r in Model.Roles)
+                    {
+                        <tr>
+                            <td><span class="rp-mono">@r.Code</span></td>
+                            <td>@r.Name</td>
+                            <td>
+                                @if (r.IsSystemRole) { <span class="wms-badge s-info">System</span> }
+                                else { <span class="wms-badge s-neutral">Custom</span> }
+                            </td>
+                            <td>@r.CreatedAt.ToString("yyyy-MM-dd")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+
+    <div class="rp-chart-card">
+        <p class="rp-chart-title">Quick actions</p>
+        @if (Model.IsCurrentUser)
+        {
+            <p class="rp-empty" style="text-align: left; padding: 0;">
+                <i class="ti ti-info-circle" aria-hidden="true"></i>
+                You cannot deactivate or unlock your own account.
+            </p>
+        }
+        else
+        {
+            <form asp-action="ToggleActive" asp-route-id="@Model.Id" method="post" style="margin-bottom: 10px;">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="isActive" value="@((!Model.IsActive).ToString().ToLower())" />
+                <button type="submit"
+                        class="wms-btn"
+                        style="width: 100%; @(Model.IsActive ? "background:#DC2626;color:#fff;border-color:#DC2626;" : "background:#1D9E75;color:#fff;border-color:#1D9E75;")">
+                    <i class="ti @(Model.IsActive ? "ti-user-off" : "ti-user-check")" aria-hidden="true"></i>
+                    @(Model.IsActive ? "Deactivate user" : "Activate user")
+                </button>
+            </form>
+
+            @if (Model.IsLocked || Model.FailedLoginAttempts > 0)
+            {
+                <form asp-action="Unlock" asp-route-id="@Model.Id" method="post">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="wms-btn wms-btn-purple" style="width: 100%;">
+                        <i class="ti ti-lock-open" aria-hidden="true"></i>
+                        Unlock + reset failed attempts
+                    </button>
+                </form>
+            }
+        }
+    </div>
+</div>

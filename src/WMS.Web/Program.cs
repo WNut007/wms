@@ -8,6 +8,7 @@ using Serilog;
 using WMS.Web.Infrastructure;
 using WMS.Web.Services.Outbound;
 using WMS.BLL.Services.Auth;
+using WMS.BLL.Services.Security;
 using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
 using WMS.BLL.Services.Counts;
@@ -161,6 +162,13 @@ builder.Services.AddScoped<IPackVideoService, PackVideoService>();
 
 // Phase 23 — Reports aggregation surface.
 builder.Services.AddScoped<IReportRepositoryFactory, ReportRepositoryFactory>();
+
+// Phase 24 — Tenant Admin: Users / Roles / AuditLog.
+builder.Services.AddScoped<IUserRoleRepositoryFactory, UserRoleRepositoryFactory>();
+builder.Services.AddScoped<IRoleRepositoryFactory, RoleRepositoryFactory>();
+builder.Services.AddScoped<IFunctionRepositoryFactory, FunctionRepositoryFactory>();
+builder.Services.AddScoped<IAuditLogRepositoryFactory, AuditLogRepositoryFactory>();
+builder.Services.AddScoped<ISecurityService, SecurityService>();
 
 // Phase 17 — pack-video retention. Binds RetentionDays + CronSchedule
 // from "PackVideoRetention" section. Job registered as Scoped so

@@ -1,0 +1,95 @@
+@model IReadOnlyList<WMS.DAL.Repositories.Security.RoleListRow>
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Roles";
+    var systemRoles = Model.Where(r => r.IsSystemRole).ToList();
+    var customRoles = Model.Where(r => !r.IsSystemRole).ToList();
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Roles</p>
+        <div class="wms-breadcrumb">
+            <span>Security</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Roles</span>
+        </div>
+    </div>
+</div>
+
+@if (TempData["RoleMessage"] is string okMsg)
+{
+    <div class="wms-banner wms-banner-success" style="margin-bottom: 12px;">@okMsg</div>
+}
+
+<p style="font-size: 12px; color: var(--wms-text-secondary); margin-bottom: 16px;">
+    <i class="ti ti-info-circle" aria-hidden="true"></i>
+    System roles are seeded by migrations and have read-only permissions.
+    Custom-role creation lands in Phase 24.5.
+</p>
+
+<div class="rp-chart-card" style="margin-bottom: 16px;">
+    <p class="rp-chart-title">System roles</p>
+    @if (systemRoles.Count == 0)
+    {
+        <p class="rp-empty">No system roles seeded.</p>
+    }
+    else
+    {
+        <table class="rp-table">
+            <thead>
+                <tr><th>Code</th><th>Name</th><th>Description</th><th>Users</th><th>Permissions</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var role in systemRoles)
+                {
+                    <tr style="cursor: pointer;" onclick="window.location='/Roles/Detail/@role.Id'">
+                        <td><span class="rp-mono">@role.Code</span> <span class="wms-badge s-info" style="font-size:10px;">System</span></td>
+                        <td>@role.Name</td>
+                        <td style="font-size: 12px; color: var(--wms-text-secondary);">@(role.Description ?? "—")</td>
+                        <td class="rp-num">@role.UserCount</td>
+                        <td class="rp-num">@role.PermissionCount</td>
+                        <td>
+                            <span class="wms-badge @(role.IsActive ? "s-success" : "s-neutral")">
+                                @(role.IsActive ? "Active" : "Inactive")
+                            </span>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+<div class="rp-chart-card">
+    <p class="rp-chart-title">Custom roles</p>
+    @if (customRoles.Count == 0)
+    {
+        <p class="rp-empty">No custom roles defined. Custom-role creation is deferred to Phase 24.5.</p>
+    }
+    else
+    {
+        <table class="rp-table">
+            <thead>
+                <tr><th>Code</th><th>Name</th><th>Description</th><th>Users</th><th>Permissions</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var role in customRoles)
+                {
+                    <tr style="cursor: pointer;" onclick="window.location='/Roles/Detail/@role.Id'">
+                        <td><span class="rp-mono">@role.Code</span></td>
+                        <td>@role.Name</td>
+                        <td style="font-size: 12px; color: var(--wms-text-secondary);">@(role.Description ?? "—")</td>
+                        <td class="rp-num">@role.UserCount</td>
+                        <td class="rp-num">@role.PermissionCount</td>
+                        <td>
+                            <span class="wms-badge @(role.IsActive ? "s-success" : "s-neutral")">
+                                @(role.IsActive ? "Active" : "Inactive")
+                            </span>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
