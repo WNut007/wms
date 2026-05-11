@@ -41,11 +41,14 @@ public sealed class SuperAdminController : Controller
         // Quick aggregates for the dashboard tiles.
         var counts = await conn.QuerySingleAsync<(int Total, int Active, int Suspended, int Inactive)>(
             new CommandDefinition(@"
+-- Phase 29 — ISNULL on SUM so an empty master.Tenants returns
+-- 0 across all 4 tiles. Without it, SUM on 0 rows returns NULL
+-- and Dapper throws InvalidCastException on the int tuple.
 SELECT
     COUNT(*) AS Total,
-    SUM(CASE WHEN Status = 'Active'    THEN 1 ELSE 0 END) AS Active,
-    SUM(CASE WHEN Status = 'Suspended' THEN 1 ELSE 0 END) AS Suspended,
-    SUM(CASE WHEN Status = 'Inactive'  THEN 1 ELSE 0 END) AS Inactive
+    ISNULL(SUM(CASE WHEN Status = 'Active'    THEN 1 ELSE 0 END), 0) AS Active,
+    ISNULL(SUM(CASE WHEN Status = 'Suspended' THEN 1 ELSE 0 END), 0) AS Suspended,
+    ISNULL(SUM(CASE WHEN Status = 'Inactive'  THEN 1 ELSE 0 END), 0) AS Inactive
 FROM [master].[Tenants];", cancellationToken: ct));
 
         // Recent SuperAdmin-emitted audit events (last 10) for the
@@ -74,10 +77,11 @@ ORDER BY t.CreatedAt DESC;",
 
         var counts = await conn.QuerySingleAsync<(int Active, int Suspended, int Inactive)>(
             new CommandDefinition(@"
+-- Phase 29 — see Dashboard for ISNULL rationale.
 SELECT
-    SUM(CASE WHEN Status = 'Active'    THEN 1 ELSE 0 END) AS Active,
-    SUM(CASE WHEN Status = 'Suspended' THEN 1 ELSE 0 END) AS Suspended,
-    SUM(CASE WHEN Status = 'Inactive'  THEN 1 ELSE 0 END) AS Inactive
+    ISNULL(SUM(CASE WHEN Status = 'Active'    THEN 1 ELSE 0 END), 0) AS Active,
+    ISNULL(SUM(CASE WHEN Status = 'Suspended' THEN 1 ELSE 0 END), 0) AS Suspended,
+    ISNULL(SUM(CASE WHEN Status = 'Inactive'  THEN 1 ELSE 0 END), 0) AS Inactive
 FROM [master].[Tenants];", cancellationToken: ct));
 
         return View(new TenantListViewModel

@@ -1,8 +1,12 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WMS.BLL.Services.Security;
 using WMS.Common.Auth;
 using WMS.Common.Multitenancy;
+using WMS.Web.Multitenancy;
 using WMS.Web.ViewModels.Security;
 
 namespace WMS.Web.Controllers;
@@ -53,6 +57,10 @@ public sealed class AccountController : Controller
             return View(model);
         }
 
+        // Capture the must-change state BEFORE the re-sign-in clears it.
+        var wasForcedChange = User.FindFirst(MustChangePasswordMiddleware.ClaimType)?.Value
+            == MustChangePasswordMiddleware.TrueValue;
+
         try
         {
             await _security.ChangePasswordAsync(
@@ -64,8 +72,17 @@ public sealed class AccountController : Controller
                 userAgent: Request.Headers.UserAgent.ToString(),
                 ct);
 
+            // Phase 29 — re-issue the cookie WITHOUT the MustChangePassword
+            // claim so the middleware stops redirecting. UpdatePasswordHash-
+            // Async already cleared the DB flag; this syncs the in-flight
+            // session. If we don't do this, the operator sees the success
+            // banner but gets bounced back here on the next click.
+            await RefreshClaimsWithoutMustChangePasswordAsync();
+
             TempData["AccountMessage"] = "Password changed.";
-            return RedirectToAction(nameof(ChangePassword));
+            // Forced-change path → bootstrap admin lands on dashboard.
+            // Voluntary-change path → stays on the form for the success banner.
+            return wasForcedChange ? Redirect("/") : RedirectToAction(nameof(ChangePassword));
         }
         catch (ArgumentException ex)
         {
@@ -80,5 +97,19 @@ public sealed class AccountController : Controller
             ModelState.AddModelError(string.Empty, ex.Message);
             return View(model);
         }
+    }
+
+    // Phase 29 — re-issue the cookie minus the MustChangePassword claim.
+    // SignInAsync replaces the cookie entirely; copy every existing
+    // claim forward except the one we want to drop.
+    private async Task RefreshClaimsWithoutMustChangePasswordAsync()
+    {
+        var claims = User.Claims
+            .Where(c => c.Type != MustChangePasswordMiddleware.ClaimType)
+            .ToList();
+        var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+        await HttpContext.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            new ClaimsPrincipal(identity));
     }
 }

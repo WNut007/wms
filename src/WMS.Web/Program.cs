@@ -338,6 +338,12 @@ app.UseRouting();
 
 app.UseAuthentication();
 app.UseTenantValidation();
+// Phase 29 — intercept tenant users with MustChangePassword=true. Must
+// run AFTER UseAuthentication so HttpContext.User is populated, and
+// BEFORE UseAuthorization so endpoint filters don't fire on a doomed
+// request. Allowlists /Account/ChangePassword + /Auth/* + /SuperAdmin/*
+// + /healthz + /Error so the user can complete the flow.
+app.UseMustChangePassword();
 app.UseAuthorization();
 
 // Phase 26 — health probes. /healthz/live is fast (no DB), /healthz/ready
