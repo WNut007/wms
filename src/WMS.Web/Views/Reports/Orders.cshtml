@@ -1,0 +1,247 @@
+@using System.Text.Json
+@using WMS.Web.ViewModels.Reports
+@model OrderAnalyticsViewModel
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Order Analytics";
+
+    var statusLabels = JsonSerializer.Serialize(Model.OrdersByStatus.Select(s => s.Status));
+    var statusSeries = JsonSerializer.Serialize(Model.OrdersByStatus.Select(s => s.OrderCount));
+
+    var trendLabels = JsonSerializer.Serialize(
+        Model.OrdersByDate.Select(d => d.Day.ToString("yyyy-MM-dd")));
+    var trendSeries = JsonSerializer.Serialize(Model.OrdersByDate.Select(d => d.OrderCount));
+
+    var customerLabels = JsonSerializer.Serialize(Model.TopCustomers.Select(c => c.CustomerCode));
+    var customerSeries = JsonSerializer.Serialize(Model.TopCustomers.Select(c => c.OrderCount));
+
+    var cycleLabels = JsonSerializer.Serialize(Model.FulfillmentCycle.Select(c => c.Label));
+    var cycleSeries = JsonSerializer.Serialize(Model.FulfillmentCycle.Select(c => c.AvgDays));
+
+    string Active(string p) => Model.Preset == p ? "rp-preset-active" : "";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Order Analytics</p>
+        <div class="wms-breadcrumb">
+            <span>System</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <a asp-action="Index" style="color: var(--wms-text-secondary);">Reports</a>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Orders</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <a asp-action="ExportOrders" asp-route-range="@Model.Preset" class="wms-btn wms-btn-purple">
+            <i class="ti ti-table-export" style="font-size: 14px;" aria-hidden="true"></i>
+            Export Excel
+        </a>
+    </div>
+</div>
+
+<div class="rp-preset-bar">
+    <span class="rp-preset-label">Range:</span>
+    <a asp-action="Orders" asp-route-range="today"   class="rp-preset @Active("today")">Today</a>
+    <a asp-action="Orders" asp-route-range="week"    class="rp-preset @Active("week")">Last 7 days</a>
+    <a asp-action="Orders" asp-route-range="month"   class="rp-preset @Active("month")">Last 30 days</a>
+    <a asp-action="Orders" asp-route-range="quarter" class="rp-preset @Active("quarter")">Last 90 days</a>
+    <a asp-action="Orders" asp-route-range="year"    class="rp-preset @Active("year")">Last year</a>
+    <span class="rp-preset-hint">Showing @Model.PresetLabel · @Model.FromUtc.ToString("yyyy-MM-dd") → @Model.ToUtc.ToString("yyyy-MM-dd") UTC</span>
+</div>
+
+<div class="rp-stats">
+    <div class="rp-stat">
+        <p class="rp-stat-label">Total orders</p>
+        <p class="rp-stat-value">@Model.TotalOrders</p>
+        <p class="rp-stat-meta">all statuses</p>
+    </div>
+    <div class="rp-stat" style="border-left-color: #1D9E75;">
+        <p class="rp-stat-label">Active</p>
+        <p class="rp-stat-value" style="color: #1D9E75;">@Model.ActiveOrders</p>
+        <p class="rp-stat-meta">non-cancelled</p>
+    </div>
+    <div class="rp-stat" style="border-left-color: #DC2626;">
+        <p class="rp-stat-label">Cancelled</p>
+        <p class="rp-stat-value" style="color: #DC2626;">@Model.CancelledOrders</p>
+        <p class="rp-stat-meta">@(Model.TotalOrders > 0 ? $"{Model.CancelledOrders * 100.0 / Model.TotalOrders:F1}% of total" : "—")</p>
+    </div>
+    <div class="rp-stat" style="border-left-color: #D97706;">
+        <p class="rp-stat-label">Top customers</p>
+        <p class="rp-stat-value" style="color: #D97706;">@Model.TopCustomerCount</p>
+        <p class="rp-stat-meta">distinct buyers</p>
+    </div>
+</div>
+
+<div class="rp-chart-grid">
+    <div class="rp-chart-card">
+        <p class="rp-chart-title">Orders by status</p>
+        <p class="rp-chart-desc">Distribution across the SO state machine.</p>
+        <div id="statusChart" style="height: 320px;"></div>
+    </div>
+    <div class="rp-chart-card">
+        <p class="rp-chart-title">Orders over time</p>
+        <p class="rp-chart-desc">Daily order creation count within range.</p>
+        <div id="trendChart" style="height: 320px;"></div>
+    </div>
+</div>
+
+<div class="rp-chart-grid">
+    <div class="rp-chart-card">
+        <p class="rp-chart-title">Top 10 customers</p>
+        <p class="rp-chart-desc">By number of orders (non-cancelled).</p>
+        <div id="customerChart" style="height: 360px;"></div>
+    </div>
+    <div class="rp-chart-card">
+        <p class="rp-chart-title">Avg fulfillment days</p>
+        <p class="rp-chart-desc">Order-to-ship time per month — Shipped only.</p>
+        <div id="cycleChart" style="height: 360px;"></div>
+    </div>
+</div>
+
+<style>
+    .rp-preset-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+    }
+    .rp-preset-label {
+        font-size: 12px;
+        color: var(--wms-text-secondary);
+        margin-right: 4px;
+    }
+    .rp-preset {
+        padding: 6px 12px;
+        font-size: 12px;
+        background: #fff;
+        border: 1px solid #E5E7EB;
+        border-radius: 999px;
+        color: var(--wms-text-secondary);
+        text-decoration: none;
+        transition: 150ms ease;
+    }
+    .rp-preset:hover {
+        background: #F3F4F6;
+        color: #1F2937;
+    }
+    .rp-preset-active {
+        background: #534AB7;
+        border-color: #534AB7;
+        color: #fff;
+    }
+    .rp-preset-active:hover {
+        background: #4F46E5;
+        color: #fff;
+    }
+    .rp-preset-hint {
+        font-size: 11px;
+        color: var(--wms-text-tertiary);
+        margin-left: 6px;
+        font-style: italic;
+    }
+    .rp-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 16px;
+        margin-bottom: 20px;
+    }
+    .rp-stat {
+        background: #fff;
+        border: 1px solid #E5E7EB;
+        border-radius: 10px;
+        padding: 16px;
+        border-left: 3px solid #534AB7;
+    }
+    .rp-stat-label {
+        font-size: 11px;
+        color: var(--wms-text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        margin: 0 0 6px 0;
+    }
+    .rp-stat-value {
+        font-size: 28px;
+        font-weight: 600;
+        color: #1F2937;
+        margin: 0 0 4px 0;
+    }
+    .rp-stat-meta {
+        font-size: 11px;
+        color: var(--wms-text-tertiary);
+        margin: 0;
+    }
+    .rp-chart-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+        margin-bottom: 20px;
+    }
+    @@media (max-width: 900px) {
+        .rp-chart-grid { grid-template-columns: 1fr; }
+    }
+    .rp-chart-card {
+        background: #fff;
+        border: 1px solid #E5E7EB;
+        border-radius: 10px;
+        padding: 18px;
+    }
+    .rp-chart-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: #1F2937;
+        margin: 0 0 4px 0;
+    }
+    .rp-chart-desc {
+        font-size: 12px;
+        color: var(--wms-text-secondary);
+        margin: 0 0 14px 0;
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        new ApexCharts(document.getElementById('statusChart'), {
+            chart: { type: 'donut', fontFamily: 'Inter, system-ui, sans-serif' },
+            series: @Html.Raw(statusSeries),
+            labels: @Html.Raw(statusLabels),
+            colors: ['#6B7280', '#1D9E75', '#D97706', '#3B82F6', '#534AB7', '#7F77DD', '#10B981', '#A78BFA', '#22C55E', '#DC2626'],
+            legend: { position: 'bottom', fontSize: '12px' },
+            dataLabels: { formatter: function (val) { return val.toFixed(1) + '%'; } }
+        }).render();
+
+        new ApexCharts(document.getElementById('trendChart'), {
+            chart: { type: 'area', toolbar: { show: false }, fontFamily: 'Inter, system-ui, sans-serif' },
+            series: [{ name: 'Orders', data: @Html.Raw(trendSeries) }],
+            xaxis: { categories: @Html.Raw(trendLabels), labels: { rotate: -45, style: { fontSize: '10px' } } },
+            stroke: { curve: 'smooth', width: 2 },
+            colors: ['#534AB7'],
+            fill: { type: 'gradient', gradient: { opacityFrom: 0.4, opacityTo: 0.05 } },
+            dataLabels: { enabled: false },
+            grid: { borderColor: '#F3F4F6' }
+        }).render();
+
+        new ApexCharts(document.getElementById('customerChart'), {
+            chart: { type: 'bar', toolbar: { show: false }, fontFamily: 'Inter, system-ui, sans-serif' },
+            series: [{ name: 'Orders', data: @Html.Raw(customerSeries) }],
+            xaxis: { categories: @Html.Raw(customerLabels) },
+            colors: ['#1D9E75'],
+            plotOptions: { bar: { borderRadius: 4, horizontal: true, barHeight: '60%' } },
+            dataLabels: { enabled: true, style: { fontSize: '11px' } },
+            grid: { borderColor: '#F3F4F6' }
+        }).render();
+
+        new ApexCharts(document.getElementById('cycleChart'), {
+            chart: { type: 'line', toolbar: { show: false }, fontFamily: 'Inter, system-ui, sans-serif' },
+            series: [{ name: 'Avg days', data: @Html.Raw(cycleSeries) }],
+            xaxis: { categories: @Html.Raw(cycleLabels) },
+            stroke: { curve: 'smooth', width: 3 },
+            colors: ['#D97706'],
+            markers: { size: 5 },
+            dataLabels: { enabled: true, formatter: function (v) { return v.toFixed(1); } },
+            grid: { borderColor: '#F3F4F6' },
+            yaxis: { title: { text: 'Days', style: { fontSize: '11px' } } }
+        }).render();
+    });
+</script>

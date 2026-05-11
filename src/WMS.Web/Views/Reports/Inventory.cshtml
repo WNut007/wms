@@ -1,0 +1,271 @@
+@using System.Text.Json
+@model WMS.Web.ViewModels.Reports.InventoryReportViewModel
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Inventory Dashboard";
+
+    // Pre-serialise chart data server-side. ApexCharts consumes JSON
+    // literals via <script> tags; JsonSerializer keeps Unicode + escape
+    // handling correct for product names with quotes / non-ASCII.
+    var warehouseLabels = JsonSerializer.Serialize(Model.StockByWarehouse.Select(w => w.WarehouseCode));
+    var warehouseSeries = JsonSerializer.Serialize(Model.StockByWarehouse.Select(w => w.TotalOnHand));
+    var agingLabels     = JsonSerializer.Serialize(Model.AgingBuckets.Select(b => b.Bucket));
+    var agingSeries     = JsonSerializer.Serialize(Model.AgingBuckets.Select(b => b.TotalOnHand));
+    var topLabels       = JsonSerializer.Serialize(Model.TopProducts.Select(p => p.ProductCode));
+    var topSeries       = JsonSerializer.Serialize(Model.TopProducts.Select(p => p.TotalOnHand));
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Inventory Dashboard</p>
+        <div class="wms-breadcrumb">
+            <span>System</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <a asp-action="Index" style="color: var(--wms-text-secondary);">Reports</a>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Inventory</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <span class="rp-snapshot">As of @Model.SnapshotAt.ToString("yyyy-MM-dd HH:mm") UTC</span>
+        <a asp-action="ExportInventory" class="wms-btn wms-btn-purple">
+            <i class="ti ti-table-export" style="font-size: 14px;" aria-hidden="true"></i>
+            Export Excel
+        </a>
+    </div>
+</div>
+
+<div class="rp-stats">
+    <div class="rp-stat">
+        <p class="rp-stat-label">Total on hand</p>
+        <p class="rp-stat-value">@Model.Summary.TotalOnHand.ToString("N0")</p>
+        <p class="rp-stat-meta">units across all warehouses</p>
+    </div>
+    <div class="rp-stat">
+        <p class="rp-stat-label">Allocated</p>
+        <p class="rp-stat-value" style="color: #D97706;">@Model.Summary.TotalAllocated.ToString("N0")</p>
+        <p class="rp-stat-meta">reserved for orders</p>
+    </div>
+    <div class="rp-stat">
+        <p class="rp-stat-label">Distinct products</p>
+        <p class="rp-stat-value" style="color: #1D9E75;">@Model.Summary.DistinctProducts</p>
+        <p class="rp-stat-meta">with positive on-hand</p>
+    </div>
+    <div class="rp-stat">
+        <p class="rp-stat-label">Locations in use</p>
+        <p class="rp-stat-value" style="color: #534AB7;">@Model.Summary.DistinctLocations</p>
+        <p class="rp-stat-meta">holding stock</p>
+    </div>
+</div>
+
+<div class="rp-chart-grid">
+    <div class="rp-chart-card">
+        <p class="rp-chart-title">Stock by warehouse</p>
+        <p class="rp-chart-desc">Quantity on hand grouped by warehouse, descending.</p>
+        <div id="warehouseChart" style="height: 320px;"></div>
+    </div>
+    <div class="rp-chart-card">
+        <p class="rp-chart-title">Stock aging</p>
+        <p class="rp-chart-desc">Bucketed by Stock row creation age — fresh material first.</p>
+        <div id="agingChart" style="height: 320px;"></div>
+    </div>
+</div>
+
+<div class="rp-chart-grid">
+    <div class="rp-chart-card" style="grid-column: span 2;">
+        <p class="rp-chart-title">Top 10 SKUs by quantity</p>
+        <p class="rp-chart-desc">Highest on-hand product codes (all warehouses).</p>
+        <div id="topProductsChart" style="height: 360px;"></div>
+    </div>
+</div>
+
+<div class="rp-chart-card">
+    <p class="rp-chart-title">Slow movers — no movement 60+ days</p>
+    <p class="rp-chart-desc">Top 20 products by stale-stock age. NULL = never moved since arrival.</p>
+    @if (Model.SlowMovers.Count == 0)
+    {
+        <p class="rp-empty">No slow movers — all stock has moved within the last 60 days.</p>
+    }
+    else
+    {
+        <table class="rp-table">
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>On hand</th>
+                    <th>Last movement</th>
+                    <th>Days since</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in Model.SlowMovers)
+                {
+                    <tr>
+                        <td>
+                            <span class="rp-mono">@row.ProductCode</span>
+                            <span style="color: var(--wms-text-secondary); margin-left: 6px;">@row.ProductName</span>
+                        </td>
+                        <td class="rp-num">@row.TotalOnHand.ToString("N0")</td>
+                        <td>@(row.LastMovementAt?.ToString("yyyy-MM-dd") ?? "—")</td>
+                        <td class="rp-num">
+                            @if (row.DaysSinceMovement.HasValue)
+                            {
+                                <span class="rp-aged">@row.DaysSinceMovement.Value days</span>
+                            }
+                            else
+                            {
+                                <span class="rp-aged rp-aged-cold">Never moved</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+<style>
+    .rp-snapshot {
+        font-size: 12px;
+        color: var(--wms-text-secondary);
+        font-style: italic;
+    }
+    .rp-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin-bottom: 20px;
+    }
+    .rp-stat {
+        background: #fff;
+        border: 1px solid #E5E7EB;
+        border-radius: 10px;
+        padding: 16px;
+        border-left: 3px solid #534AB7;
+    }
+    .rp-stat-label {
+        font-size: 11px;
+        color: var(--wms-text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        margin: 0 0 6px 0;
+    }
+    .rp-stat-value {
+        font-size: 28px;
+        font-weight: 600;
+        color: #1F2937;
+        margin: 0 0 4px 0;
+    }
+    .rp-stat-meta {
+        font-size: 11px;
+        color: var(--wms-text-tertiary);
+        margin: 0;
+    }
+    .rp-chart-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+        margin-bottom: 20px;
+    }
+    @@media (max-width: 900px) {
+        .rp-chart-grid { grid-template-columns: 1fr; }
+    }
+    .rp-chart-card {
+        background: #fff;
+        border: 1px solid #E5E7EB;
+        border-radius: 10px;
+        padding: 18px;
+    }
+    .rp-chart-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: #1F2937;
+        margin: 0 0 4px 0;
+    }
+    .rp-chart-desc {
+        font-size: 12px;
+        color: var(--wms-text-secondary);
+        margin: 0 0 14px 0;
+    }
+    .rp-empty {
+        text-align: center;
+        color: var(--wms-text-secondary);
+        padding: 20px 0;
+        margin: 0;
+    }
+    .rp-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+    .rp-table th {
+        text-align: left;
+        font-weight: 500;
+        color: var(--wms-text-secondary);
+        border-bottom: 1px solid #E5E7EB;
+        padding: 8px 6px;
+    }
+    .rp-table td {
+        padding: 8px 6px;
+        border-bottom: 1px solid #F3F4F6;
+    }
+    .rp-num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+    .rp-mono {
+        font-family: 'JetBrains Mono', 'Courier New', monospace;
+        font-size: 12px;
+        font-weight: 500;
+    }
+    .rp-aged {
+        font-size: 12px;
+        color: #D97706;
+        font-weight: 500;
+    }
+    .rp-aged-cold {
+        color: #DC2626;
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        new ApexCharts(document.getElementById('warehouseChart'), {
+            chart: { type: 'bar', toolbar: { show: false }, fontFamily: 'Inter, system-ui, sans-serif' },
+            series: [{ name: 'On hand', data: @Html.Raw(warehouseSeries) }],
+            xaxis: { categories: @Html.Raw(warehouseLabels) },
+            colors: ['#534AB7'],
+            plotOptions: { bar: { borderRadius: 4, columnWidth: '55%' } },
+            dataLabels: { enabled: false },
+            grid: { borderColor: '#F3F4F6' },
+            tooltip: { y: { formatter: function (v) { return v.toLocaleString() + ' units'; } } }
+        }).render();
+
+        new ApexCharts(document.getElementById('agingChart'), {
+            chart: { type: 'donut', fontFamily: 'Inter, system-ui, sans-serif' },
+            series: @Html.Raw(agingSeries),
+            labels: @Html.Raw(agingLabels),
+            colors: ['#1D9E75', '#3B82F6', '#D97706', '#DC2626'],
+            legend: { position: 'bottom' },
+            dataLabels: {
+                formatter: function (val) { return val.toFixed(1) + '%'; }
+            },
+            tooltip: { y: { formatter: function (v) { return v.toLocaleString() + ' units'; } } }
+        }).render();
+
+        new ApexCharts(document.getElementById('topProductsChart'), {
+            chart: { type: 'bar', toolbar: { show: false }, fontFamily: 'Inter, system-ui, sans-serif' },
+            series: [{ name: 'Quantity', data: @Html.Raw(topSeries) }],
+            xaxis: { categories: @Html.Raw(topLabels) },
+            colors: ['#7F77DD'],
+            plotOptions: { bar: { borderRadius: 4, horizontal: true, barHeight: '60%' } },
+            dataLabels: {
+                enabled: true,
+                formatter: function (v) { return v.toLocaleString(); },
+                style: { fontSize: '11px' }
+            },
+            grid: { borderColor: '#F3F4F6' },
+            tooltip: { y: { formatter: function (v) { return v.toLocaleString() + ' units'; } } }
+        }).render();
+    });
+</script>

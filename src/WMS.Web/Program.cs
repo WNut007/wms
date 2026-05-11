@@ -22,6 +22,7 @@ using WMS.DAL.Repositories.Inbound;
 using WMS.DAL.Repositories.Inventory;
 using WMS.DAL.Repositories.Master;
 using WMS.DAL.Repositories.Outbound;
+using WMS.DAL.Repositories.Reports;
 using WMS.DAL.Repositories.Security;
 using WMS.Web.Auth;
 using WMS.Web.Multitenancy;
@@ -157,6 +158,9 @@ builder.Services.AddScoped<IShipmentService, ShipmentService>();
 // Phase 17 (ADR-009) — Pack video.
 builder.Services.AddScoped<IPackVideoRepositoryFactory, PackVideoRepositoryFactory>();
 builder.Services.AddScoped<IPackVideoService, PackVideoService>();
+
+// Phase 23 — Reports aggregation surface.
+builder.Services.AddScoped<IReportRepositoryFactory, ReportRepositoryFactory>();
 
 // Phase 17 — pack-video retention. Binds RetentionDays + CronSchedule
 // from "PackVideoRetention" section. Job registered as Scoped so

@@ -185,7 +185,40 @@
 
     @foreach (var module in system)
     {
-        if (string.Equals(module.Code, "MASTER", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(module.Code, "REPORTS", StringComparison.OrdinalIgnoreCase))
+        {
+            // Phase 23 — Reports submenu: Inventory dashboard, Order
+            // analytics, Operational KPIs. Module surfaces when the user
+            // has REPORTS.VIEW (seeded by Migration_033, granted to
+            // MANAGER by Migration_034; ADMIN gets it via BLL bypass).
+            var reportsActive = IsActive("REPORTS") || IsActive("Reports");
+            <a href="@Url.Action("Index", "Reports")"
+               class="wms-sidebar-item @(reportsActive ? "active" : "")"
+               title="@module.DisplayName">
+                <i class="ti @module.IconClass wms-sidebar-item-icon"></i>
+                <span class="wms-sidebar-item-text">@module.DisplayName</span>
+                <i class="ti ti-chevron-down wms-sidebar-item-chevron"></i>
+            </a>
+            <div class="wms-sidebar-submenu">
+                <a href="@Url.Action("Index", "Reports")"
+                   class="wms-sidebar-item">
+                    <span class="wms-sidebar-item-text">Overview</span>
+                </a>
+                <a href="@Url.Action("Inventory", "Reports")"
+                   class="wms-sidebar-item">
+                    <span class="wms-sidebar-item-text">Inventory</span>
+                </a>
+                <a href="@Url.Action("Orders", "Reports")"
+                   class="wms-sidebar-item">
+                    <span class="wms-sidebar-item-text">Order Analytics</span>
+                </a>
+                <a href="@Url.Action("Kpis", "Reports")"
+                   class="wms-sidebar-item">
+                    <span class="wms-sidebar-item-text">Operational KPIs</span>
+                </a>
+            </div>
+        }
+        else if (string.Equals(module.Code, "MASTER", StringComparison.OrdinalIgnoreCase))
         {
             // Master Data — Phase 3 wired Warehouses; Phase 4 added
             // Products + Customers list/detail pages.

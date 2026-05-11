@@ -1,0 +1,114 @@
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Reports";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Reports</p>
+        <div class="wms-breadcrumb">
+            <span>System</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Reports</span>
+        </div>
+    </div>
+</div>
+
+<div class="rp-grid">
+    <a asp-action="Inventory" class="rp-card">
+        <div class="rp-card-icon" style="background: linear-gradient(135deg, #534AB7, #7F77DD);">
+            <i class="ti ti-archive" aria-hidden="true"></i>
+        </div>
+        <p class="rp-card-title">Inventory Dashboard</p>
+        <p class="rp-card-desc">
+            Total stock across warehouses, aging buckets, top SKUs by quantity, and slow movers.
+        </p>
+        <span class="rp-card-cta">View report <i class="ti ti-arrow-right" aria-hidden="true"></i></span>
+    </a>
+
+    <a asp-action="Orders" class="rp-card">
+        <div class="rp-card-icon" style="background: linear-gradient(135deg, #1D9E75, #2BB389);">
+            <i class="ti ti-shopping-cart" aria-hidden="true"></i>
+        </div>
+        <p class="rp-card-title">Order Analytics</p>
+        <p class="rp-card-desc">
+            Orders by status, top customers by volume, fulfillment cycle time, and trend lines.
+        </p>
+        <span class="rp-card-cta">View report <i class="ti ti-arrow-right" aria-hidden="true"></i></span>
+    </a>
+
+    <a asp-action="Kpis" class="rp-card">
+        <div class="rp-card-icon" style="background: linear-gradient(135deg, #D97706, #F59E0B);">
+            <i class="ti ti-gauge" aria-hidden="true"></i>
+        </div>
+        <p class="rp-card-title">Operational KPIs</p>
+        <p class="rp-card-desc">
+            Picks and packs per day, cycle count variance rates, on-time shipping percentage.
+        </p>
+        <span class="rp-card-cta">View report <i class="ti ti-arrow-right" aria-hidden="true"></i></span>
+    </a>
+</div>
+
+<style>
+    .rp-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 16px;
+        margin-top: 8px;
+    }
+    .rp-card {
+        display: flex;
+        flex-direction: column;
+        padding: 20px;
+        background: #fff;
+        border: 1px solid #E5E7EB;
+        border-radius: 10px;
+        text-decoration: none;
+        color: inherit;
+        transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+    }
+    .rp-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 16px rgba(83, 74, 183, 0.08);
+        border-color: #534AB7;
+    }
+    .rp-card-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-size: 24px;
+        margin-bottom: 14px;
+    }
+    .rp-card-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: #1F2937;
+        margin: 0 0 6px 0;
+    }
+    .rp-card-desc {
+        font-size: 13px;
+        color: #6B7280;
+        line-height: 1.5;
+        margin: 0 0 14px 0;
+        flex: 1;
+    }
+    .rp-card-cta {
+        font-size: 13px;
+        font-weight: 500;
+        color: #534AB7;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+    .rp-card-cta i {
+        font-size: 14px;
+        transition: transform 150ms ease;
+    }
+    .rp-card:hover .rp-card-cta i {
+        transform: translateX(3px);
+    }
+</style>
