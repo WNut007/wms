@@ -24,7 +24,7 @@ public class ProductsControllerTests
     private static (ProductsController Controller,
                     Mock<IProductRepository> Repo,
                     Mock<IStockMovementRepository> Movements)
-        Build(IDocumentStorageService? docs = null)
+        Build(IDocumentStorageService? docs = null, Guid? userWarehouseId = null)
     {
         var repo    = new Mock<IProductRepository>();
         var factory = new Mock<IProductRepositoryFactory>();
@@ -78,6 +78,11 @@ public class ProductsControllerTests
 
         var currentUser = new Mock<ICurrentUser>();
         currentUser.SetupGet(u => u.UserId).Returns(Guid.NewGuid());
+        // Default: no warehouse context — SearchAsync no-context tests
+        // rely on this. Tests exercising the warehouse fallback pass a
+        // non-null userWarehouseId.
+        if (userWarehouseId is not null)
+            currentUser.SetupGet(u => u.WarehouseId).Returns(userWarehouseId);
 
         return (new ProductsController(
                     factory.Object,
@@ -328,6 +333,153 @@ public class ProductsControllerTests
             a => a.Title.Contains("received 50 units") && a.Title.Contains(" at WH-MAIN"));
         Assert.Contains(vm.Activities,
             a => a.Title.Contains("moved 50 units") && a.Title.Contains(" from STAGE-01"));
+    }
+
+    // ============================================================
+    // Block 4.5.1 chunk d — SearchAsync (Tom Select callback)
+    // ============================================================
+
+    [Fact]
+    public async Task SearchAsync_NoWarehouseContext_ReturnsBadRequest()
+    {
+        // Neither query param nor user claim has a warehouse — operator
+        // sees an explicit error instead of silently empty results.
+        var (ctrl, repo, _) = Build();
+
+        var result = await ctrl.SearchAsync();
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        repo.Verify(
+            r => r.SearchAsync(It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task SearchAsync_QueryWarehouseId_OverridesUserFallback()
+    {
+        // Explicit warehouseId in the query string wins over the
+        // user's default warehouse — supports cross-warehouse search
+        // from the desktop PO grid (operator on warehouse A creating
+        // a PO destined for warehouse B).
+        var userWh    = Guid.NewGuid();
+        var explicitWh = Guid.NewGuid();
+        var (ctrl, repo, _) = Build(userWarehouseId: userWh);
+
+        Guid? capturedWh = null;
+        repo.Setup(r => r.SearchAsync(It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Callback<string?, int, Guid, CancellationToken>((_, _, w, _) => capturedWh = w)
+            .ReturnsAsync(Array.Empty<ProductSearchResult>());
+
+        await ctrl.SearchAsync(warehouseId: explicitWh);
+
+        Assert.Equal(explicitWh, capturedWh);
+    }
+
+    [Fact]
+    public async Task SearchAsync_NoQueryWarehouseId_FallsBackToUserClaim()
+    {
+        var userWh = Guid.NewGuid();
+        var (ctrl, repo, _) = Build(userWarehouseId: userWh);
+
+        Guid? capturedWh = null;
+        repo.Setup(r => r.SearchAsync(It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Callback<string?, int, Guid, CancellationToken>((_, _, w, _) => capturedWh = w)
+            .ReturnsAsync(Array.Empty<ProductSearchResult>());
+
+        await ctrl.SearchAsync();
+
+        Assert.Equal(userWh, capturedWh);
+    }
+
+    [Fact]
+    public async Task SearchAsync_DefaultTake_Is50()
+    {
+        var (ctrl, repo, _) = Build(userWarehouseId: Guid.NewGuid());
+        int? capturedTake = null;
+        repo.Setup(r => r.SearchAsync(It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Callback<string?, int, Guid, CancellationToken>((_, t, _, _) => capturedTake = t)
+            .ReturnsAsync(Array.Empty<ProductSearchResult>());
+
+        await ctrl.SearchAsync();
+
+        Assert.Equal(50, capturedTake);
+    }
+
+    [Theory]
+    [InlineData(0,    1)]     // floor — defensive against ?take=0
+    [InlineData(-5,   1)]     // floor — defensive against negative
+    [InlineData(50,   50)]    // pass-through within bounds
+    [InlineData(100,  100)]   // ceiling — exact
+    [InlineData(500,  100)]   // ceiling — clamp from above
+    [InlineData(9999, 100)]   // ceiling — DoS attempt
+    public async Task SearchAsync_Take_ClampedToOneToOneHundred(int input, int expected)
+    {
+        var (ctrl, repo, _) = Build(userWarehouseId: Guid.NewGuid());
+        int? capturedTake = null;
+        repo.Setup(r => r.SearchAsync(It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Callback<string?, int, Guid, CancellationToken>((_, t, _, _) => capturedTake = t)
+            .ReturnsAsync(Array.Empty<ProductSearchResult>());
+
+        await ctrl.SearchAsync(take: input);
+
+        Assert.Equal(expected, capturedTake);
+    }
+
+    [Fact]
+    public async Task SearchAsync_Query_PassedThroughToRepo()
+    {
+        var (ctrl, repo, _) = Build(userWarehouseId: Guid.NewGuid());
+        string? capturedQ = null;
+        repo.Setup(r => r.SearchAsync(It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Callback<string?, int, Guid, CancellationToken>((q, _, _, _) => capturedQ = q)
+            .ReturnsAsync(Array.Empty<ProductSearchResult>());
+
+        await ctrl.SearchAsync(q: "iphone");
+
+        Assert.Equal("iphone", capturedQ);
+    }
+
+    [Fact]
+    public async Task SearchAsync_NullQuery_PassedAsNullToRepo()
+    {
+        // Pin the contract: empty query stays null (don't coerce to
+        // empty string). Repo's SQL guard reads `@QLike IS NULL` and
+        // returns the first `take` rows in code order.
+        var (ctrl, repo, _) = Build(userWarehouseId: Guid.NewGuid());
+        string? capturedQ = "not-null-sentinel";
+        repo.Setup(r => r.SearchAsync(It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Callback<string?, int, Guid, CancellationToken>((q, _, _, _) => capturedQ = q)
+            .ReturnsAsync(Array.Empty<ProductSearchResult>());
+
+        await ctrl.SearchAsync();
+
+        Assert.Null(capturedQ);
+    }
+
+    [Fact]
+    public async Task SearchAsync_JsonShape_HasExpectedKeys()
+    {
+        var (ctrl, repo, _) = Build(userWarehouseId: Guid.NewGuid());
+        repo.Setup(r => r.SearchAsync(It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[]
+            {
+                new ProductSearchResult(
+                    Id:     Guid.NewGuid(),
+                    Code:   "PROD-0001",
+                    Name:   "iPhone 15",
+                    Brand:  "Apple",
+                    OnHand: 42m),
+            });
+
+        var result = (JsonResult)await ctrl.SearchAsync(q: "iphone");
+
+        var json = System.Text.Json.JsonSerializer.Serialize(result.Value);
+        // Tom Select's render template reads exactly these keys.
+        foreach (var key in new[] { "id", "code", "name", "brand", "onHand" })
+            Assert.Contains($"\"{key}\":", json);
+        // Flat array shape — NOT wrapped in { items: [...] }. Tom
+        // Select's load() callback signature expects `callback(arr)`.
+        Assert.StartsWith("[", json);
     }
 
     [Fact]

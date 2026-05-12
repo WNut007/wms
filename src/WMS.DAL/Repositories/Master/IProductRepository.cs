@@ -64,6 +64,23 @@ public interface IProductRepository
     // TrackingMethod ∈ {'None', 'Lot', 'LotAndSerial'} per migration 014.
     Task<IReadOnlyDictionary<Guid, ProductLineMeta>> GetMetaByIdsAsync(
         IEnumerable<Guid> productIds, CancellationToken ct = default);
+
+    // Block 4.5.1 — Tom Select callback. Returns active products with
+    // warehouse-scoped OnHand sum, optionally filtered by free-text
+    // matching Code / Name / Brand. Empty/null `q` returns the first
+    // `take` products in code order. `take` clamped at the controller
+    // boundary (1..100).
+    //
+    // OnHand is the sum across ALL Stock rows in the supplied warehouse
+    // (multiple lots/pallets per product collapsed). Products with no
+    // Stock in that warehouse appear with OnHand=0 — operator sees
+    // every active SKU and can choose to add a zero-stock line if
+    // they intend to receive against it.
+    Task<IReadOnlyList<ProductSearchResult>> SearchAsync(
+        string? q,
+        int take,
+        Guid warehouseId,
+        CancellationToken ct = default);
 }
 
 // Phase 18 — projection returned by IProductRepository.GetMetaByIdsAsync.
@@ -72,3 +89,13 @@ public sealed record ProductLineMeta(
     string Code,
     string Name,
     string TrackingMethod);
+
+// Block 4.5.1 — projection returned by IProductRepository.SearchAsync.
+// Tom Select renders Code (mono, bold) + Name (secondary) + Brand
+// (tertiary) + OnHand (right-aligned mono) per row.
+public sealed record ProductSearchResult(
+    Guid Id,
+    string Code,
+    string Name,
+    string? Brand,
+    decimal OnHand);

@@ -251,4 +251,44 @@ WHERE Id IN @ids;";
             r => r.Id,
             r => new ProductLineMeta(r.Code, r.Name, r.TrackingMethod));
     }
+
+    public async Task<IReadOnlyList<ProductSearchResult>> SearchAsync(
+        string? q, int take, Guid warehouseId, CancellationToken ct = default)
+    {
+        // Warehouse-scoped OnHand pulled from a derived subquery so the
+        // outer LEFT JOIN preserves all matching products. A LEFT JOIN
+        // through Locations with the warehouse predicate in WHERE would
+        // either drop products with no warehouse stock (INNER) or sum
+        // cross-warehouse stock (LEFT with predicate-in-ON misapplied).
+        // Subquery is the unambiguous shape.
+        const string sql = @"
+SELECT TOP (@take)
+    p.Id,
+    p.Code,
+    p.Name,
+    p.Brand,
+    ISNULL(s.OnHand, 0) AS OnHand
+FROM master.Products p
+LEFT JOIN (
+    SELECT s.ProductId, SUM(s.QuantityOnHand) AS OnHand
+    FROM inventory.Stock s
+    JOIN master.Locations l ON l.Id = s.LocationId
+    WHERE l.WarehouseId = @warehouseId
+    GROUP BY s.ProductId
+) s ON s.ProductId = p.Id
+WHERE p.Status = 'Active'
+  AND (@QLike IS NULL
+       OR p.Code  LIKE @QLike
+       OR p.Name  LIKE @QLike
+       OR p.Brand LIKE @QLike)
+ORDER BY p.Code;";
+
+        var qLike = string.IsNullOrWhiteSpace(q) ? null : $"%{q.Trim()}%";
+
+        var rows = await _connection.QueryAsync<ProductSearchResult>(new CommandDefinition(
+            sql,
+            new { take, warehouseId, QLike = qLike },
+            cancellationToken: ct));
+        return rows.AsList();
+    }
 }

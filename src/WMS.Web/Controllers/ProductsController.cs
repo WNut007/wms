@@ -123,6 +123,49 @@ public partial class ProductsController : Controller
         });
     }
 
+    // Block 4.5.1 chunk d — Tom Select callback for the PO Lines grid
+    // (and future GR / SO / Transfer line grids). Returns active
+    // products with warehouse-scoped OnHand so the operator sees
+    // stock context inline while picking SKUs.
+    //
+    // warehouseId param wins; falls back to the current user's
+    // warehouse claim. Returns 400 if neither is available — Tom
+    // Select surfaces the error to the operator instead of silently
+    // returning an empty list (which would look like "no products
+    // found" and confuse them).
+    //
+    // Take clamped to [1, 100] — Tom Select's default page size is
+    // ~50; 100 is plenty of headroom while preventing accidental
+    // DoS via a large `take`.
+    //
+    // Returns a flat JSON array (not a paged envelope) — Tom Select's
+    // `load` callback expects `callback(arr)` where arr is the rows.
+    [HttpGet("SearchAsync")]
+    public async Task<IActionResult> SearchAsync(
+        string? q = null,
+        int take = 50,
+        Guid? warehouseId = null,
+        CancellationToken ct = default)
+    {
+        var resolvedWh = warehouseId ?? _currentUser.WarehouseId;
+        if (resolvedWh is not { } wh)
+            return BadRequest(new { error = "No warehouse context available." });
+
+        var clampedTake = Math.Clamp(take, 1, 100);
+
+        var results = await _repos.For(_tenant.RequireTenantId())
+                                  .SearchAsync(q, clampedTake, wh, ct);
+
+        return Json(results.Select(r => new
+        {
+            id     = r.Id,
+            code   = r.Code,
+            name   = r.Name,
+            brand  = r.Brand,
+            onHand = r.OnHand,
+        }));
+    }
+
     [HttpGet("Detail/{sku}")]
     public async Task<IActionResult> Detail(string sku, CancellationToken ct)
     {
