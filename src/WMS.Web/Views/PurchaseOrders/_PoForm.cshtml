@@ -1,0 +1,381 @@
+@model WMS.Web.Models.Inbound.PurchaseOrderFormViewModel
+@{
+    var hasS1Err = ViewData.ModelState["PoNumber"]?.Errors.Count > 0
+        || ViewData.ModelState["OwnerId"]?.Errors.Count > 0
+        || ViewData.ModelState["WarehouseId"]?.Errors.Count > 0;
+    var hasS2Err = ViewData.ModelState.Keys.Any(k => k.StartsWith("Lines"));
+    var initialStep = hasS1Err ? 1 : (hasS2Err ? 2 : 1);
+
+    // Block 4.5.2 chunk d.1 — shared partial. Reads from
+    // PurchaseOrderFormViewModel so both Create + Edit can feed it.
+    //
+    // initialLines is built here (single source of truth) joining
+    // Model.Lines against the Products lookup for productCode +
+    // productName resolution. On Create, Lines[].ProductId is empty
+    // so the lookup misses and code/name stay "" — matches the prior
+    // Create render shape exactly. On Edit (d.2), Lines carry real
+    // ProductIds and Tom Select hydrates the selected pill.
+    var productMap = Model.Products.ToDictionary(p => p.Id);
+    var initialLines = Model.Lines.Select(l =>
+    {
+        productMap.TryGetValue(l.ProductId, out var p);
+        return new
+        {
+            lineNumber       = l.LineNumber,
+            productId        = l.ProductId == Guid.Empty ? "" : l.ProductId.ToString(),
+            productCode      = p?.Code ?? "",
+            productName      = p?.Name ?? "",
+            uomId            = l.UomId == Guid.Empty ? "" : l.UomId.ToString(),
+            expectedQuantity = l.ExpectedQuantity,
+        };
+    });
+
+    // d.1: partial only renders Create. d.2 will introduce the mode-
+    // conditional <form action> (asp-route-id can't be tucked behind
+    // an @Html.Raw conditional — tag helpers process at compile time,
+    // not runtime; a per-mode <form> element is the clean shape).
+}
+
+@* Config hoist — JSON in <script> body context where Razor encoding
+   is safe (no HTML-attribute escape ambiguity). The form's x-data
+   references window.__poFormConfig instead of embedding JSON inline.
+   See memory feedback_json_in_attribute_script_hoist.md. *@
+<script>
+    window.__poFormConfig = {
+        initialLines: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(initialLines)),
+        mode: '@Model.Mode'
+    };
+</script>
+
+<form asp-controller="PurchaseOrders" asp-action="Create"
+      method="post"
+      class="wmsf-page"
+      autocomplete="off"
+      x-init="initGrid()"
+      x-data="Object.assign(wmsfFormState({
+          totalSteps: 3,
+          initialStep: @initialStep,
+          serverErrors: {
+              1: @(hasS1Err ? "true" : "false"),
+              2: @(hasS2Err ? "true" : "false"),
+              3: false
+          },
+          required: { 1: ['PoNumber', 'OwnerId', 'WarehouseId'], 2: [], 3: [] }
+      }), poLineGrid(window.__poFormConfig), {
+          poNumberPreview() {
+              return this.$root.querySelector('[name=PoNumber]')?.value || '—';
+          },
+          vendorPreview() {
+              const sel = this.$root.querySelector('[name=OwnerId]');
+              return sel?.options[sel.selectedIndex]?.text || '—';
+          },
+          warehousePreview() {
+              const sel = this.$root.querySelector('[name=WarehouseId]');
+              return sel?.options[sel.selectedIndex]?.text || '—';
+          },
+          expectedPreview() {
+              return this.$root.querySelector('[name=ExpectedDate]')?.value || '—';
+          }
+      })">
+
+    <nav class="wmsf-breadcrumb" aria-label="Breadcrumb">
+        <a asp-controller="PurchaseOrders" asp-action="Index">Purchase Orders</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <span class="current">New PO</span>
+    </nav>
+
+    <header class="wmsf-header">
+        <div class="wmsf-header-title">
+            <div class="wmsf-header-icon" aria-hidden="true">
+                <i class="ti ti-truck-delivery"></i>
+            </div>
+            <div class="wmsf-header-text">
+                <h1>New purchase order</h1>
+                <p>Order goods from a supplier — vendor, warehouse, expected date, and lines.</p>
+            </div>
+        </div>
+        <div class="wmsf-progress">
+            <span class="wmsf-progress-label">Progress</span>
+            <div class="wmsf-progress-row">
+                <div class="wmsf-progress-bar"
+                     :style="`--wmsf-progress-pct: ${(step / 3) * 100}%`"
+                     role="progressbar"></div>
+                <span class="wmsf-progress-count">
+                    <span x-text="step"></span> / 3
+                </span>
+            </div>
+        </div>
+    </header>
+
+    @if (ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div class="wmsf-form-error" role="alert">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <ul class="wmsf-tabs" role="tablist">
+        <li>
+            <button type="button" class="wmsf-tab" :class="{ 'is-active': step === 1 }" @@click="goTo(1)" role="tab">
+                <span class="wmsf-tab-num">1</span>
+                <span class="wmsf-tab-text">
+                    <span class="wmsf-tab-eyebrow">Section</span>
+                    <span class="wmsf-tab-name">Header</span>
+                </span>
+                <span class="wmsf-dot" :class="dotClass(1)" aria-hidden="true"></span>
+            </button>
+        </li>
+        <li>
+            <button type="button" class="wmsf-tab" :class="{ 'is-active': step === 2 }" @@click="goTo(2)" role="tab">
+                <span class="wmsf-tab-num">2</span>
+                <span class="wmsf-tab-text">
+                    <span class="wmsf-tab-eyebrow">Section</span>
+                    <span class="wmsf-tab-name">Lines</span>
+                </span>
+                <span class="wmsf-dot" :class="linesDotClass()" aria-hidden="true"></span>
+            </button>
+        </li>
+        <li>
+            <button type="button" class="wmsf-tab" :class="{ 'is-active': step === 3 }" @@click="goTo(3)" role="tab">
+                <span class="wmsf-tab-num">3</span>
+                <span class="wmsf-tab-text">
+                    <span class="wmsf-tab-eyebrow">Section</span>
+                    <span class="wmsf-tab-name">Review</span>
+                </span>
+                <span class="wmsf-dot" aria-hidden="true"></span>
+            </button>
+        </li>
+    </ul>
+
+    @* === Section 1 — Header === *@
+    <section class="wmsf-pane" x-show="step === 1" x-cloak role="tabpanel">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Section 01</p>
+                <h2>Header</h2>
+                <p class="wmsf-pane-desc">PO number, vendor, destination warehouse, and expected delivery.</p>
+            </div>
+            <span class="wmsf-required-badge"
+                  :class="{ 'is-empty': sectionComplete(1) }"
+                  x-text="sectionRequiredHint(1)"></span>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field">
+                <label asp-for="PoNumber" class="wmsf-field-label">
+                    PO number <span class="req">*</span>
+                </label>
+                <input asp-for="PoNumber" class="wmsf-input" autofocus @@input="onTouch('PoNumber')" />
+                <span asp-validation-for="PoNumber" class="wmsf-error"></span>
+                <span class="wmsf-helper">Tenant-wide unique; printed on the supplier's delivery note.</span>
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="OwnerId" class="wmsf-field-label">
+                    Vendor <span class="req">*</span>
+                </label>
+                <select asp-for="OwnerId" class="wmsf-select" @@change="onTouch('OwnerId')">
+                    <option value="">— Select vendor —</option>
+                    @foreach (var v in Model.Vendors)
+                    {
+                        <option value="@v.Id">@v.Code · @v.Name</option>
+                    }
+                </select>
+                <span asp-validation-for="OwnerId" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="WarehouseId" class="wmsf-field-label">
+                    Warehouse <span class="req">*</span>
+                </label>
+                <select asp-for="WarehouseId" class="wmsf-select" @@change="onTouch('WarehouseId')">
+                    <option value="">— Select warehouse —</option>
+                    @foreach (var w in Model.Warehouses)
+                    {
+                        <option value="@w.Id">@w.Code · @w.Name</option>
+                    }
+                </select>
+                <span asp-validation-for="WarehouseId" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="ExpectedDate" class="wmsf-field-label">Expected date</label>
+                <input asp-for="ExpectedDate" type="date" class="wmsf-input" />
+                <span asp-validation-for="ExpectedDate" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field col-span-2">
+                <label asp-for="Notes" class="wmsf-field-label">Notes</label>
+                <textarea asp-for="Notes" class="wmsf-textarea" rows="2"></textarea>
+                <span asp-validation-for="Notes" class="wmsf-error"></span>
+            </div>
+        </div>
+    </section>
+
+    @* === Section 2 — Lines (Block 4.5.2 grid factory, Option C) === *@
+    @* Drag handle for reorder · Product (Tom Select with code/name/   *@
+    @* brand/onHand multi-column) · UoM · Qty · ⋯ menu (Duplicate /    *@
+    @* Move top / Move bottom / Delete). Lot / Unit price / Total /    *@
+    @* Row status / multi-select checkbox columns deferred to chunks    *@
+    @* that add the matching VM + entity wire-through.                  *@
+    <section class="wmsf-pane" x-show="step === 2" x-cloak role="tabpanel">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Section 02</p>
+                <h2>Lines</h2>
+                <p class="wmsf-pane-desc">Drag rows to reorder · search SKU by code / name / brand · ⋯ menu for per-row actions.</p>
+            </div>
+            <span class="wmsf-required-badge"
+                  :class="{ 'is-empty': lines.length > 0 && allLinesComplete() }"
+                  x-text="lines.length === 0 ? '1+ line required' : (allLinesComplete() ? 'All set' : 'Some lines incomplete')"></span>
+        </div>
+
+        <div class="wmsg-toolbar">
+            <div class="wmsg-toolbar-actions">
+                <button type="button" class="wmsf-btn wmsf-btn-primary" @@click="addLine()">
+                    <i class="ti ti-plus" aria-hidden="true"></i> Add line
+                </button>
+            </div>
+            <div class="wmsg-toolbar-stats">
+                <span x-text="lines.length"></span> line<span x-show="lines.length !== 1">s</span>
+                · total qty <strong x-text="totalQty().toFixed(2)"></strong>
+            </div>
+        </div>
+
+        <div style="overflow-x: auto;">
+            <table class="wmsg-table" style="min-width: 600px;">
+                <thead>
+                    <tr>
+                        <th class="wmsg-cell-handle" aria-label="Reorder"></th>
+                        <th>Product</th>
+                        <th style="width: 90px;">UoM</th>
+                        <th class="wmsg-cell-num" style="width: 110px;">Qty</th>
+                        <th class="wmsg-cell-actions" aria-label="Actions"></th>
+                    </tr>
+                </thead>
+                <tbody x-ref="linesTbody">
+                    @* :key=line.key — stable identity through reorders + Tom Select instance map. *@
+                    <template x-for="(line, idx) in lines" :key="line.key">
+                        <tr class="wmsg-row" :data-row-key="line.key">
+                            @* Drag handle (column 1) *@
+                            <td class="wmsg-cell-handle">
+                                <span class="wmsg-handle" :class="{ 'is-disabled': readOnly }" title="Drag to reorder" aria-label="Drag to reorder">
+                                    <i class="ti ti-grip-vertical" aria-hidden="true"></i>
+                                </span>
+                            </td>
+
+                            @* Product (column 2) — Tom Select, multi-column dropdown *@
+                            <td>
+                                @* Hidden LineNumber preserves form binding (decision #8 — operator never sees this). *@
+                                <input type="hidden" :name="`Lines[${idx}].LineNumber`" :value="line.lineNumber" />
+                                @* Tom Select attaches to the <select>; its name attribute drives the form value. *@
+                                <select class="wmsg-product-input"
+                                        :name="`Lines[${idx}].ProductId`"
+                                        x-init="initProductCell($el, line.key)"
+                                        required>
+                                </select>
+                            </td>
+
+                            @* UoM (column 3) — manual select; auto-derive from Product is a future TD. *@
+                            <td>
+                                <select :name="`Lines[${idx}].UomId`" x-model="line.uomId" class="wmsf-select" required>
+                                    <option value="">—</option>
+                                    @foreach (var u in Model.Uoms)
+                                    {
+                                        <option value="@u.Id">@u.Code</option>
+                                    }
+                                </select>
+                            </td>
+
+                            @* Qty (column 4) — right-aligned mono *@
+                            <td class="wmsg-cell-num">
+                                <input type="number" step="0.0001" min="0.0001"
+                                       :name="`Lines[${idx}].ExpectedQuantity`"
+                                       x-model.number="line.expectedQuantity"
+                                       class="wmsf-input"
+                                       style="width: 100%; text-align: right;" required />
+                            </td>
+
+                            @* Actions (column 5) — ⋯ menu *@
+                            <td class="wmsg-cell-actions">
+                                <div class="wmsg-actions">
+                                    <button type="button"
+                                            class="wmsg-actions-trigger"
+                                            @@click.stop="toggleMenu(line.key)"
+                                            :aria-expanded="openMenuKey === line.key"
+                                            aria-label="Row actions">
+                                        <i class="ti ti-dots" aria-hidden="true"></i>
+                                    </button>
+                                    <div class="wmsg-actions-menu" x-show="openMenuKey === line.key" x-cloak>
+                                        <button type="button" class="wmsg-actions-item" @@click="duplicateRow(line.key)">
+                                            <i class="ti ti-copy" aria-hidden="true"></i> Duplicate this row
+                                        </button>
+                                        <button type="button" class="wmsg-actions-item" @@click="moveTop(line.key)" :disabled="idx === 0">
+                                            <i class="ti ti-arrow-bar-to-up" aria-hidden="true"></i> Move to top
+                                        </button>
+                                        <button type="button" class="wmsg-actions-item" @@click="moveBottom(line.key)" :disabled="idx === lines.length - 1">
+                                            <i class="ti ti-arrow-bar-to-down" aria-hidden="true"></i> Move to bottom
+                                        </button>
+                                        <div class="wmsg-actions-divider"></div>
+                                        <button type="button" class="wmsg-actions-item is-danger" @@click="removeLine(line.key)" :disabled="lines.length <= 1">
+                                            <i class="ti ti-trash" aria-hidden="true"></i> Delete row
+                                        </button>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        <button type="button" class="wmsg-add-row" @@click="addLine()">
+            <i class="ti ti-plus" aria-hidden="true"></i> Add another line
+        </button>
+    </section>
+
+    @* === Section 3 — Review === *@
+    <section class="wmsf-pane" x-show="step === 3" x-cloak role="tabpanel">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Section 03</p>
+                <h2>Review</h2>
+                <p class="wmsf-pane-desc">Confirm the PO before submitting. After submit, lines lock once any receipt posts against this PO.</p>
+            </div>
+        </div>
+
+        <dl class="wmsd-dl" style="margin-bottom: 18px;">
+            <dt>PO number</dt><dd><span class="mono" x-text="poNumberPreview()"></span></dd>
+            <dt>Vendor</dt><dd x-text="vendorPreview()"></dd>
+            <dt>Warehouse</dt><dd x-text="warehousePreview()"></dd>
+            <dt>Expected</dt><dd x-text="expectedPreview()"></dd>
+            <dt>Lines</dt><dd>
+                <span x-text="lines.length"></span> line(s),
+                total expected qty <strong x-text="totalQty().toFixed(2)"></strong>
+            </dd>
+        </dl>
+    </section>
+
+    <div class="wmsf-actions">
+        <a asp-controller="PurchaseOrders" asp-action="Index" class="wmsf-btn">
+            <i class="ti ti-x" aria-hidden="true"></i> Cancel
+        </a>
+        <span class="wmsf-actions-info"></span>
+        <button type="button" class="wmsf-btn" @@click="prev()" :disabled="step === 1">
+            <i class="ti ti-arrow-left" aria-hidden="true"></i> Back
+        </button>
+        <button type="button" class="wmsf-btn wmsf-btn-primary"
+                x-show="step < totalSteps" @@click="next()">
+            Continue <i class="ti ti-arrow-right" aria-hidden="true"></i>
+        </button>
+        <button type="submit" class="wmsf-btn wmsf-btn-primary"
+                x-show="step === totalSteps">
+            <i class="ti ti-check" aria-hidden="true"></i> Create PO
+        </button>
+    </div>
+</form>
+
+<style>[x-cloak] { display: none !important; }</style>
