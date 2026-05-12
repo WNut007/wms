@@ -1,0 +1,114 @@
+@model WMS.Web.Models.Master.UomEditViewModel
+@{
+    ViewData["Title"] = $"Edit {Model.Code}";
+    var statusVariant = Model.IsActive ? "s-success" : "s-neutral";
+    var statusLabel = Model.IsActive ? "Active" : "Archived";
+}
+
+<form asp-action="Edit" asp-route-code="@Model.Code" method="post"
+      class="wmsf-page" autocomplete="off">
+    <input type="hidden" asp-for="Id" />
+    <input type="hidden" asp-for="Code" />
+    <input type="hidden" asp-for="Type" />
+
+    <nav class="wmsf-breadcrumb" aria-label="Breadcrumb">
+        <a asp-controller="Home" asp-action="Index">Master Data</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <a asp-action="Index">Units of measure</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <span class="current">@Model.Code</span>
+    </nav>
+
+    <header class="wmsf-header">
+        <div class="wmsf-header-title">
+            <div class="wmsf-header-icon" aria-hidden="true"><i class="ti ti-ruler"></i></div>
+            <div class="wmsf-header-text">
+                <h1>@Model.Name</h1>
+                <p style="font-family: var(--wms-font-mono);">@Model.Code · @Model.Type@(Model.IsBase ? " · base" : "")</p>
+            </div>
+        </div>
+        <div class="wmsf-header-status">
+            <span class="wmsf-status-badge @statusVariant">@statusLabel</span>
+        </div>
+    </header>
+
+    @if (ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div class="wmsf-form-error" role="alert">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Identity</p>
+                <h2>Code, name, and type</h2>
+                <p class="wmsf-pane-desc">Code and Type are permanent. Name + base flag + active toggle can be edited.</p>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Code</label>
+                <input class="wmsf-input" value="@Model.Code" readonly disabled />
+                <span class="wmsf-helper">Code cannot be changed.</span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="Name" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Name) <span class="req">*</span>
+                </label>
+                <input asp-for="Name" class="wmsf-input" />
+                <span asp-validation-for="Name" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field col-span-2">
+                <label class="wmsf-field-label">Type</label>
+                <input class="wmsf-input" value="@Model.Type" readonly disabled />
+                <span class="wmsf-helper">
+                    Type cannot be changed after creation. Changing type would orphan the base-unit invariant —
+                    deactivate this unit + create a new one if reclassification is needed.
+                </span>
+            </div>
+
+            <div class="wmsf-field col-span-2">
+                <label class="wmsf-field-label">Base unit</label>
+                <label class="wmsf-check-item">
+                    <input asp-for="IsBase" type="checkbox" />
+                    Mark this as the base unit for its type
+                </label>
+                <span asp-validation-for="IsBase" class="wmsf-error"></span>
+                <span class="wmsf-helper">
+                    Only one base unit per type. If another unit is already the base for @Model.Type,
+                    uncheck the existing one first.
+                </span>
+            </div>
+
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Active</label>
+                <label class="wmsf-check-item">
+                    <input asp-for="IsActive" type="checkbox" />
+                    Available in dropdowns
+                </label>
+                <span class="wmsf-helper">Uncheck to archive — operators can no longer pick this unit.</span>
+            </div>
+        </div>
+    </section>
+
+    <div class="wmsf-actions">
+        <a asp-action="Index" class="wmsf-btn">
+            <i class="ti ti-arrow-left" aria-hidden="true"></i> Back to list
+        </a>
+        <span class="wmsf-actions-info"></span>
+        <button type="submit" class="wmsf-btn wmsf-btn-primary">
+            <i class="ti ti-check" aria-hidden="true"></i> Save changes
+        </button>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

@@ -267,7 +267,7 @@
             // TD-115 — see INBOUND block for the .expanded vs .active split.
             var masterExpanded = IsActive("MASTER")
                 || IsActive("Warehouses") || IsActive("Products") || IsActive("Customers")
-                || IsActive("BoxTypes");
+                || IsActive("BoxTypes") || IsActive("Uoms");
             <a href="@Url.Action("Index", "Warehouses")"
                class="wms-sidebar-item @(masterExpanded ? "expanded" : "")"
                title="@module.DisplayName">
@@ -291,6 +291,10 @@
                 <a href="@Url.Action("Index", "BoxTypes")"
                    class="wms-sidebar-item @(IsActive("BoxTypes") ? "active" : "")">
                     <span class="wms-sidebar-item-text">Box types</span>
+                </a>
+                <a href="@Url.Action("Index", "Uoms")"
+                   class="wms-sidebar-item @(IsActive("Uoms") ? "active" : "")">
+                    <span class="wms-sidebar-item-text">Units of measure</span>
                 </a>
             </div>
         }

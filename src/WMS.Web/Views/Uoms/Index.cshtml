@@ -1,0 +1,180 @@
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Units of measure";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Units of measure</p>
+        <div class="wms-breadcrumb">
+            <span>Master Data</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Units of measure</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <a asp-action="Create" class="wms-btn wms-btn-purple">
+            <i class="ti ti-plus" style="font-size: 14px;" aria-hidden="true"></i>
+            New unit
+        </a>
+    </div>
+</div>
+
+<div class="wms-card" style="padding: 0;" x-data="uomList()" x-init="load()">
+    <div class="wms-filter-bar">
+        <div class="wms-filter-search">
+            <i class="ti ti-search wms-filter-search-icon" aria-hidden="true"></i>
+            <input type="text" class="wms-input" placeholder="Search code or name..."
+                   x-model="search" @@input.debounce.300ms="page=1; load()" />
+        </div>
+        <div class="wmsp-chips" style="display: flex; gap: 8px; padding: 0 16px;">
+            <template x-for="s in statuses" :key="s.value">
+                <button type="button" class="wmsp-chip"
+                        :class="{ 'is-active': status === s.value }"
+                        @@click="status = s.value; page = 1; load()">
+                    <span x-text="s.label"></span>
+                    <span class="wmsp-chip-count" x-text="counts[s.value] ?? 0"></span>
+                </button>
+            </template>
+        </div>
+    </div>
+
+    <div class="wmsp-chips" style="display: flex; gap: 8px; padding: 0 16px 12px;">
+        <template x-for="t in types" :key="t.value">
+            <button type="button" class="wmsp-chip"
+                    :class="{ 'is-active': type === t.value }"
+                    @@click="type = t.value; page = 1; load()">
+                <span x-text="t.label"></span>
+                <span class="wmsp-chip-count" x-text="counts[t.countKey] ?? 0"></span>
+            </button>
+        </template>
+    </div>
+
+    <div x-show="loading" class="wms-list-loading">
+        <div class="wms-list-loading-spinner"></div> Loading units...
+    </div>
+
+    <div x-show="!loading && items.length === 0" class="wms-empty-state">
+        <div class="wms-empty-state-icon"><i class="ti ti-ruler" aria-hidden="true"></i></div>
+        <p class="wms-empty-state-title">No units found</p>
+        <p class="wms-empty-state-desc">Adjust your filters or create one to get started.</p>
+        <a asp-action="Create" class="wms-btn wms-btn-purple">
+            <i class="ti ti-plus" style="font-size: 14px;"></i> New unit
+        </a>
+    </div>
+
+    <div x-show="!loading && items.length > 0" style="overflow-x: auto;">
+        <table class="wms-table">
+            <thead>
+                <tr>
+                    <th @@click="sort('code')" style="cursor: pointer;">Code</th>
+                    <th @@click="sort('name')" style="cursor: pointer;">Name</th>
+                    <th @@click="sort('type')" style="cursor: pointer;">Type</th>
+                    <th @@click="sort('isbase')" style="cursor: pointer;">Base?</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="u in items" :key="u.id">
+                    <tr @@click="goEdit(u.code)" style="cursor: pointer;">
+                        <td class="code" x-text="u.code"></td>
+                        <td x-text="u.name"></td>
+                        <td>
+                            <span class="wms-badge" :class="typeBadgeClass(u.type)" x-text="u.type"></span>
+                        </td>
+                        <td>
+                            <template x-if="u.isBase">
+                                <span class="wms-badge wms-badge-info">
+                                    <i class="ti ti-anchor" style="font-size: 11px; margin-right: 3px;"></i>
+                                    Base
+                                </span>
+                            </template>
+                            <template x-if="!u.isBase">
+                                <span style="color: var(--wms-text-tertiary);">—</span>
+                            </template>
+                        </td>
+                        <td>
+                            <span class="wms-badge" :class="badgeClass(u.status)">
+                                <span class="wms-badge-dot"></span>
+                                <span x-text="u.status === 'active' ? 'Active' : 'Inactive'"></span>
+                            </span>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="wms-pagination" x-show="!loading && total > 0">
+        <div class="wms-pagination-info">
+            <span x-text="`Showing ${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, total)} of ${total} units`"></span>
+        </div>
+        <div class="wms-pagination-nav">
+            <button type="button" class="wms-pagination-btn" :disabled="page === 1" @@click="page--; load()">
+                <i class="ti ti-chevron-left" style="font-size: 12px;"></i>
+            </button>
+            <span x-text="`Page ${page} / ${totalPages}`" style="padding: 0 8px;"></span>
+            <button type="button" class="wms-pagination-btn" :disabled="page === totalPages" @@click="page++; load()">
+                <i class="ti ti-chevron-right" style="font-size: 12px;"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function uomList() {
+            return {
+                items: [], total: 0, totalPages: 0, counts: {},
+                page: 1, pageSize: 20, search: '', status: 'all', type: 'all',
+                sortBy: 'code', sortDesc: false, loading: false,
+                statuses: [
+                    { value: 'all', label: 'All' },
+                    { value: 'active', label: 'Active' },
+                    { value: 'inactive', label: 'Inactive' },
+                ],
+                types: [
+                    { value: 'all',    label: 'All types',  countKey: 'all'    },
+                    { value: 'Count',  label: 'Count',      countKey: 'count'  },
+                    { value: 'Weight', label: 'Weight',     countKey: 'weight' },
+                    { value: 'Volume', label: 'Volume',     countKey: 'volume' },
+                    { value: 'Length', label: 'Length',     countKey: 'length' },
+                ],
+                async load() {
+                    this.loading = true;
+                    try {
+                        const p = new URLSearchParams({
+                            page: this.page, pageSize: this.pageSize,
+                            search: this.search, status: this.status, type: this.type,
+                            sortBy: this.sortBy, sortDesc: this.sortDesc,
+                        });
+                        const r = await fetch(`/Uoms/Data?${p}`);
+                        const d = await r.json();
+                        this.items = d.items;
+                        this.total = d.total;
+                        this.totalPages = d.totalPages;
+                        this.counts = d.counts;
+                    } finally { this.loading = false; }
+                },
+                sort(col) {
+                    if (this.sortBy === col) this.sortDesc = !this.sortDesc;
+                    else { this.sortBy = col; this.sortDesc = false; }
+                    this.load();
+                },
+                goEdit(code) { window.location.href = `/Uoms/Edit/${encodeURIComponent(code)}`; },
+                badgeClass(s) {
+                    return s === 'active' ? 'wms-badge-success' : 'wms-badge-neutral';
+                },
+                typeBadgeClass(t) {
+                    switch (t) {
+                        case 'Count':  return 'wms-badge-info';
+                        case 'Weight': return 'wms-badge-warning';
+                        case 'Volume': return 'wms-badge-success';
+                        case 'Length': return 'wms-badge-neutral';
+                        default:       return 'wms-badge-neutral';
+                    }
+                },
+            };
+        }
+    </script>
+}

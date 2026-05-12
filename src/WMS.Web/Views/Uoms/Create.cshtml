@@ -1,0 +1,117 @@
+@model WMS.Web.Models.Master.UomCreateViewModel
+@{
+    ViewData["Title"] = "New unit of measure";
+}
+
+<form asp-action="Create" method="post" class="wmsf-page" autocomplete="off">
+    <nav class="wmsf-breadcrumb" aria-label="Breadcrumb">
+        <a asp-controller="Home" asp-action="Index">Master Data</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <a asp-action="Index">Units of measure</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <span class="current">New unit</span>
+    </nav>
+
+    <header class="wmsf-header">
+        <div class="wmsf-header-title">
+            <div class="wmsf-header-icon" aria-hidden="true"><i class="ti ti-ruler"></i></div>
+            <div class="wmsf-header-text">
+                <h1>New unit of measure</h1>
+                <p>Code, name, and classification. One base unit per type.</p>
+            </div>
+        </div>
+    </header>
+
+    @if (ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div class="wmsf-form-error" role="alert">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Identity</p>
+                <h2>Code, name, and type</h2>
+                <p class="wmsf-pane-desc">Code is permanent. Type cannot be changed after creation — pick carefully.</p>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field">
+                <label asp-for="Code" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Code) <span class="req">*</span>
+                </label>
+                <input asp-for="Code" class="wmsf-input" autofocus placeholder="EA, KG, L, M…" />
+                <span asp-validation-for="Code" class="wmsf-error"></span>
+                <span class="wmsf-helper">Short symbol (≤20 chars). Used as the picker label across product forms.</span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="Name" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Name) <span class="req">*</span>
+                </label>
+                <input asp-for="Name" class="wmsf-input" placeholder="Each, Kilogram, Litre…" />
+                <span asp-validation-for="Name" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field col-span-2">
+                <label class="wmsf-field-label">
+                    Type <span class="req">*</span>
+                </label>
+                <div class="wmsf-radio-group">
+                    @foreach (var t in WMS.Web.Models.Master.UomCreateViewModel.AllTypes)
+                    {
+                        <label class="wmsf-radio-item">
+                            <input asp-for="Type" type="radio" value="@t" />
+                            @t
+                        </label>
+                    }
+                </div>
+                <span asp-validation-for="Type" class="wmsf-error"></span>
+                <span class="wmsf-helper">
+                    <strong>Count</strong>: EA, PACK, CASE · <strong>Weight</strong>: KG, G · <strong>Volume</strong>: L, ML · <strong>Length</strong>: M, CM.
+                    Drives conversion validity (Weight ↔ Volume cannot convert).
+                </span>
+            </div>
+
+            <div class="wmsf-field col-span-2">
+                <label class="wmsf-field-label">Base unit</label>
+                <label class="wmsf-check-item">
+                    <input asp-for="IsBase" type="checkbox" />
+                    Mark this as the base unit for its type
+                </label>
+                <span asp-validation-for="IsBase" class="wmsf-error"></span>
+                <span class="wmsf-helper">
+                    Only one base unit per type (e.g., EA is base for Count, KG for Weight).
+                    Conversions to/from other units of the same type pivot through the base.
+                </span>
+            </div>
+
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Active</label>
+                <label class="wmsf-check-item">
+                    <input asp-for="IsActive" type="checkbox" />
+                    Available in dropdowns
+                </label>
+            </div>
+        </div>
+    </section>
+
+    <div class="wmsf-actions">
+        <a asp-action="Index" class="wmsf-btn">
+            <i class="ti ti-x" aria-hidden="true"></i> Cancel
+        </a>
+        <span class="wmsf-actions-info"></span>
+        <button type="submit" class="wmsf-btn wmsf-btn-primary">
+            <i class="ti ti-check" aria-hidden="true"></i> Create unit
+        </button>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
