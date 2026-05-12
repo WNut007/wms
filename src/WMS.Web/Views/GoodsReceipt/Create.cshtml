@@ -372,6 +372,10 @@
     <script src="~/js/wmsf-form-state.js" asp-append-version="true"></script>
     <script>
         function goodsReceiptForm(opts) {
+            if (typeof wmsfFormState !== 'function') {
+                console.error('[goodsReceiptForm] wmsfFormState helper missing — /js/wmsf-form-state.js failed to load. Returning degraded state.');
+                return { step: opts.initialStep || 1, totalSteps: opts.totalSteps || 1, lines: opts.initialLines || [], poId: opts.initialPoId || '', _bootstrapError: true };
+            }
             return Object.assign(wmsfFormState(opts), {
                 lines: opts.initialLines || [],
                 poId: opts.initialPoId || '',
@@ -478,5 +482,7 @@
                 },
             });
         }
+        // Belt-and-suspenders global binding (see PO Create hotfix note).
+        window.goodsReceiptForm = goodsReceiptForm;
     </script>
 }

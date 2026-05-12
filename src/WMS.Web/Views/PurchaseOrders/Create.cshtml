@@ -297,6 +297,10 @@
         // names so ASP.NET Core model-binding rebuilds the List<Line>
         // server-side.
         function poCreateForm(opts) {
+            if (typeof wmsfFormState !== 'function') {
+                console.error('[poCreateForm] wmsfFormState helper missing — /js/wmsf-form-state.js failed to load. Returning degraded state so Alpine does not throw step-undefined chain.');
+                return { step: opts.initialStep || 1, totalSteps: opts.totalSteps || 1, lines: opts.initialLines || [], _bootstrapError: true };
+            }
             return Object.assign(wmsfFormState(opts), {
                 lines: opts.initialLines || [],
                 addLine() {
@@ -340,5 +344,12 @@
                 },
             });
         }
+        // Belt-and-suspenders global binding. Function declarations in
+        // classic <script> blocks normally hoist to window, but Alpine's
+        // x-data evaluator (AsyncFunction + with(scope)) failed to find
+        // poCreateForm in some Production env after hotfix-csp landed
+        // (step undefined ReferenceError). Explicit assignment matches
+        // wmsf-form-state.js's own pattern at the bottom of that file.
+        window.poCreateForm = poCreateForm;
     </script>
 }
