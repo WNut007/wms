@@ -9,6 +9,12 @@ namespace WMS.Migrate.Migrations.Tenant;
 // as 052: looks up master.ProductCategories.Code='DEMO' and
 // master.UnitsOfMeasure.Code='EA' rather than hardcoding GUIDs.
 //
+// Phase 30A.2 (P0-6 fix): gated on DB_NAME() = 'WMS_Tenant_Template' so
+// the demo catalogue only lands in the template DB. Before the gate,
+// every new tenant DB provisioned via SuperAdmin onboarding picked up
+// 24 dummy products that looked like cross-tenant pollution to the
+// onboarded customer.
+//
 // Idempotent — single INSERT...SELECT with NOT EXISTS guards every row,
 // so re-running the migration after a partial failure is safe. Down()
 // uses a symmetric DELETE...JOIN against the same VALUES list so partial
@@ -26,6 +32,8 @@ namespace WMS.Migrate.Migrations.Tenant;
 [Tags("Tenant")]
 public class Migration_20260508_005_SeedDemoProducts : MigrationBase
 {
+    private const string TemplateDbName = "WMS_Tenant_Template";
+
     private const string SeedValues = @"
     (VALUES
         ('PROD-0001', N'Apple iPhone 15 Pro 256GB',         'Active',       N'Apple'),
@@ -56,31 +64,37 @@ public class Migration_20260508_005_SeedDemoProducts : MigrationBase
 
     public override void Up() =>
         Execute.Sql($@"
-;WITH seed AS (
-    SELECT s.Code, s.Name, s.Status, s.Brand
-    FROM {SeedValues}
-)
-INSERT INTO [master].[Products]
-    (Id, Code, Name, CategoryId, BaseUomId,
-     TrackingMethod, UseCatchWeight, Status, Brand, CreatedAt)
-SELECT NEWID(), s.Code, s.Name,
-       cat.Id, uom.Id,
-       'None', 0, s.Status, s.Brand, SYSUTCDATETIME()
-FROM seed s
-CROSS JOIN [master].[ProductCategories] cat
-CROSS JOIN [master].[UnitsOfMeasure] uom
-WHERE cat.Code = 'DEMO'
-  AND uom.Code = 'EA'
-  AND NOT EXISTS (
-      SELECT 1 FROM [master].[Products] p WHERE p.Code = s.Code
-  );");
+IF DB_NAME() = '{TemplateDbName}'
+BEGIN
+    ;WITH seed AS (
+        SELECT s.Code, s.Name, s.Status, s.Brand
+        FROM {SeedValues}
+    )
+    INSERT INTO [master].[Products]
+        (Id, Code, Name, CategoryId, BaseUomId,
+         TrackingMethod, UseCatchWeight, Status, Brand, CreatedAt)
+    SELECT NEWID(), s.Code, s.Name,
+           cat.Id, uom.Id,
+           'None', 0, s.Status, s.Brand, SYSUTCDATETIME()
+    FROM seed s
+    CROSS JOIN [master].[ProductCategories] cat
+    CROSS JOIN [master].[UnitsOfMeasure] uom
+    WHERE cat.Code = 'DEMO'
+      AND uom.Code = 'EA'
+      AND NOT EXISTS (
+          SELECT 1 FROM [master].[Products] p WHERE p.Code = s.Code
+      );
+END");
 
     public override void Down() =>
         Execute.Sql($@"
-;WITH seed AS (
-    SELECT s.Code FROM {SeedValues}
-)
-DELETE p
-FROM [master].[Products] p
-INNER JOIN seed s ON p.Code = s.Code;");
+IF DB_NAME() = '{TemplateDbName}'
+BEGIN
+    ;WITH seed AS (
+        SELECT s.Code FROM {SeedValues}
+    )
+    DELETE p
+    FROM [master].[Products] p
+    INNER JOIN seed s ON p.Code = s.Code;
+END");
 }

@@ -6,6 +6,11 @@ namespace WMS.Migrate.Migrations.Tenant;
 // (DM = "demo" — disjoint from any real WH-* code, including WH-MAIN
 // already seeded by migration 046).
 //
+// Phase 30A.2 (P0-6 fix): gated on DB_NAME() = 'WMS_Tenant_Template' so
+// the demo warehouses only land in the template DB. Before the gate,
+// every new tenant DB had 24 dummy warehouses prepopulated which the
+// admin saw as cross-tenant pollution.
+//
 // Type values from CK_Warehouses_Type set: 'Main' | 'Satellite' |
 // 'Branch'. IsActive=0 for 4 of 24 (WH-DM06, 20, 22, 24 — ~17%, near
 // the brief's target). Mock UI's third "maintenance" intermediate state
@@ -21,6 +26,8 @@ namespace WMS.Migrate.Migrations.Tenant;
 [Tags("Tenant")]
 public class Migration_20260508_007_SeedDemoWarehouses : MigrationBase
 {
+    private const string TemplateDbName = "WMS_Tenant_Template";
+
     private const string SeedValues = @"
     (VALUES
         ('WH-DM01', N'Bangkok Distribution Hub',        'Main',      N'Bangkok, TH',           1),
@@ -51,24 +58,30 @@ public class Migration_20260508_007_SeedDemoWarehouses : MigrationBase
 
     public override void Up() =>
         Execute.Sql($@"
-;WITH seed AS (
-    SELECT s.Code, s.Name, s.Type, s.Address, s.IsActive
-    FROM {SeedValues}
-)
-INSERT INTO [master].[Warehouses]
-    (Id, Code, Name, Type, Address, IsActive, CreatedAt)
-SELECT NEWID(), s.Code, s.Name, s.Type, s.Address, s.IsActive, SYSUTCDATETIME()
-FROM seed s
-WHERE NOT EXISTS (
-    SELECT 1 FROM [master].[Warehouses] w WHERE w.Code = s.Code
-);");
+IF DB_NAME() = '{TemplateDbName}'
+BEGIN
+    ;WITH seed AS (
+        SELECT s.Code, s.Name, s.Type, s.Address, s.IsActive
+        FROM {SeedValues}
+    )
+    INSERT INTO [master].[Warehouses]
+        (Id, Code, Name, Type, Address, IsActive, CreatedAt)
+    SELECT NEWID(), s.Code, s.Name, s.Type, s.Address, s.IsActive, SYSUTCDATETIME()
+    FROM seed s
+    WHERE NOT EXISTS (
+        SELECT 1 FROM [master].[Warehouses] w WHERE w.Code = s.Code
+    );
+END");
 
     public override void Down() =>
         Execute.Sql($@"
-;WITH seed AS (
-    SELECT s.Code FROM {SeedValues}
-)
-DELETE w
-FROM [master].[Warehouses] w
-INNER JOIN seed s ON w.Code = s.Code;");
+IF DB_NAME() = '{TemplateDbName}'
+BEGIN
+    ;WITH seed AS (
+        SELECT s.Code FROM {SeedValues}
+    )
+    DELETE w
+    FROM [master].[Warehouses] w
+    INNER JOIN seed s ON w.Code = s.Code;
+END");
 }

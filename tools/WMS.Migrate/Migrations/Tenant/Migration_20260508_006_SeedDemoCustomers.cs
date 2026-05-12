@@ -10,6 +10,11 @@ namespace WMS.Migrate.Migrations.Tenant;
 // controller boundary handles the mock UI's lowercase 'pending' /
 // 'inactive' wire values (Q4 — 'pending' maps to 'Draft').
 //
+// Phase 30A.2 (P0-6 fix): gated on DB_NAME() = 'WMS_Tenant_Template' so
+// the demo customer list only lands in the template DB. Before the
+// gate, every new tenant DB picked up 25 dummy customers — onboarded
+// admins saw a list that looked like another tenant's data.
+//
 // Country populated for every row — column added by migration 004.
 // CompanyName + TaxId populated for B2B only (BLL convention; not DB-
 // enforced — see migration 018 comment for why).
@@ -23,6 +28,8 @@ namespace WMS.Migrate.Migrations.Tenant;
 [Tags("Tenant")]
 public class Migration_20260508_006_SeedDemoCustomers : MigrationBase
 {
+    private const string TemplateDbName = "WMS_Tenant_Template";
+
     private const string SeedValues = @"
     (VALUES
         -- B2C (17)
@@ -56,27 +63,33 @@ public class Migration_20260508_006_SeedDemoCustomers : MigrationBase
 
     public override void Up() =>
         Execute.Sql($@"
-;WITH seed AS (
-    SELECT s.Code, s.Name, s.CustomerType, s.CompanyName, s.TaxId,
-           s.Email, s.Status, s.Country
-    FROM {SeedValues}
-)
-INSERT INTO [master].[Customers]
-    (Id, Code, Name, CustomerType, CompanyName, TaxId,
-     Email, Status, Country, CreatedAt)
-SELECT NEWID(), s.Code, s.Name, s.CustomerType, s.CompanyName, s.TaxId,
-       s.Email, s.Status, s.Country, SYSUTCDATETIME()
-FROM seed s
-WHERE NOT EXISTS (
-    SELECT 1 FROM [master].[Customers] c WHERE c.Code = s.Code
-);");
+IF DB_NAME() = '{TemplateDbName}'
+BEGIN
+    ;WITH seed AS (
+        SELECT s.Code, s.Name, s.CustomerType, s.CompanyName, s.TaxId,
+               s.Email, s.Status, s.Country
+        FROM {SeedValues}
+    )
+    INSERT INTO [master].[Customers]
+        (Id, Code, Name, CustomerType, CompanyName, TaxId,
+         Email, Status, Country, CreatedAt)
+    SELECT NEWID(), s.Code, s.Name, s.CustomerType, s.CompanyName, s.TaxId,
+           s.Email, s.Status, s.Country, SYSUTCDATETIME()
+    FROM seed s
+    WHERE NOT EXISTS (
+        SELECT 1 FROM [master].[Customers] c WHERE c.Code = s.Code
+    );
+END");
 
     public override void Down() =>
         Execute.Sql($@"
-;WITH seed AS (
-    SELECT s.Code FROM {SeedValues}
-)
-DELETE c
-FROM [master].[Customers] c
-INNER JOIN seed s ON c.Code = s.Code;");
+IF DB_NAME() = '{TemplateDbName}'
+BEGIN
+    ;WITH seed AS (
+        SELECT s.Code FROM {SeedValues}
+    )
+    DELETE c
+    FROM [master].[Customers] c
+    INNER JOIN seed s ON c.Code = s.Code;
+END");
 }
