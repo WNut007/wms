@@ -134,6 +134,10 @@ builder.Services.AddScoped<IUomRepositoryFactory, UomRepositoryFactory>();
 builder.Services.AddScoped<ICarrierRepositoryFactory, CarrierRepositoryFactory>();
 builder.Services.AddScoped<IOwnerRepositoryFactory, OwnerRepositoryFactory>();
 builder.Services.AddScoped<ILocationRepositoryFactory, LocationRepositoryFactory>();
+// Phase 30A.3 Block 2.1 — Zones admin CRUD. First-time DI registration
+// (no Phase 7 dropdown-only predecessor; entity was schema-only until
+// now).
+builder.Services.AddScoped<IZoneRepositoryFactory, ZoneRepositoryFactory>();
 builder.Services.AddScoped<IStockService, StockService>();
 builder.Services.AddScoped<IReceivingService, ReceivingService>();
 builder.Services.AddScoped<IPurchaseOrderRepositoryFactory, PurchaseOrderRepositoryFactory>();

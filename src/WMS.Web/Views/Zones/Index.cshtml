@@ -1,0 +1,212 @@
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Zones";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Zones</p>
+        <div class="wms-breadcrumb">
+            <span>Master Data</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Zones</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <a asp-action="Create" class="wms-btn wms-btn-purple">
+            <i class="ti ti-plus" style="font-size: 14px;" aria-hidden="true"></i>
+            New zone
+        </a>
+    </div>
+</div>
+
+<div class="wms-card" style="padding: 0;" x-data="zoneList()" x-init="init()">
+    <div class="wms-filter-bar">
+        <div class="wms-filter-search">
+            <i class="ti ti-search wms-filter-search-icon" aria-hidden="true"></i>
+            <input type="text" class="wms-input" placeholder="Search code, name, or warehouse..."
+                   x-model="search" @@input.debounce.300ms="page=1; load()" />
+        </div>
+        <select class="wms-input" style="max-width: 220px;"
+                x-model="warehouseId" @@change="page=1; load()">
+            <option value="">All warehouses</option>
+            <template x-for="w in warehouses" :key="w.id">
+                <option :value="w.id" x-text="`${w.code} — ${w.name}`"></option>
+            </template>
+        </select>
+        <div class="wmsp-chips" style="display: flex; gap: 8px; padding: 0 16px;">
+            <template x-for="s in statuses" :key="s.value">
+                <button type="button" class="wmsp-chip"
+                        :class="{ 'is-active': status === s.value }"
+                        @@click="status = s.value; page = 1; load()">
+                    <span x-text="s.label"></span>
+                    <span class="wmsp-chip-count" x-text="counts[s.countKey] ?? 0"></span>
+                </button>
+            </template>
+        </div>
+    </div>
+
+    <div class="wmsp-chips" style="display: flex; gap: 8px; padding: 0 16px 12px; flex-wrap: wrap;">
+        <template x-for="t in types" :key="t.value">
+            <button type="button" class="wmsp-chip"
+                    :class="{ 'is-active': type === t.value }"
+                    @@click="type = t.value; page = 1; load()">
+                <span x-text="t.label"></span>
+                <span class="wmsp-chip-count" x-text="counts[t.countKey] ?? 0"></span>
+            </button>
+        </template>
+    </div>
+
+    <div x-show="loading" class="wms-list-loading">
+        <div class="wms-list-loading-spinner"></div> Loading zones...
+    </div>
+
+    <div x-show="!loading && items.length === 0" class="wms-empty-state">
+        <div class="wms-empty-state-icon"><i class="ti ti-layout-grid" aria-hidden="true"></i></div>
+        <p class="wms-empty-state-title">No zones found</p>
+        <p class="wms-empty-state-desc">Adjust your filters or create one to get started.</p>
+        <a asp-action="Create" class="wms-btn wms-btn-purple">
+            <i class="ti ti-plus" style="font-size: 14px;"></i> New zone
+        </a>
+    </div>
+
+    <div x-show="!loading && items.length > 0" style="overflow-x: auto;">
+        <table class="wms-table">
+            <thead>
+                <tr>
+                    <th @@click="sort('warehouse')" style="cursor: pointer;">Warehouse</th>
+                    <th @@click="sort('code')" style="cursor: pointer;">Code</th>
+                    <th @@click="sort('name')" style="cursor: pointer;">Name</th>
+                    <th @@click="sort('type')" style="cursor: pointer;">Type</th>
+                    <th>Temperature</th>
+                    <th>Commingle?</th>
+                    <th class="numeric">Locations</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="z in items" :key="z.id">
+                    <tr @@click="goEdit(z.id)" style="cursor: pointer;">
+                        <td>
+                            <span class="code" x-text="z.warehouseCode"></span>
+                            <span style="color: var(--wms-text-secondary); font-size: 11px; margin-left: 4px;"
+                                  x-text="z.warehouseName"></span>
+                        </td>
+                        <td class="code" x-text="z.code"></td>
+                        <td x-text="z.name"></td>
+                        <td>
+                            <span class="wms-badge" :class="typeBadgeClass(z.type)" x-text="z.type"></span>
+                        </td>
+                        <td style="color: var(--wms-text-secondary);" x-text="z.temperature ?? '—'"></td>
+                        <td>
+                            <template x-if="z.lotCommingleAllowed">
+                                <span style="color: var(--wms-success);"><i class="ti ti-check" style="font-size: 14px;"></i></span>
+                            </template>
+                            <template x-if="!z.lotCommingleAllowed">
+                                <span style="color: var(--wms-text-tertiary);">No</span>
+                            </template>
+                        </td>
+                        <td class="numeric" x-text="z.locationCount"></td>
+                        <td>
+                            <span class="wms-badge" :class="badgeClass(z.status)">
+                                <span class="wms-badge-dot"></span>
+                                <span x-text="z.status === 'active' ? 'Active' : 'Inactive'"></span>
+                            </span>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="wms-pagination" x-show="!loading && total > 0">
+        <div class="wms-pagination-info">
+            <span x-text="`Showing ${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, total)} of ${total} zones`"></span>
+        </div>
+        <div class="wms-pagination-nav">
+            <button type="button" class="wms-pagination-btn" :disabled="page === 1" @@click="page--; load()">
+                <i class="ti ti-chevron-left" style="font-size: 12px;"></i>
+            </button>
+            <span x-text="`Page ${page} / ${totalPages}`" style="padding: 0 8px;"></span>
+            <button type="button" class="wms-pagination-btn" :disabled="page === totalPages" @@click="page++; load()">
+                <i class="ti ti-chevron-right" style="font-size: 12px;"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function zoneList() {
+            return {
+                items: [], total: 0, totalPages: 0, counts: {},
+                warehouses: [],
+                page: 1, pageSize: 20, search: '', status: 'all',
+                warehouseId: '', type: 'all',
+                sortBy: 'warehouse', sortDesc: false, loading: false,
+                statuses: [
+                    { value: 'all', label: 'All', countKey: 'all' },
+                    { value: 'active', label: 'Active', countKey: 'active' },
+                    { value: 'inactive', label: 'Inactive', countKey: 'inactive' },
+                ],
+                types: [
+                    { value: 'all',        label: 'All types',   countKey: 'all'        },
+                    { value: 'Receiving',  label: 'Receiving',   countKey: 'receiving'  },
+                    { value: 'Storage',    label: 'Storage',     countKey: 'storage'    },
+                    { value: 'Picking',    label: 'Picking',     countKey: 'picking'    },
+                    { value: 'Packing',    label: 'Packing',     countKey: 'packing'    },
+                    { value: 'Shipping',   label: 'Shipping',    countKey: 'shipping'   },
+                    { value: 'Staging',    label: 'Staging',     countKey: 'staging'    },
+                    { value: 'Quarantine', label: 'Quarantine',  countKey: 'quarantine' },
+                    { value: 'Returns',    label: 'Returns',     countKey: 'returns'    },
+                ],
+                async init() {
+                    try {
+                        const r = await fetch('/Zones/Warehouses');
+                        this.warehouses = await r.json();
+                    } catch { /* ignore — picker stays empty */ }
+                    await this.load();
+                },
+                async load() {
+                    this.loading = true;
+                    try {
+                        const p = new URLSearchParams({
+                            page: this.page, pageSize: this.pageSize,
+                            search: this.search, status: this.status, type: this.type,
+                            sortBy: this.sortBy, sortDesc: this.sortDesc,
+                        });
+                        if (this.warehouseId) p.set('warehouseId', this.warehouseId);
+                        const r = await fetch(`/Zones/Data?${p}`);
+                        const d = await r.json();
+                        this.items = d.items;
+                        this.total = d.total;
+                        this.totalPages = d.totalPages;
+                        this.counts = d.counts;
+                    } finally { this.loading = false; }
+                },
+                sort(col) {
+                    if (this.sortBy === col) this.sortDesc = !this.sortDesc;
+                    else { this.sortBy = col; this.sortDesc = false; }
+                    this.load();
+                },
+                goEdit(id) { window.location.href = `/Zones/Edit/${id}`; },
+                badgeClass(s) {
+                    return s === 'active' ? 'wms-badge-success' : 'wms-badge-neutral';
+                },
+                typeBadgeClass(t) {
+                    switch (t) {
+                        case 'Receiving':  return 'wms-badge-info';
+                        case 'Storage':    return 'wms-badge-neutral';
+                        case 'Picking':    return 'wms-badge-success';
+                        case 'Packing':    return 'wms-badge-warning';
+                        case 'Shipping':   return 'wms-badge-info';
+                        case 'Staging':    return 'wms-badge-neutral';
+                        case 'Quarantine': return 'wms-badge-danger';
+                        case 'Returns':    return 'wms-badge-warning';
+                        default:           return 'wms-badge-neutral';
+                    }
+                },
+            };
+        }
+    </script>
+}

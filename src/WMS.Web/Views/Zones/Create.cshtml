@@ -1,0 +1,170 @@
+@model WMS.Web.Models.Master.ZoneCreateViewModel
+@{
+    ViewData["Title"] = "New zone";
+    var warehouses = (ViewBag.Warehouses as IReadOnlyList<WMS.Common.Auth.WarehouseInfo>)
+        ?? Array.Empty<WMS.Common.Auth.WarehouseInfo>();
+}
+
+<form asp-action="Create" method="post" class="wmsf-page" autocomplete="off">
+    <nav class="wmsf-breadcrumb" aria-label="Breadcrumb">
+        <a asp-controller="Home" asp-action="Index">Master Data</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <a asp-action="Index">Zones</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <span class="current">New zone</span>
+    </nav>
+
+    <header class="wmsf-header">
+        <div class="wmsf-header-title">
+            <div class="wmsf-header-icon" aria-hidden="true"><i class="ti ti-layout-grid"></i></div>
+            <div class="wmsf-header-text">
+                <h1>New zone</h1>
+                <p>Define a zone inside a warehouse. Code is unique within the warehouse only.</p>
+            </div>
+        </div>
+    </header>
+
+    @if (ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div class="wmsf-form-error" role="alert">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Identity</p>
+                <h2>Warehouse, code, and name</h2>
+                <p class="wmsf-pane-desc">
+                    Warehouse is permanent — to move a zone between warehouses, deactivate this one and create a new zone.
+                </p>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field col-span-2">
+                <label asp-for="WarehouseId" class="wmsf-field-label">
+                    Warehouse <span class="req">*</span>
+                </label>
+                <select asp-for="WarehouseId" class="wmsf-input">
+                    <option value="">(select a warehouse)</option>
+                    @foreach (var w in warehouses)
+                    {
+                        <option value="@w.Id">@w.Code — @w.Name</option>
+                    }
+                </select>
+                <span asp-validation-for="WarehouseId" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="Code" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Code) <span class="req">*</span>
+                </label>
+                <input asp-for="Code" class="wmsf-input" autofocus placeholder="RECV, STORAGE, PICK-A…" />
+                <span asp-validation-for="Code" class="wmsf-error"></span>
+                <span class="wmsf-helper">Unique within the chosen warehouse only.</span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="Name" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Name) <span class="req">*</span>
+                </label>
+                <input asp-for="Name" class="wmsf-input" />
+                <span asp-validation-for="Name" class="wmsf-error"></span>
+            </div>
+        </div>
+    </section>
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Classification</p>
+                <h2>Type and temperature</h2>
+                <p class="wmsf-pane-desc">Type drives putaway/picking routing decisions.</p>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field col-span-2">
+                <label class="wmsf-field-label">
+                    Type <span class="req">*</span>
+                </label>
+                <div class="wmsf-radio-group">
+                    @foreach (var t in WMS.Web.Models.Master.ZoneCreateViewModel.AllTypes)
+                    {
+                        <label class="wmsf-radio-item">
+                            <input asp-for="Type" type="radio" value="@t" />
+                            @t
+                        </label>
+                    }
+                </div>
+                <span asp-validation-for="Type" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field col-span-2">
+                <label class="wmsf-field-label">Temperature</label>
+                <select asp-for="Temperature" class="wmsf-input">
+                    <option value="">(none)</option>
+                    @foreach (var t in WMS.Web.Models.Master.ZoneCreateViewModel.AllTemperatures)
+                    {
+                        <option value="@t">@t</option>
+                    }
+                </select>
+                <span asp-validation-for="Temperature" class="wmsf-error"></span>
+                <span class="wmsf-helper">Optional cold-chain classification.</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Operations</p>
+                <h2>Allowed products, commingle, archive</h2>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field col-span-2">
+                <label asp-for="AllowedProductTypes" class="wmsf-field-label">@Html.DisplayNameFor(m => m.AllowedProductTypes)</label>
+                <textarea asp-for="AllowedProductTypes" class="wmsf-textarea" rows="2"
+                          placeholder='comma-separated, or JSON array — e.g. ["Hazmat","Food"]'></textarea>
+                <span asp-validation-for="AllowedProductTypes" class="wmsf-error"></span>
+                <span class="wmsf-helper">Advisory metadata; BLL validates when stocking decisions run.</span>
+            </div>
+
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Lot commingle</label>
+                <label class="wmsf-check-item">
+                    <input asp-for="LotCommingleAllowed" type="checkbox" />
+                    Allow multiple lots in the same location
+                </label>
+                <span class="wmsf-helper">Phase 31 lot tracking may enforce; today's flag is advisory.</span>
+            </div>
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Active</label>
+                <label class="wmsf-check-item">
+                    <input asp-for="IsActive" type="checkbox" />
+                    Available for routing
+                </label>
+            </div>
+        </div>
+    </section>
+
+    <div class="wmsf-actions">
+        <a asp-action="Index" class="wmsf-btn">
+            <i class="ti ti-x" aria-hidden="true"></i> Cancel
+        </a>
+        <span class="wmsf-actions-info"></span>
+        <button type="submit" class="wmsf-btn wmsf-btn-primary">
+            <i class="ti ti-check" aria-hidden="true"></i> Create zone
+        </button>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

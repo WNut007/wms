@@ -1,0 +1,162 @@
+@model WMS.Web.Models.Master.ZoneEditViewModel
+@{
+    ViewData["Title"] = $"Edit {Model.Code}";
+    var statusVariant = Model.IsActive ? "s-success" : "s-neutral";
+    var statusLabel = Model.IsActive ? "Active" : "Archived";
+}
+
+<form asp-action="Edit" asp-route-id="@Model.Id" method="post"
+      class="wmsf-page" autocomplete="off">
+    <input type="hidden" asp-for="Id" />
+    <input type="hidden" asp-for="WarehouseId" />
+    <input type="hidden" asp-for="WarehouseCode" />
+    <input type="hidden" asp-for="WarehouseName" />
+    <input type="hidden" asp-for="Code" />
+
+    <nav class="wmsf-breadcrumb" aria-label="Breadcrumb">
+        <a asp-controller="Home" asp-action="Index">Master Data</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <a asp-action="Index">Zones</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <span class="current">@Model.WarehouseCode / @Model.Code</span>
+    </nav>
+
+    <header class="wmsf-header">
+        <div class="wmsf-header-title">
+            <div class="wmsf-header-icon" aria-hidden="true"><i class="ti ti-layout-grid"></i></div>
+            <div class="wmsf-header-text">
+                <h1>@Model.Name</h1>
+                <p style="font-family: var(--wms-font-mono);">@Model.WarehouseCode / @Model.Code · @Model.Type</p>
+            </div>
+        </div>
+        <div class="wmsf-header-status">
+            <span class="wmsf-status-badge @statusVariant">@statusLabel</span>
+        </div>
+    </header>
+
+    @if (ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div class="wmsf-form-error" role="alert">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Identity</p>
+                <h2>Warehouse, code, and name</h2>
+                <p class="wmsf-pane-desc">Warehouse and Code are permanent. Name can be edited.</p>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Warehouse</label>
+                <input class="wmsf-input" value="@Model.WarehouseCode — @Model.WarehouseName" readonly disabled />
+                <span class="wmsf-helper">Warehouse cannot be changed.</span>
+            </div>
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Code</label>
+                <input class="wmsf-input" value="@Model.Code" readonly disabled />
+                <span class="wmsf-helper">Code cannot be changed.</span>
+            </div>
+            <div class="wmsf-field col-span-2">
+                <label asp-for="Name" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Name) <span class="req">*</span>
+                </label>
+                <input asp-for="Name" class="wmsf-input" />
+                <span asp-validation-for="Name" class="wmsf-error"></span>
+            </div>
+        </div>
+    </section>
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Classification</p>
+                <h2>Type and temperature</h2>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field col-span-2">
+                <label class="wmsf-field-label">
+                    Type <span class="req">*</span>
+                </label>
+                <div class="wmsf-radio-group">
+                    @foreach (var t in WMS.Web.Models.Master.ZoneEditViewModel.AllTypes)
+                    {
+                        <label class="wmsf-radio-item">
+                            <input asp-for="Type" type="radio" value="@t" />
+                            @t
+                        </label>
+                    }
+                </div>
+                <span asp-validation-for="Type" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field col-span-2">
+                <label class="wmsf-field-label">Temperature</label>
+                <select asp-for="Temperature" class="wmsf-input">
+                    <option value="">(none)</option>
+                    @foreach (var t in WMS.Web.Models.Master.ZoneEditViewModel.AllTemperatures)
+                    {
+                        <option value="@t" selected="@(t == Model.Temperature)">@t</option>
+                    }
+                </select>
+                <span asp-validation-for="Temperature" class="wmsf-error"></span>
+            </div>
+        </div>
+    </section>
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Operations</p>
+                <h2>Allowed products, commingle, archive</h2>
+                <p class="wmsf-pane-desc">Uncheck Active to archive — locations under this zone stay assignable until they're archived too.</p>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field col-span-2">
+                <label asp-for="AllowedProductTypes" class="wmsf-field-label">@Html.DisplayNameFor(m => m.AllowedProductTypes)</label>
+                <textarea asp-for="AllowedProductTypes" class="wmsf-textarea" rows="2"></textarea>
+                <span asp-validation-for="AllowedProductTypes" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Lot commingle</label>
+                <label class="wmsf-check-item">
+                    <input asp-for="LotCommingleAllowed" type="checkbox" />
+                    Allow multiple lots in the same location
+                </label>
+            </div>
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Active</label>
+                <label class="wmsf-check-item">
+                    <input asp-for="IsActive" type="checkbox" />
+                    Available for routing
+                </label>
+            </div>
+        </div>
+    </section>
+
+    <div class="wmsf-actions">
+        <a asp-action="Index" class="wmsf-btn">
+            <i class="ti ti-arrow-left" aria-hidden="true"></i> Back to list
+        </a>
+        <span class="wmsf-actions-info"></span>
+        <button type="submit" class="wmsf-btn wmsf-btn-primary">
+            <i class="ti ti-check" aria-hidden="true"></i> Save changes
+        </button>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
