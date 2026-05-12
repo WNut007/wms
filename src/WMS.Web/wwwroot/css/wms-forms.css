@@ -519,3 +519,53 @@
 .wmsf-status-badge.s-danger  { background: var(--wmsf-danger-bg);  color: var(--wmsf-danger-fg); }
 .wmsf-status-badge.s-info    { background: var(--wmsf-info-bg);    color: var(--wmsf-info-fg); }
 .wmsf-status-badge.s-neutral { background: #F1EFE8; color: #444441; }
+
+/* ----------------------------------------------------------------
+ * Block 4.5.2 d.2 — Locked field treatment (3-signal pattern)
+ *
+ * Used by _PoForm.cshtml when Model.Locks.{PoNumber|Vendor|Warehouse}
+ * is true in Edit mode. Canonical for any future form with locked
+ * fields (GR, SO, Pick, Pack, Transfer, Adjustment, CycleCount,
+ * Master CRUDs) — 3 visual signals so the operator can't mistake the
+ * field for editable:
+ *   1. Lock icon next to label (.wmsf-lock-icon)
+ *   2. LOCKED badge after the icon (.wmsf-locked-badge)
+ *   3. Grey input background + readonly attribute (existing
+ *      .wmsf-input[readonly] styling at line 373 supplies this;
+ *      .wmsf-field-locked is the container marker for selector
+ *      composition + future variant hooks)
+ *
+ * Helper text replacement ("Set at creation. Permanent.") lives in
+ * the Razor partial — pure markup, no CSS hook needed beyond the
+ * existing .wmsf-helper class.
+ * ---------------------------------------------------------------- */
+
+.wmsf-field-locked .wmsf-field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wmsf-lock-icon {
+  font-size: 14px;
+  color: var(--wms-text-secondary, #6B7280);
+  opacity: 0.7;
+}
+
+.wmsf-locked-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: #E8E5DC;
+  color: #6B6B66;
+  border-radius: 4px;
+  line-height: 1.4;
+}
+
+.wmsf-field-locked .wmsf-helper {
+  font-style: italic;
+}

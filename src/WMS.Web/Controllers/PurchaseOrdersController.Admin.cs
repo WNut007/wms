@@ -91,6 +91,13 @@ public partial class PurchaseOrdersController
         var detail = await repo.GetByIdAsync(id, ct);
         if (detail is null) return NotFound();
 
+        // Block 4.5.2 d.2 — Closed/Cancelled POs are terminal; the
+        // Edit form has nothing the operator could change that would
+        // persist. Send them to the read-only Detail view instead.
+        // Prevents misleading "edit" UX on finalized records.
+        if (detail.Header.Status is "Closed" or "Cancelled")
+            return RedirectToAction(nameof(Detail), new { id });
+
         // Lookup display strings for the readonly Vendor + Warehouse
         // fields. Cheaper than a full repo round-trip — pull from the
         // detail header's FK plus the (already-loaded) lookups when

@@ -30,10 +30,35 @@
         };
     });
 
-    // d.1: partial only renders Create. d.2 will introduce the mode-
-    // conditional <form action> (asp-route-id can't be tucked behind
-    // an @Html.Raw conditional — tag helpers process at compile time,
-    // not runtime; a per-mode <form> element is the clean shape).
+    var isEdit = Model.Mode == "edit";
+
+    // Block 4.5.2 d.2 — form action varies by mode. asp-action +
+    // asp-route-id tag helpers can't be tucked behind @if/@Html.Raw
+    // conditionals (they're processed at compile time). Switching to
+    // plain <form action="@url"> + explicit @Html.AntiForgeryToken()
+    // is the established shape when the action URL is dynamic.
+    var formActionUrl = isEdit
+        ? Url.Action("Edit", "PurchaseOrders", new { id = Model.Id })
+        : Url.Action("Create", "PurchaseOrders");
+
+    // Edit-mode status badge variant. Cancelled → s-danger (per d.2
+    // mockup: destructive terminal state should look destructive,
+    // not muted-neutral). Closed/Cancelled never reach this partial
+    // anyway — controller redirects to /Detail/{id} — but keep
+    // defensive mappings for forward stability.
+    var statusVariant = Model.Status switch
+    {
+        "Open"      => "s-info",
+        "Receiving" => "s-warning",
+        "Closed"    => "s-success",
+        "Cancelled" => "s-danger",
+        _           => "s-neutral",
+    };
+
+    // wmsfFormState's `required` array — drives Section 1 dot state.
+    // Create: must-fill list of operator inputs.
+    // Edit: locked fields aren't user-input; nothing to track here.
+    var requiredJsArray = isEdit ? "[]" : "['PoNumber', 'OwnerId', 'WarehouseId']";
 }
 
 @* Config hoist — JSON in <script> body context where Razor encoding
@@ -43,11 +68,12 @@
 <script>
     window.__poFormConfig = {
         initialLines: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(initialLines)),
-        mode: '@Model.Mode'
+        mode:     '@Model.Mode',
+        readOnly: @(Model.Locks.LinesLocked ? "true" : "false")
     };
 </script>
 
-<form asp-controller="PurchaseOrders" asp-action="Create"
+<form action="@formActionUrl"
       method="post"
       class="wmsf-page"
       autocomplete="off"
@@ -55,12 +81,13 @@
       x-data="Object.assign(wmsfFormState({
           totalSteps: 3,
           initialStep: @initialStep,
+          mode: '@Model.Mode',
           serverErrors: {
               1: @(hasS1Err ? "true" : "false"),
               2: @(hasS2Err ? "true" : "false"),
               3: false
           },
-          required: { 1: ['PoNumber', 'OwnerId', 'WarehouseId'], 2: [], 3: [] }
+          required: { 1: @Html.Raw(requiredJsArray), 2: [], 3: [] }
       }), poLineGrid(window.__poFormConfig), {
           poNumberPreview() {
               return this.$root.querySelector('[name=PoNumber]')?.value || '—';
@@ -78,10 +105,21 @@
           }
       })">
 
+    @Html.AntiForgeryToken()
+
     <nav class="wmsf-breadcrumb" aria-label="Breadcrumb">
         <a asp-controller="PurchaseOrders" asp-action="Index">Purchase Orders</a>
         <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
-        <span class="current">New PO</span>
+        @if (isEdit)
+        {
+            <a asp-controller="PurchaseOrders" asp-action="Detail" asp-route-id="@Model.Id">@Model.PoNumber</a>
+            <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+            <span class="current">Edit</span>
+        }
+        else
+        {
+            <span class="current">New PO</span>
+        }
     </nav>
 
     <header class="wmsf-header">
@@ -90,8 +128,21 @@
                 <i class="ti ti-truck-delivery"></i>
             </div>
             <div class="wmsf-header-text">
-                <h1>New purchase order</h1>
-                <p>Order goods from a supplier — vendor, warehouse, expected date, and lines.</p>
+                @if (isEdit)
+                {
+                    <h1>
+                        @Model.PoNumber
+                        <span class="wmsf-status-badge @statusVariant" style="margin-left: 10px; vertical-align: middle; font-size: 11px;">@Model.Status</span>
+                    </h1>
+                    <p style="font-family: var(--wms-font-mono);">
+                        @Model.VendorCode · @Model.VendorName · @Model.WarehouseCode
+                    </p>
+                }
+                else
+                {
+                    <h1>New purchase order</h1>
+                    <p>Order goods from a supplier — vendor, warehouse, expected date, and lines.</p>
+                }
             </div>
         </div>
         <div class="wmsf-progress">
@@ -164,42 +215,90 @@
         </div>
 
         <div class="wmsf-grid wmsf-grid-2">
-            <div class="wmsf-field">
-                <label asp-for="PoNumber" class="wmsf-field-label">
-                    PO number <span class="req">*</span>
-                </label>
-                <input asp-for="PoNumber" class="wmsf-input" autofocus @@input="onTouch('PoNumber')" />
-                <span asp-validation-for="PoNumber" class="wmsf-error"></span>
-                <span class="wmsf-helper">Tenant-wide unique; printed on the supplier's delivery note.</span>
-            </div>
+            @* PO number — locked post-create (Locks.PoNumber=true in Edit) *@
+            @if (Model.Locks.PoNumber)
+            {
+                <div class="wmsf-field wmsf-field-locked">
+                    <label class="wmsf-field-label">
+                        PO number
+                        <i class="ti ti-lock wmsf-lock-icon" aria-hidden="true"></i>
+                        <span class="wmsf-locked-badge">Locked</span>
+                    </label>
+                    <input class="wmsf-input" value="@Model.PoNumber" readonly disabled tabindex="-1" />
+                    <span class="wmsf-helper">Set at creation. Permanent.</span>
+                </div>
+            }
+            else
+            {
+                <div class="wmsf-field">
+                    <label asp-for="PoNumber" class="wmsf-field-label">
+                        PO number <span class="req">*</span>
+                    </label>
+                    <input asp-for="PoNumber" class="wmsf-input" autofocus @@input="onTouch('PoNumber')" />
+                    <span asp-validation-for="PoNumber" class="wmsf-error"></span>
+                    <span class="wmsf-helper">Tenant-wide unique; printed on the supplier's delivery note.</span>
+                </div>
+            }
 
-            <div class="wmsf-field">
-                <label asp-for="OwnerId" class="wmsf-field-label">
-                    Vendor <span class="req">*</span>
-                </label>
-                <select asp-for="OwnerId" class="wmsf-select" @@change="onTouch('OwnerId')">
-                    <option value="">— Select vendor —</option>
-                    @foreach (var v in Model.Vendors)
-                    {
-                        <option value="@v.Id">@v.Code · @v.Name</option>
-                    }
-                </select>
-                <span asp-validation-for="OwnerId" class="wmsf-error"></span>
-            </div>
+            @* Vendor — locked post-create (changing would orphan receipt FKs) *@
+            @if (Model.Locks.Vendor)
+            {
+                <div class="wmsf-field wmsf-field-locked">
+                    <label class="wmsf-field-label">
+                        Vendor
+                        <i class="ti ti-lock wmsf-lock-icon" aria-hidden="true"></i>
+                        <span class="wmsf-locked-badge">Locked</span>
+                    </label>
+                    <input class="wmsf-input" value="@Model.VendorCode · @Model.VendorName" readonly disabled tabindex="-1" />
+                    <span class="wmsf-helper">Set at creation. Permanent.</span>
+                </div>
+            }
+            else
+            {
+                <div class="wmsf-field">
+                    <label asp-for="OwnerId" class="wmsf-field-label">
+                        Vendor <span class="req">*</span>
+                    </label>
+                    <select asp-for="OwnerId" class="wmsf-select" @@change="onTouch('OwnerId')">
+                        <option value="">— Select vendor —</option>
+                        @foreach (var v in Model.Vendors)
+                        {
+                            <option value="@v.Id">@v.Code · @v.Name</option>
+                        }
+                    </select>
+                    <span asp-validation-for="OwnerId" class="wmsf-error"></span>
+                </div>
+            }
 
-            <div class="wmsf-field">
-                <label asp-for="WarehouseId" class="wmsf-field-label">
-                    Warehouse <span class="req">*</span>
-                </label>
-                <select asp-for="WarehouseId" class="wmsf-select" @@change="onTouch('WarehouseId')">
-                    <option value="">— Select warehouse —</option>
-                    @foreach (var w in Model.Warehouses)
-                    {
-                        <option value="@w.Id">@w.Code · @w.Name</option>
-                    }
-                </select>
-                <span asp-validation-for="WarehouseId" class="wmsf-error"></span>
-            </div>
+            @* Warehouse — locked post-create (same FK-orphaning reason as Vendor) *@
+            @if (Model.Locks.Warehouse)
+            {
+                <div class="wmsf-field wmsf-field-locked">
+                    <label class="wmsf-field-label">
+                        Warehouse
+                        <i class="ti ti-lock wmsf-lock-icon" aria-hidden="true"></i>
+                        <span class="wmsf-locked-badge">Locked</span>
+                    </label>
+                    <input class="wmsf-input" value="@Model.WarehouseCode" readonly disabled tabindex="-1" />
+                    <span class="wmsf-helper">Set at creation. Permanent.</span>
+                </div>
+            }
+            else
+            {
+                <div class="wmsf-field">
+                    <label asp-for="WarehouseId" class="wmsf-field-label">
+                        Warehouse <span class="req">*</span>
+                    </label>
+                    <select asp-for="WarehouseId" class="wmsf-select" @@change="onTouch('WarehouseId')">
+                        <option value="">— Select warehouse —</option>
+                        @foreach (var w in Model.Warehouses)
+                        {
+                            <option value="@w.Id">@w.Code · @w.Name</option>
+                        }
+                    </select>
+                    <span asp-validation-for="WarehouseId" class="wmsf-error"></span>
+                </div>
+            }
 
             <div class="wmsf-field">
                 <label asp-for="ExpectedDate" class="wmsf-field-label">Expected date</label>
@@ -225,25 +324,54 @@
         <div class="wmsf-pane-head">
             <div>
                 <p class="wmsf-pane-eyebrow">— Section 02</p>
-                <h2>Lines</h2>
-                <p class="wmsf-pane-desc">Drag rows to reorder · search SKU by code / name / brand · ⋯ menu for per-row actions.</p>
+                <h2>@(Model.Locks.LinesLocked ? "Lines (read-only)" : "Lines")</h2>
+                <p class="wmsf-pane-desc">
+                    @(Model.Locks.LinesLocked
+                        ? "Receipts have been posted against this PO; lines are locked."
+                        : "Drag rows to reorder · search SKU by code / name / brand · ⋯ menu for per-row actions.")
+                </p>
             </div>
-            <span class="wmsf-required-badge"
-                  :class="{ 'is-empty': lines.length > 0 && allLinesComplete() }"
-                  x-text="lines.length === 0 ? '1+ line required' : (allLinesComplete() ? 'All set' : 'Some lines incomplete')"></span>
+            @if (!Model.Locks.LinesLocked)
+            {
+                <span class="wmsf-required-badge"
+                      :class="{ 'is-empty': lines.length > 0 && allLinesComplete() }"
+                      x-text="lines.length === 0 ? '1+ line required' : (allLinesComplete() ? 'All set' : 'Some lines incomplete')"></span>
+            }
         </div>
 
-        <div class="wmsg-toolbar">
-            <div class="wmsg-toolbar-actions">
-                <button type="button" class="wmsf-btn wmsf-btn-primary" @@click="addLine()">
-                    <i class="ti ti-plus" aria-hidden="true"></i> Add line
-                </button>
+        @if (Model.Locks.LinesLocked)
+        {
+            <div style="background: var(--wmsf-warning-bg); color: var(--wmsf-warning-fg); padding: 10px 14px; border-radius: 8px; font-size: 12px; border: 0.5px solid rgba(133, 79, 11, 0.2); margin-bottom: 14px;">
+                <strong>Lines locked.</strong> Receipts have been posted; lines are read-only.
+                Cancel-and-recreate is the path to change line shape.
             </div>
-            <div class="wmsg-toolbar-stats">
-                <span x-text="lines.length"></span> line<span x-show="lines.length !== 1">s</span>
-                · total qty <strong x-text="totalQty().toFixed(2)"></strong>
+        }
+
+        @if (!Model.Locks.LinesLocked)
+        {
+            <div class="wmsg-toolbar">
+                <div class="wmsg-toolbar-actions">
+                    <button type="button" class="wmsf-btn wmsf-btn-primary" @@click="addLine()">
+                        <i class="ti ti-plus" aria-hidden="true"></i> Add line
+                    </button>
+                </div>
+                <div class="wmsg-toolbar-stats">
+                    <span x-text="lines.length"></span> line<span x-show="lines.length !== 1">s</span>
+                    · total qty <strong x-text="totalQty().toFixed(2)"></strong>
+                </div>
             </div>
-        </div>
+        }
+        else
+        {
+            @* Locked-state toolbar — stats only, no Add button *@
+            <div class="wmsg-toolbar">
+                <div></div>
+                <div class="wmsg-toolbar-stats">
+                    <span x-text="lines.length"></span> line<span x-show="lines.length !== 1">s</span>
+                    · total qty <strong x-text="totalQty().toFixed(2)"></strong>
+                </div>
+            </div>
+        }
 
         <div style="overflow-x: auto;">
             <table class="wmsg-table" style="min-width: 600px;">
@@ -299,9 +427,11 @@
                                        style="width: 100%; text-align: right;" required />
                             </td>
 
-                            @* Actions (column 5) — ⋯ menu *@
+                            @* Actions (column 5) — ⋯ menu. Hidden when readOnly
+                               (LinesLocked). Trigger button + menu both omitted
+                               so operator gets no affordance + no confusion. *@
                             <td class="wmsg-cell-actions">
-                                <div class="wmsg-actions">
+                                <div class="wmsg-actions" x-show="!readOnly">
                                     <button type="button"
                                             class="wmsg-actions-trigger"
                                             @@click.stop="toggleMenu(line.key)"
@@ -332,9 +462,12 @@
             </table>
         </div>
 
-        <button type="button" class="wmsg-add-row" @@click="addLine()">
-            <i class="ti ti-plus" aria-hidden="true"></i> Add another line
-        </button>
+        @if (!Model.Locks.LinesLocked)
+        {
+            <button type="button" class="wmsg-add-row" @@click="addLine()">
+                <i class="ti ti-plus" aria-hidden="true"></i> Add another line
+            </button>
+        }
     </section>
 
     @* === Section 3 — Review === *@
@@ -360,9 +493,18 @@
     </section>
 
     <div class="wmsf-actions">
-        <a asp-controller="PurchaseOrders" asp-action="Index" class="wmsf-btn">
-            <i class="ti ti-x" aria-hidden="true"></i> Cancel
-        </a>
+        @if (isEdit)
+        {
+            <a asp-controller="PurchaseOrders" asp-action="Detail" asp-route-id="@Model.Id" class="wmsf-btn">
+                <i class="ti ti-x" aria-hidden="true"></i> Cancel
+            </a>
+        }
+        else
+        {
+            <a asp-controller="PurchaseOrders" asp-action="Index" class="wmsf-btn">
+                <i class="ti ti-x" aria-hidden="true"></i> Cancel
+            </a>
+        }
         <span class="wmsf-actions-info"></span>
         <button type="button" class="wmsf-btn" @@click="prev()" :disabled="step === 1">
             <i class="ti ti-arrow-left" aria-hidden="true"></i> Back
@@ -373,7 +515,7 @@
         </button>
         <button type="submit" class="wmsf-btn wmsf-btn-primary"
                 x-show="step === totalSteps">
-            <i class="ti ti-check" aria-hidden="true"></i> Create PO
+            <i class="ti ti-check" aria-hidden="true"></i> @(isEdit ? "Save changes" : "Create PO")
         </button>
     </div>
 </form>
