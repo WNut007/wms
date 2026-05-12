@@ -346,11 +346,85 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10-18 · Phases 10A-29 + **30A** shipped → tags … + **`v2.15.0-beta-ready`** + **`v2.16.0-deploy-test-ready`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 REPORTS (ch.1) · 🛡️ TENANT ADMIN (ch.2) · 🔒 SECURITY HARDENING (ch.3) · 🚀 DEPLOYMENT FOUNDATION (ch.4) · 🎩 SUPERADMIN ONBOARDING (ch.5) · 📚 DOCUMENTATION MVP (ch.6) · ✨ POLISH + BETA READY (ch.7) · 📧 **EMAIL + LOCAL DEPLOY VALIDATION SHIPPED** — Gmail SMTP infra (TD-078 closed) + deploy script + automated smoke runner + 12-scenario manual checklist (Phase 30A; pre-customer dogfood)
-**Current Focus**: Phase 30B = real-server deployment for the first customer. Phase 30A produced the artifact + smoke tooling; Phase 30B is the same artifact running on Windows Server + IIS. **All 7 v3.0.0 chapters + deploy tooling shipped.** Pending: ADR-004 putaway header (TD-004); Phase 19.5 serial-aware mobile bundle (TD-040 + TD-042 + TD-043 — needs serial schema first).
+**Active Sprint**: Day 10-19 · Phases 10A-29 + **30A** + **30A.3 Block 4.5.1** shipped → tags … + **`v2.15.0-beta-ready`** + **`v2.16.0-deploy-test-ready`** + **`v2.16.4-grid-foundation`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 REPORTS (ch.1) · 🛡️ TENANT ADMIN (ch.2) · 🔒 SECURITY HARDENING (ch.3) · 🚀 DEPLOYMENT FOUNDATION (ch.4) · 🎩 SUPERADMIN ONBOARDING (ch.5) · 📚 DOCUMENTATION MVP (ch.6) · ✨ POLISH + BETA READY (ch.7) · 📧 EMAIL + LOCAL DEPLOY VALIDATION (Phase 30A) · 🧱 **PO LINES GRID FOUNDATION** — vendor SortableJS + Tom Select + CsvHelper, LineNo+DisplayOrder migration across 5 line tables, /Products/SearchAsync endpoint (Block 4.5.1 of Phase 30A.3)
+**Current Focus**: Block 4.5.2 = Alpine `lineGrid()` factory + drag-drop + Tom Select integration + keyboard nav + auto-create-row, mounted on `Views/PurchaseOrders/Create.cshtml` Lines section. Block 4.5.1 foundation shipped (vendor + schema + endpoint) — chunks b/c/d in 3 commits. Pending in 30A.3: Block 3 (address restructure), Block 4 (Owners CRUD), Block 4.5.{2..5} (grid + validation + copy + CSV import), Block 5 (Customer multi-address), Block 6. Phase 30B (real-server deploy) waits.
 **Blockers**: none
 
 Update this section weekly during standups.
+
+### Day 19 — Phase 30A.3 Block 4.5.1 (PO Lines Grid Foundation · v2.16.4-grid-foundation)
+
+**Branch**: `feat/phase-30a3-block4-5-grid` · **Tag**: `v2.16.4-grid-foundation` · **Strategy**: foundation-only (vendor + schema + endpoint) before the actual grid work in Block 4.5.2. Spec audited end-to-end pre-flight, 4 SC corrections + 1 Option-X decision locked before any code.
+
+First slice of Block 4.5 (PO Lines Grid). Block 4.5 is itself a side-quest within Phase 30A.3 — operator-driven feedback that the existing PO Lines section (5-col Alpine grid with manually-typed LineNumbers) was friction-heavy. Spec calls for SortableJS drag-drop + Tom Select product combo + per-row + bulk copy + CSV import + async + Hangfire + SignalR notifications. 5 sub-blocks at ~12 days estimated; this entry is sub-block 1 of 5.
+
+**Pre-flight: 4 spec corrections caught + applied before any chunk shipped**:
+- **SC1 — audit log placement**: spec said `WarningAcknowledged` / `ImportApplied` / `LinesDuplicated` / `LinesReordered` events go to `master.SystemAuditLog`. Reality: that table is SuperAdmin-only per `SystemAuditEventTypes.cs`. Per-tenant per-document operator audit lives in `security.AuditLog` (Phase 24 pattern). Locked: events go to `security.AuditLog`, free-form `EventType NVARCHAR` so 4 new constants append to existing `AuditEventTypes` static class with zero migration. Lands alongside consumers in 4.5.3 / 4.5.4 / 4.5.5.
+- **SC2 — schema name**: spec said `master.ImportJobs` + `master.UserCsvMappings`. Reality: tenant-DB `master.*` is reserved for tenant-master-data (Products / Customers / Warehouses). Locked: new `imports.*` schema (`imports.Jobs`, `imports.UserMappings`) following `counts.*` / `outbound.*` precedent. Lands in 4.5.5.
+- **SC3 — CSV library**: spec silent. Locked: CsvHelper (NuGet, MIT, mature). Pinned exact (33.1.0 — NuGet floated 33.0.4→33.1.0; bumped pin to match resolved version, preserves restore determinism).
+- **SC4 — SignalR user-id claim**: confirmed `CurrentUser.cs:20` already reads `ClaimTypes.NameIdentifier`. SignalR's default `IUserIdProvider` reads the same claim — `Clients.User(userId)` will work in 4.5.5 with zero auth changes.
+- **Q3 — endpoint route**: spec said `/api/internal/products/search`. Locked: `/Products/SearchAsync` (MVC convention). Codebase has zero `/api/` routes today; introducing `/api/` opportunistically would set a precedent that belongs with a deliberate public-API design phase.
+
+**Pre-flight: spec table list correction (5 tables, not 6)**:
+Spec listed `PurchaseOrderLines` / `GoodsReceiptLines` / `SalesOrderLines` / `CountLines` / `AdjustmentLines` / `TransferLines`. Reality from migrations:
+- `GoodsReceiptLines` → actual name `inbound.ReceivingLines`
+- `CountLines` → actual name `counts.CycleCountLines`
+- `TransferLines` → actual name `inventory.TransferOrderLines`
+- `AdjustmentLines` → **does not exist**; per ADR-013, `inventory.Adjustments` is single-line. Adding LineNo/DisplayOrder to a single-line entity is meaningless.
+Locked: 5 tables (PO/Receiving/SO/CycleCount/TransferOrder Lines). Adjustment dropped.
+
+**Pre-flight: Option X for LineNumber preservation**:
+All 5 tables already carry `LineNumber INT NOT NULL` (operator-typed sequence, used for display ordering + UQ on `(ParentFK, LineNumber)` for PO/Receiving/SO). Spec introduces `LineNo` (gap-10, immutable) without addressing the existing column. Three options considered: X (add LineNo alongside LineNumber, additive), Y (rename + widen LineNumber → LineNo, breaks every existing repo/Razor), Z (drop LineNumber, even more breakage). **Locked Option X** — keep LineNumber as it is, add LineNo + DisplayOrder. Existing UI surfaces (PO Create's editable LineNumber input, GR's PO-prefill, CycleCount clipboard print) keep working unchanged. New grid (chunk d onwards) hides LineNumber per spec decision #8 — system owns sequence — and operates on LineNo + DisplayOrder. **TD-119 logged** to deprecate LineNumber once consumers migrate.
+
+**Pre-flight: combined migration vs per-table**:
+Initially leaned per-table (codebase precedent + theoretical narrower failure surface). Conceded combined after user push-back: FluentMigrator wraps each migration in a transaction so partial-state rollback is automatic either way; precedent migrations were independent changes that just happened to ship same-week, not one change across 5 tables; semantic atomicity (one architectural decision = one PR) + DRY across structurally identical changes wins.
+
+**Chunks shipped (b/c/d, 3 commits)**:
+
+**4.5.1.b — Vendor drops** (`22329b5`):
+Mirrors the Phase 30A Alpine/htmx hotfix pattern — minified files vendored under `wwwroot/lib/`. SortableJS 1.15.2 (MIT, 44.5 KB), Tom Select 2.3.1 (Apache 2.0, 50.7 + 15.3 KB Bootstrap 5 theme CSS), CsvHelper 33.1.0 (NuGet, pinned exact). No script tags wired yet — that lands in subsequent chunks. Build clean.
+
+**4.5.1.c — Migration** (`4c5f7fe`):
+Single migration `Migration_20260518_037_AddLineNoAndDisplayOrderToLineTables.cs`, `[Tags("Tenant")]`. 5 ALTERs × 2 columns + 5 backfill UPDATEs + 10 indexes. Both columns `INT NOT NULL DEFAULT 0`. Backfill: `SET LineNo = LineNumber * 10, DisplayOrder = LineNumber` — for documents with up to 999 lines, LineNo lands in [10, 9990]. No tenant has >999-line documents in practice (test fixtures max ~5; demo seed ~3-10). Capacity invariant (LineNo ≤ 9999) NOT enforced via DB CHECK — keeps backfill simple, locates capacity policy at the application layer where Block 4.5.4's `RenumberLinesJob` lives. Indexes: `IX_{Table}_{ParentAbbr}_DisplayOrder` for grid (UI ORDER BY) + `IX_{Table}_{ParentAbbr}_LineNo` for print (doc ORDER BY). Manual verification step: operator runs `dotnet run --project tools/WMS.Migrate -- up tenants` against dev DB.
+
+**Version-column split documented in migration header for Block 4.5.2's Reorder endpoint** — three tables have `Version INT` (PO, Receiving, SO Lines — Reorder MUST bump Version with optimistic-concurrency guard); two don't (CycleCount, TransferOrder — operator-overwrite-freely pattern; Reorder unconditional). Block 4.5.2 ships PO Lines first; other surfaces follow at rule-of-three refactor time.
+
+**4.5.1.d — `/Products/SearchAsync` endpoint** (`15368ae`):
+DAL: new `IProductRepository.SearchAsync(string? q, int take, Guid warehouseId, ...)` + `ProductSearchResult(Id, Code, Name, Brand?, OnHand)` record. SQL uses a derived subquery for the per-product warehouse-scoped OnHand:
+```sql
+LEFT JOIN (
+    SELECT s.ProductId, SUM(s.QuantityOnHand) AS OnHand
+    FROM inventory.Stock s
+    JOIN master.Locations l ON l.Id = s.LocationId
+    WHERE l.WarehouseId = @warehouseId
+    GROUP BY s.ProductId
+) s ON s.ProductId = p.Id
+```
+A LEFT JOIN through Locations with the warehouse predicate in WHERE would either drop products with no warehouse stock (INNER) or sum cross-warehouse stock (LEFT with predicate misapplied). Subquery is the unambiguous shape.
+
+Controller: `GET /Products/SearchAsync?q=&take=50&warehouseId=`. Optional `warehouseId` query param wins over `_currentUser.WarehouseId` fallback (supports cross-warehouse PO creation). Returns 400 with explicit error if neither present — Tom Select surfaces the error to the operator instead of silently empty results that look like "no products found". Take clamped to [1, 100]. Returns flat JSON array (NOT paged envelope) per Tom Select's `load(callback)` shape.
+
+Tests (+13 new cases, 7 Facts + 1 Theory with 6 take-clamping boundary inputs): NoWarehouseContext returns BadRequest + repo never called · QueryWarehouseId overrides user fallback · NoQueryWarehouseId falls back to user claim · DefaultTake is 50 · Take clamped to [1, 100] · Query string passed through · Null query stays null (not coerced to "") · JsonShape has expected keys + flat array. Build helper widened with optional `userWarehouseId` parameter (backward-compatible — all existing callers use positional `Build()`). Test posture: **1180 passing** (378 unit + 802 integration + 5 skipped TD-006).
+
+**Out of scope** (logged as TDs):
+- **TD-119** — Deprecate `LineNumber` column on 5 line tables once Block 4.5.2-onwards consumers migrate to `LineNo` for print + `DisplayOrder` for UI.
+- All Block 4.5.{2..5} surfaces (grid factory, validation, warning modal, copy drawer, undo, CSV import, async + Hangfire jobs, SignalR + bell + history page).
+
+**Patterns established**:
+- **Spec audit threshold hit again** (5th instance per `feedback_spec_rename_audit.md`) — spec column names didn't match schema; spec table list included a non-existent table; spec audit-log placement was wrong; spec route prefix violated existing convention. Pre-flight grep + read caught all 4 before any code landed. Zero rework.
+- **Option X for additive schema with overlapping role** — when a spec introduces a new column whose role overlaps an existing one (here LineNo vs LineNumber), default to additive (keep both, hide old in new code, log TD to deprecate). Reserves the spec's new behavior for new surfaces without disturbing existing repos in the same chunk. Avoids touching code well outside the chunk's scope per the chunk-by-chunk discipline.
+- **Combined migration over per-table for one architectural decision** — when the same structural change applies to N tables (here +2 columns + 2 indexes + backfill × 5), one migration file is right. FluentMigrator wraps each migration in a transaction; partial-state rollback is automatic. Per-table is right when the changes are independent decisions that just happen to ship same-week.
+- **Derived subquery for scope-restricted aggregates** — `SUM(QuantityOnHand) WHERE WarehouseId = X` via subquery joined LEFT to the parent table preserves all parent rows AND scopes the aggregate cleanly. LEFT JOIN with the predicate in WHERE either drops parents (predicate behaves as INNER) or aggregates cross-scope (predicate misapplied). Subquery is the unambiguous shape; same pattern fits "sum across last 90 days", "count where status = X", etc.
+- **400 with explicit error message > silently empty result** — when a callback endpoint can't fulfill a request because of missing context (no warehouse, missing tenant, etc.), return 400 with `{ error: "..." }` so the consumer surfaces the cause to the operator. Empty array looks like "no matches" and confuses the operator into thinking the data is wrong. Same pattern fits autocomplete callbacks, lookup endpoints, search APIs.
+- **Backward-compatible optional ctor/method param widening for tests** — when a test fixture's helper needs a new dimension (here `userWarehouseId` for SearchAsync's fallback path), add as a SECOND positional optional parameter with default null. Existing tests that called `Build()` keep compiling unchanged. Same pattern Phase 25's `AuthService` ctor used.
+
+**Notes**:
+- The chunk b vendor drops were preceded by a small NU1603 detour: pinned CsvHelper 33.0.4 didn't exist on NuGet; restore floated up to 33.1.0. Bumped the pin to match the resolved version per the user's "pin exactly for restore determinism" directive.
+- Pre-existing untracked files (`"ername…"` weird filename + `scr/` directory) in the working tree — left alone, not mine to touch.
+- Branch `feat/phase-30a3-block4-5-grid` created off `feat/phase-30a3-block1-lookups` to escape that branch's name-drift (block1-lookups had Block 2 + form fixes piled on it). Block 4.5.{2..5} continue on this branch through completion.
+- All chunks compile + pass full test suite (1180) + zero new warnings beyond the 2 pre-existing ones (CS0105 duplicate using in Program.cs, CS1998 async-without-await in GoodsReceiptController).
+
+---
 
 ### Day 18 — Phase 30A (Local Deployment Validation + SMTP Infrastructure · pre-customer dogfood)
 
@@ -2835,5 +2909,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-18 (Day 18 — Phase 30A Local Deployment Validation + SMTP Infrastructure; v2.16.0-deploy-test-ready · 📧 Gmail SMTP + EmailTemplateRenderer + EmailServiceHealthCheck + wired into TenantProvisioning Create + ResetAdminPassword as best-effort post-audit (TD-078 closed); Test-Local-Deploy.ps1 + Smoke-Local.ps1 (12-scenario request-shape) + 12-scenario manual E2E checklist + Phase 30B prep checklist + runbook SMTP section; +16 tests, 1053 passing. **All 7 v3.0.0 chapters + deploy tooling shipped.**)
-**Version**: 1.44
+**Last updated**: 2026-05-12 (Day 19 — Phase 30A.3 Block 4.5.1 PO Lines Grid Foundation; v2.16.4-grid-foundation · 🧱 vendor SortableJS 1.15.2 + Tom Select 2.3.1 + CsvHelper 33.1.0; combined migration adds LineNo+DisplayOrder columns + 10 indexes + ROW_NUMBER backfill across 5 line tables (PurchaseOrderLines / ReceivingLines / SalesOrderLines / CycleCountLines / TransferOrderLines — Adjustments excluded as single-line per ADR-013); /Products/SearchAsync endpoint (Tom Select callback, derived-subquery for warehouse-scoped OnHand, take clamped [1,100], 400 if no warehouse context); +13 tests, 1180 passing. **Version-column split** documented for Block 4.5.2's Reorder endpoint (3 tables with Version, 2 without). **TD-119** logged to deprecate LineNumber once consumers migrate. Block 4.5.{2..5} pending: grid factory, validation, copy drawer, CSV import, SignalR notifications.)
+**Version**: 1.45
