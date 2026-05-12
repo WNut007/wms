@@ -29,7 +29,7 @@
 <form asp-controller="GoodsReceipt" asp-action="Create" method="post"
       class="wmsf-page"
       autocomplete="off"
-      x-data="goodsReceiptForm({
+      x-data="Object.assign(wmsfFormState({
           totalSteps: 4,
           initialStep: @initialStep,
           serverErrors: {
@@ -38,9 +38,98 @@
               3: false,
               4: false
           },
-          required: { 1: ['ReceivingNumber', 'WarehouseId'], 2: [], 3: [], 4: [] },
-          initialLines: @Html.Raw(initialLinesJson),
-          initialPoId: @Html.Raw(initialPoJson)
+          required: { 1: ['ReceivingNumber', 'WarehouseId'], 2: [], 3: [], 4: [] }
+      }), {
+          lines: @Html.Raw(initialLinesJson),
+          poId: @Html.Raw(initialPoJson),
+          vendorDisplay: '',
+          loadingPoLines: false,
+          init() {
+              if (this.poId) this.refreshVendorDisplay();
+          },
+          async onPoChanged(newPoId) {
+              this.poId = newPoId;
+              if (!newPoId) {
+                  this.lines = [{
+                      lineNumber: 1, purchaseOrderLineId: null,
+                      productId: '', uomId: '', ownerId: '', locationId: '',
+                      expectedQuantity: null, receivedQuantity: 1,
+                      lotNumber: '', palletNumber: '',
+                  }];
+                  this.vendorDisplay = '';
+                  return;
+              }
+              this.loadingPoLines = true;
+              try {
+                  const r = await fetch('/GoodsReceipt/PoLines/' + newPoId);
+                  if (!r.ok) throw new Error('PO lookup failed');
+                  const data = await r.json();
+                  this.lines = data.lines.map(l => ({
+                      lineNumber: l.lineNumber,
+                      purchaseOrderLineId: l.purchaseOrderLineId,
+                      productId: l.productId,
+                      uomId: l.uomId,
+                      ownerId: data.ownerId,
+                      locationId: '',
+                      expectedQuantity: l.outstandingQuantity,
+                      receivedQuantity: l.outstandingQuantity,
+                      lotNumber: '', palletNumber: '',
+                  }));
+                  const sel = this.$root.querySelector('[name=PurchaseOrderId]');
+                  this.vendorDisplay = sel?.options[sel.selectedIndex]?.text?.split(' · ')[1] || '';
+              } catch (e) {
+                  console.error(e);
+                  this.vendorDisplay = '';
+              } finally {
+                  this.loadingPoLines = false;
+              }
+          },
+          refreshVendorDisplay() {
+              const sel = this.$root.querySelector('[name=PurchaseOrderId]');
+              this.vendorDisplay = sel?.options[sel.selectedIndex]?.text?.split(' · ')[1] || '';
+          },
+          addLine() {
+              const nextNum = this.lines.length === 0
+                  ? 1
+                  : Math.max(...this.lines.map(l => l.lineNumber || 0)) + 1;
+              this.lines.push({
+                  lineNumber: nextNum, purchaseOrderLineId: null,
+                  productId: '', uomId: '', ownerId: '', locationId: '',
+                  expectedQuantity: null, receivedQuantity: 1,
+                  lotNumber: '', palletNumber: '',
+              });
+          },
+          removeLine(idx) {
+              if (this.lines.length <= 1) return;
+              this.lines.splice(idx, 1);
+          },
+          allLinesComplete() {
+              return this.lines.every(l =>
+                  l.lineNumber > 0 && l.productId && l.uomId &&
+                  l.ownerId && l.locationId && Number(l.receivedQuantity) > 0);
+          },
+          linesDotClass() {
+              if (this.serverErrors[2]) return 'is-error';
+              if (this.lines.length > 0 && this.allLinesComplete()) return 'is-complete';
+              if (this.lines.some(l => l.productId)) return 'is-progress';
+              return '';
+          },
+          overUnderRowStyle(line) {
+              if (line.expectedQuantity == null) return '';
+              const r = Number(line.receivedQuantity) || 0;
+              const e = Number(line.expectedQuantity) || 0;
+              if (r === e) return 'background: rgba(29, 158, 117, 0.05);';
+              if (r < e)   return 'background: rgba(239, 159, 39, 0.07);';
+              return 'background: rgba(163, 45, 45, 0.08);';
+          },
+          overUnderInputStyle(line) {
+              if (line.expectedQuantity == null) return '';
+              const r = Number(line.receivedQuantity) || 0;
+              const e = Number(line.expectedQuantity) || 0;
+              if (r === e) return 'color: #1D9E75; font-weight: 500;';
+              if (r < e)   return 'color: #EF9F27; font-weight: 500;';
+              return 'color: #A32D2D; font-weight: 500;';
+          }
       })">
 
     <nav class="wmsf-breadcrumb" aria-label="Breadcrumb">
@@ -370,119 +459,4 @@
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
     <script src="~/js/wmsf-form-state.js" asp-append-version="true"></script>
-    <script>
-        function goodsReceiptForm(opts) {
-            if (typeof wmsfFormState !== 'function') {
-                console.error('[goodsReceiptForm] wmsfFormState helper missing — /js/wmsf-form-state.js failed to load. Returning degraded state.');
-                return { step: opts.initialStep || 1, totalSteps: opts.totalSteps || 1, lines: opts.initialLines || [], poId: opts.initialPoId || '', _bootstrapError: true };
-            }
-            return Object.assign(wmsfFormState(opts), {
-                lines: opts.initialLines || [],
-                poId: opts.initialPoId || '',
-                vendorDisplay: '',
-                loadingPoLines: false,
-
-                init() {
-                    if (this.poId) this.refreshVendorDisplay();
-                },
-
-                async onPoChanged(newPoId) {
-                    this.poId = newPoId;
-                    if (!newPoId) {
-                        // Blind receipt — reset to one empty editable line.
-                        this.lines = [{
-                            lineNumber: 1, purchaseOrderLineId: null,
-                            productId: '', uomId: '', ownerId: '', locationId: '',
-                            expectedQuantity: null, receivedQuantity: 1,
-                            lotNumber: '', palletNumber: '',
-                        }];
-                        this.vendorDisplay = '';
-                        return;
-                    }
-                    this.loadingPoLines = true;
-                    try {
-                        const r = await fetch(`/GoodsReceipt/PoLines/${newPoId}`);
-                        if (!r.ok) throw new Error('PO lookup failed');
-                        const data = await r.json();
-                        this.lines = data.lines.map(l => ({
-                            lineNumber: l.lineNumber,
-                            purchaseOrderLineId: l.purchaseOrderLineId,
-                            productId: l.productId,
-                            uomId: l.uomId,
-                            ownerId: data.ownerId,
-                            locationId: '',
-                            expectedQuantity: l.outstandingQuantity,
-                            receivedQuantity: l.outstandingQuantity,
-                            lotNumber: '', palletNumber: '',
-                        }));
-                        // Vendor display from select option text.
-                        const sel = this.$root.querySelector('[name="PurchaseOrderId"]');
-                        this.vendorDisplay = sel?.options[sel.selectedIndex]?.text?.split(' · ')[1] || '';
-                    } catch (e) {
-                        console.error(e);
-                        this.vendorDisplay = '';
-                    } finally {
-                        this.loadingPoLines = false;
-                    }
-                },
-
-                refreshVendorDisplay() {
-                    const sel = this.$root.querySelector('[name="PurchaseOrderId"]');
-                    this.vendorDisplay = sel?.options[sel.selectedIndex]?.text?.split(' · ')[1] || '';
-                },
-
-                addLine() {
-                    const nextNum = this.lines.length === 0
-                        ? 1
-                        : Math.max(...this.lines.map(l => l.lineNumber || 0)) + 1;
-                    this.lines.push({
-                        lineNumber: nextNum, purchaseOrderLineId: null,
-                        productId: '', uomId: '', ownerId: '', locationId: '',
-                        expectedQuantity: null, receivedQuantity: 1,
-                        lotNumber: '', palletNumber: '',
-                    });
-                },
-
-                removeLine(idx) {
-                    if (this.lines.length <= 1) return;
-                    this.lines.splice(idx, 1);
-                },
-
-                allLinesComplete() {
-                    return this.lines.every(l =>
-                        l.lineNumber > 0 && l.productId && l.uomId &&
-                        l.ownerId && l.locationId && Number(l.receivedQuantity) > 0);
-                },
-
-                linesDotClass() {
-                    if (this.serverErrors[2]) return 'is-error';
-                    if (this.lines.length > 0 && this.allLinesComplete()) return 'is-complete';
-                    if (this.lines.some(l => l.productId)) return 'is-progress';
-                    return '';
-                },
-
-                // Visual flag colors for over/under-receipt rows. Match
-                // (received == expected): green tint. Under: amber. Over:
-                // red. Blind (no expected): no flag.
-                overUnderRowStyle(line) {
-                    if (line.expectedQuantity == null) return '';
-                    const r = Number(line.receivedQuantity) || 0;
-                    const e = Number(line.expectedQuantity) || 0;
-                    if (r === e) return 'background: rgba(29, 158, 117, 0.05);';
-                    if (r < e)   return 'background: rgba(239, 159, 39, 0.07);';
-                    return 'background: rgba(163, 45, 45, 0.08);';
-                },
-                overUnderInputStyle(line) {
-                    if (line.expectedQuantity == null) return '';
-                    const r = Number(line.receivedQuantity) || 0;
-                    const e = Number(line.expectedQuantity) || 0;
-                    if (r === e) return 'color: #1D9E75; font-weight: 500;';
-                    if (r < e)   return 'color: #EF9F27; font-weight: 500;';
-                    return 'color: #A32D2D; font-weight: 500;';
-                },
-            });
-        }
-        // Belt-and-suspenders global binding (see PO Create hotfix note).
-        window.goodsReceiptForm = goodsReceiptForm;
-    </script>
 }

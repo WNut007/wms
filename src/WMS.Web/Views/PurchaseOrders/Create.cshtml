@@ -25,7 +25,7 @@
 <form asp-controller="PurchaseOrders" asp-action="Create" method="post"
       class="wmsf-page"
       autocomplete="off"
-      x-data="poCreateForm({
+      x-data="Object.assign(wmsfFormState({
           totalSteps: 3,
           initialStep: @initialStep,
           serverErrors: {
@@ -33,8 +33,48 @@
               2: @(hasS2Err ? "true" : "false"),
               3: false
           },
-          required: { 1: ['PoNumber', 'OwnerId', 'WarehouseId'], 2: [], 3: [] },
-          initialLines: @Html.Raw(initialLinesJson)
+          required: { 1: ['PoNumber', 'OwnerId', 'WarehouseId'], 2: [], 3: [] }
+      }), {
+          lines: @Html.Raw(initialLinesJson),
+          addLine() {
+              const nextNum = this.lines.length === 0
+                  ? 1
+                  : Math.max(...this.lines.map(l => l.lineNumber || 0)) + 1;
+              this.lines.push({
+                  lineNumber: nextNum, productId: '', uomId: '', expectedQuantity: 1,
+              });
+          },
+          removeLine(idx) {
+              if (this.lines.length <= 1) return;
+              this.lines.splice(idx, 1);
+          },
+          allLinesComplete() {
+              return this.lines.every(l =>
+                  l.lineNumber > 0 && l.productId && l.uomId && l.expectedQuantity > 0);
+          },
+          linesDotClass() {
+              if (this.serverErrors[2]) return 'is-error';
+              if (this.lines.length > 0 && this.allLinesComplete()) return 'is-complete';
+              if (this.lines.some(l => l.productId || l.uomId)) return 'is-progress';
+              return '';
+          },
+          totalQty() {
+              return this.lines.reduce((s, l) => s + (Number(l.expectedQuantity) || 0), 0);
+          },
+          poNumberPreview() {
+              return this.$root.querySelector('[name=PoNumber]')?.value || '—';
+          },
+          vendorPreview() {
+              const sel = this.$root.querySelector('[name=OwnerId]');
+              return sel?.options[sel.selectedIndex]?.text || '—';
+          },
+          warehousePreview() {
+              const sel = this.$root.querySelector('[name=WarehouseId]');
+              return sel?.options[sel.selectedIndex]?.text || '—';
+          },
+          expectedPreview() {
+              return this.$root.querySelector('[name=ExpectedDate]')?.value || '—';
+          }
       })">
 
     <nav class="wmsf-breadcrumb" aria-label="Breadcrumb">
@@ -291,65 +331,4 @@
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
     <script src="~/js/wmsf-form-state.js" asp-append-version="true"></script>
-    <script>
-        // PO Create extends the base wmsfFormState with reactive `lines`
-        // array — Alpine x-for in the markup binds each line to indexed
-        // names so ASP.NET Core model-binding rebuilds the List<Line>
-        // server-side.
-        function poCreateForm(opts) {
-            if (typeof wmsfFormState !== 'function') {
-                console.error('[poCreateForm] wmsfFormState helper missing — /js/wmsf-form-state.js failed to load. Returning degraded state so Alpine does not throw step-undefined chain.');
-                return { step: opts.initialStep || 1, totalSteps: opts.totalSteps || 1, lines: opts.initialLines || [], _bootstrapError: true };
-            }
-            return Object.assign(wmsfFormState(opts), {
-                lines: opts.initialLines || [],
-                addLine() {
-                    const nextNum = this.lines.length === 0
-                        ? 1
-                        : Math.max(...this.lines.map(l => l.lineNumber || 0)) + 1;
-                    this.lines.push({
-                        lineNumber: nextNum, productId: '', uomId: '', expectedQuantity: 1,
-                    });
-                },
-                removeLine(idx) {
-                    if (this.lines.length <= 1) return;
-                    this.lines.splice(idx, 1);
-                },
-                allLinesComplete() {
-                    return this.lines.every(l =>
-                        l.lineNumber > 0 && l.productId && l.uomId && l.expectedQuantity > 0);
-                },
-                linesDotClass() {
-                    if (this.serverErrors[2]) return 'is-error';
-                    if (this.lines.length > 0 && this.allLinesComplete()) return 'is-complete';
-                    if (this.lines.some(l => l.productId || l.uomId)) return 'is-progress';
-                    return '';
-                },
-                totalQty() {
-                    return this.lines.reduce((s, l) => s + (Number(l.expectedQuantity) || 0), 0);
-                },
-                poNumberPreview() {
-                    return this.$root.querySelector('[name="PoNumber"]')?.value || '—';
-                },
-                vendorPreview() {
-                    const sel = this.$root.querySelector('[name="OwnerId"]');
-                    return sel?.options[sel.selectedIndex]?.text || '—';
-                },
-                warehousePreview() {
-                    const sel = this.$root.querySelector('[name="WarehouseId"]');
-                    return sel?.options[sel.selectedIndex]?.text || '—';
-                },
-                expectedPreview() {
-                    return this.$root.querySelector('[name="ExpectedDate"]')?.value || '—';
-                },
-            });
-        }
-        // Belt-and-suspenders global binding. Function declarations in
-        // classic <script> blocks normally hoist to window, but Alpine's
-        // x-data evaluator (AsyncFunction + with(scope)) failed to find
-        // poCreateForm in some Production env after hotfix-csp landed
-        // (step undefined ReferenceError). Explicit assignment matches
-        // wmsf-form-state.js's own pattern at the bottom of that file.
-        window.poCreateForm = poCreateForm;
-    </script>
 }
