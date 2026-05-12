@@ -65,7 +65,7 @@ public class Migration_20260518_037_AddLineNoAndDisplayOrderToLineTables : Migra
             .AddColumn("DisplayOrder").AsInt32().NotNullable().WithDefaultValue(0);
         Execute.Sql(
             "UPDATE [inbound].[PurchaseOrderLines] " +
-            "SET LineNo = LineNumber * 10, DisplayOrder = LineNumber;");
+            "SET [LineNo] = LineNumber * 10, DisplayOrder = LineNumber;");
         Create.Index("IX_PurchaseOrderLines_Po_DisplayOrder")
             .OnTable("PurchaseOrderLines").InSchema("inbound")
             .OnColumn("PurchaseOrderId").Ascending()
@@ -81,7 +81,7 @@ public class Migration_20260518_037_AddLineNoAndDisplayOrderToLineTables : Migra
             .AddColumn("DisplayOrder").AsInt32().NotNullable().WithDefaultValue(0);
         Execute.Sql(
             "UPDATE [inbound].[ReceivingLines] " +
-            "SET LineNo = LineNumber * 10, DisplayOrder = LineNumber;");
+            "SET [LineNo] = LineNumber * 10, DisplayOrder = LineNumber;");
         Create.Index("IX_ReceivingLines_Header_DisplayOrder")
             .OnTable("ReceivingLines").InSchema("inbound")
             .OnColumn("ReceivingHeaderId").Ascending()
@@ -97,7 +97,7 @@ public class Migration_20260518_037_AddLineNoAndDisplayOrderToLineTables : Migra
             .AddColumn("DisplayOrder").AsInt32().NotNullable().WithDefaultValue(0);
         Execute.Sql(
             "UPDATE [outbound].[SalesOrderLines] " +
-            "SET LineNo = LineNumber * 10, DisplayOrder = LineNumber;");
+            "SET [LineNo] = LineNumber * 10, DisplayOrder = LineNumber;");
         Create.Index("IX_SalesOrderLines_So_DisplayOrder")
             .OnTable("SalesOrderLines").InSchema("outbound")
             .OnColumn("SalesOrderId").Ascending()
@@ -113,7 +113,7 @@ public class Migration_20260518_037_AddLineNoAndDisplayOrderToLineTables : Migra
             .AddColumn("DisplayOrder").AsInt32().NotNullable().WithDefaultValue(0);
         Execute.Sql(
             "UPDATE [counts].[CycleCountLines] " +
-            "SET LineNo = LineNumber * 10, DisplayOrder = LineNumber;");
+            "SET [LineNo] = LineNumber * 10, DisplayOrder = LineNumber;");
         Create.Index("IX_CycleCountLines_CycleCount_DisplayOrder")
             .OnTable("CycleCountLines").InSchema("counts")
             .OnColumn("CycleCountId").Ascending()
@@ -129,7 +129,7 @@ public class Migration_20260518_037_AddLineNoAndDisplayOrderToLineTables : Migra
             .AddColumn("DisplayOrder").AsInt32().NotNullable().WithDefaultValue(0);
         Execute.Sql(
             "UPDATE [inventory].[TransferOrderLines] " +
-            "SET LineNo = LineNumber * 10, DisplayOrder = LineNumber;");
+            "SET [LineNo] = LineNumber * 10, DisplayOrder = LineNumber;");
         Create.Index("IX_TransferOrderLines_Transfer_DisplayOrder")
             .OnTable("TransferOrderLines").InSchema("inventory")
             .OnColumn("TransferId").Ascending()

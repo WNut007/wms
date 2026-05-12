@@ -83,8 +83,15 @@ internal sealed class PurchaseOrderRepository : IPurchaseOrderRepository
                     // layer hop. DisplayOrder defaults to 0; chunk d's
                     // Edit-flow grid populates it via the Reorder
                     // endpoint when the operator drags rows.
+                    // LineNo bracketed — LINENO is a T-SQL reserved
+                    // keyword (SET LINENO N debug command). Unbracketed
+                    // in a column-list context throws "Incorrect syntax
+                    // near the keyword 'LineNo'". The UPDATE SET clause
+                    // in the migration's backfill tolerates it (SET-in-
+                    // UPDATE disambiguates) but the INSERT column list
+                    // does not.
                     @"INSERT INTO inbound.PurchaseOrderLines
-                          (Id, PurchaseOrderId, LineNumber, LineNo, ProductId, UomId,
+                          (Id, PurchaseOrderId, LineNumber, [LineNo], ProductId, UomId,
                            ExpectedQuantity, ReceivedQuantity, Status, CreatedBy)
                       VALUES
                           (@Id, @PurchaseOrderId, @LineNumber, (@LineNumber * 10),
@@ -307,8 +314,15 @@ WHERE Id = @Id;";
                     // layer hop. DisplayOrder defaults to 0; chunk d's
                     // Edit-flow grid populates it via the Reorder
                     // endpoint when the operator drags rows.
+                    // LineNo bracketed — LINENO is a T-SQL reserved
+                    // keyword (SET LINENO N debug command). Unbracketed
+                    // in a column-list context throws "Incorrect syntax
+                    // near the keyword 'LineNo'". The UPDATE SET clause
+                    // in the migration's backfill tolerates it (SET-in-
+                    // UPDATE disambiguates) but the INSERT column list
+                    // does not.
                     @"INSERT INTO inbound.PurchaseOrderLines
-                          (Id, PurchaseOrderId, LineNumber, LineNo, ProductId, UomId,
+                          (Id, PurchaseOrderId, LineNumber, [LineNo], ProductId, UomId,
                            ExpectedQuantity, ReceivedQuantity, Status, CreatedBy)
                       VALUES
                           (@Id, @PurchaseOrderId, @LineNumber, (@LineNumber * 10),
