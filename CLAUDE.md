@@ -346,15 +346,15 @@ docs(adr): document putaway template decision
 >
 > **Test posture at v2.0.0**: 811 passing (288 unit + 518 integration + 5 skipped). Build clean. 31 outbound migrations applied (20260510_001 through _031).
 
-**Active Sprint**: Day 10-19 · Phases 10A-29 + **30A** + **30A.3 Block 4.5.1** shipped → tags … + **`v2.15.0-beta-ready`** + **`v2.16.0-deploy-test-ready`** + **`v2.16.4-grid-foundation`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 REPORTS (ch.1) · 🛡️ TENANT ADMIN (ch.2) · 🔒 SECURITY HARDENING (ch.3) · 🚀 DEPLOYMENT FOUNDATION (ch.4) · 🎩 SUPERADMIN ONBOARDING (ch.5) · 📚 DOCUMENTATION MVP (ch.6) · ✨ POLISH + BETA READY (ch.7) · 📧 EMAIL + LOCAL DEPLOY VALIDATION (Phase 30A) · 🧱 **PO LINES GRID FOUNDATION** — vendor SortableJS + Tom Select + CsvHelper, LineNo+DisplayOrder migration across 5 line tables, /Products/SearchAsync endpoint (Block 4.5.1 of Phase 30A.3)
+**Active Sprint**: Day 10-19 · Phases 10A-29 + **30A** + **30A.3 Block 4.5.1** shipped → tags … + **`v2.15.0-beta-ready`** + **`v2.16.0-deploy-test-ready`** + **`v2.16.5-grid-foundation`** · 🎉 MOBILE SUITE COMPLETE (6/6) · 📊 REPORTS (ch.1) · 🛡️ TENANT ADMIN (ch.2) · 🔒 SECURITY HARDENING (ch.3) · 🚀 DEPLOYMENT FOUNDATION (ch.4) · 🎩 SUPERADMIN ONBOARDING (ch.5) · 📚 DOCUMENTATION MVP (ch.6) · ✨ POLISH + BETA READY (ch.7) · 📧 EMAIL + LOCAL DEPLOY VALIDATION (Phase 30A) · 🧱 **PO LINES GRID FOUNDATION** — vendor SortableJS + Tom Select + CsvHelper, LineNo+DisplayOrder migration across 5 line tables, /Products/SearchAsync endpoint (Block 4.5.1 of Phase 30A.3)
 **Current Focus**: Block 4.5.2 = Alpine `lineGrid()` factory + drag-drop + Tom Select integration + keyboard nav + auto-create-row, mounted on `Views/PurchaseOrders/Create.cshtml` Lines section. Block 4.5.1 foundation shipped (vendor + schema + endpoint) — chunks b/c/d in 3 commits. Pending in 30A.3: Block 3 (address restructure), Block 4 (Owners CRUD), Block 4.5.{2..5} (grid + validation + copy + CSV import), Block 5 (Customer multi-address), Block 6. Phase 30B (real-server deploy) waits.
 **Blockers**: none
 
 Update this section weekly during standups.
 
-### Day 19 — Phase 30A.3 Block 4.5.1 (PO Lines Grid Foundation · v2.16.4-grid-foundation)
+### Day 19 — Phase 30A.3 Block 4.5.1 (PO Lines Grid Foundation · v2.16.5-grid-foundation)
 
-**Branch**: `feat/phase-30a3-block4-5-grid` · **Tag**: `v2.16.4-grid-foundation` · **Strategy**: foundation-only (vendor + schema + endpoint) before the actual grid work in Block 4.5.2. Spec audited end-to-end pre-flight, 4 SC corrections + 1 Option-X decision locked before any code.
+**Branch**: `feat/phase-30a3-block4-5-grid` · **Tag**: `v2.16.5-grid-foundation` · **Strategy**: foundation-only (vendor + schema + endpoint) before the actual grid work in Block 4.5.2. Spec audited end-to-end pre-flight, 4 SC corrections + 1 Option-X decision locked before any code.
 
 First slice of Block 4.5 (PO Lines Grid). Block 4.5 is itself a side-quest within Phase 30A.3 — operator-driven feedback that the existing PO Lines section (5-col Alpine grid with manually-typed LineNumbers) was friction-heavy. Spec calls for SortableJS drag-drop + Tom Select product combo + per-row + bulk copy + CSV import + async + Hangfire + SignalR notifications. 5 sub-blocks at ~12 days estimated; this entry is sub-block 1 of 5.
 
@@ -2909,5 +2909,5 @@ dotnet run --project tools/WMS.SeedData
 
 ---
 
-**Last updated**: 2026-05-12 (Day 19 — Phase 30A.3 Block 4.5.1 PO Lines Grid Foundation; v2.16.4-grid-foundation · 🧱 vendor SortableJS 1.15.2 + Tom Select 2.3.1 + CsvHelper 33.1.0; combined migration adds LineNo+DisplayOrder columns + 10 indexes + ROW_NUMBER backfill across 5 line tables (PurchaseOrderLines / ReceivingLines / SalesOrderLines / CycleCountLines / TransferOrderLines — Adjustments excluded as single-line per ADR-013); /Products/SearchAsync endpoint (Tom Select callback, derived-subquery for warehouse-scoped OnHand, take clamped [1,100], 400 if no warehouse context); +13 tests, 1180 passing. **Version-column split** documented for Block 4.5.2's Reorder endpoint (3 tables with Version, 2 without). **TD-119** logged to deprecate LineNumber once consumers migrate. Block 4.5.{2..5} pending: grid factory, validation, copy drawer, CSV import, SignalR notifications.)
+**Last updated**: 2026-05-12 (Day 19 — Phase 30A.3 Block 4.5.1 PO Lines Grid Foundation; v2.16.5-grid-foundation · 🧱 vendor SortableJS 1.15.2 + Tom Select 2.3.1 + CsvHelper 33.1.0; combined migration adds LineNo+DisplayOrder columns + 10 indexes + ROW_NUMBER backfill across 5 line tables (PurchaseOrderLines / ReceivingLines / SalesOrderLines / CycleCountLines / TransferOrderLines — Adjustments excluded as single-line per ADR-013); /Products/SearchAsync endpoint (Tom Select callback, derived-subquery for warehouse-scoped OnHand, take clamped [1,100], 400 if no warehouse context); +13 tests, 1180 passing. **Version-column split** documented for Block 4.5.2's Reorder endpoint (3 tables with Version, 2 without). **TD-119** logged to deprecate LineNumber once consumers migrate. Block 4.5.{2..5} pending: grid factory, validation, copy drawer, CSV import, SignalR notifications.)
 **Version**: 1.45
