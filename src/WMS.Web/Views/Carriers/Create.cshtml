@@ -1,0 +1,169 @@
+@model WMS.Web.Models.Master.CarrierCreateViewModel
+@{
+    ViewData["Title"] = "New carrier";
+}
+
+<form asp-action="Create" method="post" class="wmsf-page" autocomplete="off">
+    <nav class="wmsf-breadcrumb" aria-label="Breadcrumb">
+        <a asp-controller="Home" asp-action="Index">Master Data</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <a asp-action="Index">Carriers</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <span class="current">New carrier</span>
+    </nav>
+
+    <header class="wmsf-header">
+        <div class="wmsf-header-title">
+            <div class="wmsf-header-icon" aria-hidden="true"><i class="ti ti-truck-delivery"></i></div>
+            <div class="wmsf-header-text">
+                <h1>New carrier</h1>
+                <p>Add a shipping carrier. New carriers ship at status "Inactive" — promote to Production after testing.</p>
+            </div>
+        </div>
+    </header>
+
+    @if (ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div class="wmsf-form-error" role="alert">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Identity</p>
+                <h2>Code and name</h2>
+                <p class="wmsf-pane-desc">Code is permanent. Customers reference carriers by Id, but admin muscle-memory thinks in codes.</p>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field">
+                <label asp-for="Code" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Code) <span class="req">*</span>
+                </label>
+                <input asp-for="Code" class="wmsf-input" autofocus placeholder="FLASH, KERRY, JT…" />
+                <span asp-validation-for="Code" class="wmsf-error"></span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="Name" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Name) <span class="req">*</span>
+                </label>
+                <input asp-for="Name" class="wmsf-input" />
+                <span asp-validation-for="Name" class="wmsf-error"></span>
+            </div>
+        </div>
+    </section>
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Classification</p>
+                <h2>Type, country, status</h2>
+                <p class="wmsf-pane-desc">Status drives carrier-selection availability. Only Production carriers appear in customer dropdowns.</p>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Type</label>
+                <select asp-for="Type" class="wmsf-input">
+                    <option value="">(none)</option>
+                    @foreach (var t in WMS.Web.Models.Master.CarrierCreateViewModel.AllTypes)
+                    {
+                        <option value="@t">@t</option>
+                    }
+                </select>
+                <span asp-validation-for="Type" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="Country" class="wmsf-field-label">@Html.DisplayNameFor(m => m.Country)</label>
+                <input asp-for="Country" class="wmsf-input" maxlength="2" placeholder="TH" />
+                <span asp-validation-for="Country" class="wmsf-error"></span>
+                <span class="wmsf-helper">ISO 3166-1 alpha-2 code (TH, SG, VN, MY, ID, PH).</span>
+            </div>
+
+            <div class="wmsf-field col-span-2">
+                <label class="wmsf-field-label">
+                    Status <span class="req">*</span>
+                </label>
+                <div class="wmsf-radio-group">
+                    @foreach (var s in WMS.Web.Models.Master.CarrierCreateViewModel.AllStatuses)
+                    {
+                        <label class="wmsf-radio-item">
+                            <input asp-for="Status" type="radio" value="@s" />
+                            @s
+                        </label>
+                    }
+                </div>
+                <span asp-validation-for="Status" class="wmsf-error"></span>
+                <span class="wmsf-helper">
+                    <strong>Inactive</strong>: created but not configured · <strong>Configured</strong>: credentials entered · <strong>Tested</strong>: sandbox passed · <strong>Production</strong>: routes real shipments.
+                </span>
+            </div>
+        </div>
+    </section>
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Operational</p>
+                <h2>Service levels, display, archive</h2>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field col-span-2">
+                <label asp-for="SupportedServiceLevels" class="wmsf-field-label">@Html.DisplayNameFor(m => m.SupportedServiceLevels)</label>
+                <textarea asp-for="SupportedServiceLevels" class="wmsf-textarea" rows="2"
+                          placeholder='["Same","Next","Standard","Economy"]'></textarea>
+                <span asp-validation-for="SupportedServiceLevels" class="wmsf-error"></span>
+                <span class="wmsf-helper">JSON array of service-level codes. Free-form — full validation lands in Phase 31+.</span>
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="WebsiteUrl" class="wmsf-field-label">@Html.DisplayNameFor(m => m.WebsiteUrl)</label>
+                <input asp-for="WebsiteUrl" class="wmsf-input" type="url" placeholder="https://" />
+                <span asp-validation-for="WebsiteUrl" class="wmsf-error"></span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="LogoUrl" class="wmsf-field-label">@Html.DisplayNameFor(m => m.LogoUrl)</label>
+                <input asp-for="LogoUrl" class="wmsf-input" type="url" placeholder="https://" />
+                <span asp-validation-for="LogoUrl" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="DisplayOrder" class="wmsf-field-label">@Html.DisplayNameFor(m => m.DisplayOrder)</label>
+                <input asp-for="DisplayOrder" class="wmsf-input" type="number" min="0" max="9999" />
+                <span asp-validation-for="DisplayOrder" class="wmsf-error"></span>
+                <span class="wmsf-helper">Lower number = higher priority in selection UI.</span>
+            </div>
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Active</label>
+                <label class="wmsf-check-item">
+                    <input asp-for="IsActive" type="checkbox" />
+                    Available for assignment (with Status=Production)
+                </label>
+            </div>
+        </div>
+    </section>
+
+    <div class="wmsf-actions">
+        <a asp-action="Index" class="wmsf-btn">
+            <i class="ti ti-x" aria-hidden="true"></i> Cancel
+        </a>
+        <span class="wmsf-actions-info"></span>
+        <button type="submit" class="wmsf-btn wmsf-btn-primary">
+            <i class="ti ti-check" aria-hidden="true"></i> Create carrier
+        </button>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
