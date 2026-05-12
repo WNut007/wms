@@ -1,3 +1,4 @@
+using Dapper;
 using FluentValidation;
 using Hangfire;
 using Hangfire.SqlServer;
@@ -5,6 +6,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using Serilog;
+using WMS.DAL.Common;
 using WMS.Web.Infrastructure;
 using WMS.Web.Infrastructure.HealthChecks;
 using WMS.Web.Services.Outbound;
@@ -39,6 +41,17 @@ var builder = WebApplication.CreateBuilder(args);
 // Phase 26 — fail-fast on missing production config (empty MasterDb /
 // TenantTemplate). Dev gets a warning + continues; Production throws.
 ConfigurationValidator.Validate(builder.Configuration, builder.Environment);
+
+// Block 4.5.2 chunk c.1.2 P0 hotfix — register Dapper TypeHandlers for
+// DateOnly + TimeOnly (added to .NET 6+, no native Dapper baseline
+// support). Without these, ExecuteAsync throws NotSupportedException
+// on every write path with a DateOnly parameter — silently broke PO
+// Create / SO Create / Goods Receipt / Mobile Receive / Lot writes
+// across 17 files. Surfaced when Block 4.5.2 c.1.1 smoke finally
+// reached the form-submit phase. Static (global SqlMapper state) —
+// runs once at startup before any DAL call.
+SqlMapper.AddTypeHandler(new DateOnlyTypeHandler());
+SqlMapper.AddTypeHandler(new TimeOnlyTypeHandler());
 
 builder.Host.UseSerilog((context, services, configuration) =>
 {
