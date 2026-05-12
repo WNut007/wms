@@ -261,8 +261,13 @@
         {
             // Master Data — Phase 3 wired Warehouses; Phase 4 added
             // Products + Customers list/detail pages.
+            // Phase 30A.3 Block 1 adds lookup-master CRUDs (BoxTypes
+            // first; UoMs / Carriers / Categories arrive in follow-up
+            // commits within this block).
             // TD-115 — see INBOUND block for the .expanded vs .active split.
-            var masterExpanded = IsActive("MASTER") || IsActive("Warehouses") || IsActive("Products") || IsActive("Customers");
+            var masterExpanded = IsActive("MASTER")
+                || IsActive("Warehouses") || IsActive("Products") || IsActive("Customers")
+                || IsActive("BoxTypes");
             <a href="@Url.Action("Index", "Warehouses")"
                class="wms-sidebar-item @(masterExpanded ? "expanded" : "")"
                title="@module.DisplayName">
@@ -282,6 +287,10 @@
                 <a href="@Url.Action("Index", "Customers")"
                    class="wms-sidebar-item @(IsActive("Customers") ? "active" : "")">
                     <span class="wms-sidebar-item-text">Customers</span>
+                </a>
+                <a href="@Url.Action("Index", "BoxTypes")"
+                   class="wms-sidebar-item @(IsActive("BoxTypes") ? "active" : "")">
+                    <span class="wms-sidebar-item-text">Box types</span>
                 </a>
             </div>
         }

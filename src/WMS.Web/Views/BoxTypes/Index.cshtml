@@ -1,0 +1,152 @@
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Box types";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Box types</p>
+        <div class="wms-breadcrumb">
+            <span>Master Data</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Box types</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <a asp-action="Create" class="wms-btn wms-btn-purple">
+            <i class="ti ti-plus" style="font-size: 14px;" aria-hidden="true"></i>
+            New box type
+        </a>
+    </div>
+</div>
+
+<div class="wms-card" style="padding: 0;" x-data="boxTypeList()" x-init="load()">
+    <div class="wms-filter-bar">
+        <div class="wms-filter-search">
+            <i class="ti ti-search wms-filter-search-icon" aria-hidden="true"></i>
+            <input type="text" class="wms-input" placeholder="Search code or name..."
+                   x-model="search" @@input.debounce.300ms="page=1; load()" />
+        </div>
+        <div class="wmsp-chips" style="display: flex; gap: 8px; padding: 0 16px;">
+            <template x-for="s in statuses" :key="s.value">
+                <button type="button" class="wmsp-chip"
+                        :class="{ 'is-active': status === s.value }"
+                        @@click="status = s.value; page = 1; load()">
+                    <span x-text="s.label"></span>
+                    <span class="wmsp-chip-count" x-text="counts[s.value] ?? 0"></span>
+                </button>
+            </template>
+        </div>
+    </div>
+
+    <div x-show="loading" class="wms-list-loading">
+        <div class="wms-list-loading-spinner"></div> Loading box types...
+    </div>
+
+    <div x-show="!loading && items.length === 0" class="wms-empty-state">
+        <div class="wms-empty-state-icon"><i class="ti ti-box" aria-hidden="true"></i></div>
+        <p class="wms-empty-state-title">No box types found</p>
+        <p class="wms-empty-state-desc">Adjust your filters or create one to get started.</p>
+        <a asp-action="Create" class="wms-btn wms-btn-purple">
+            <i class="ti ti-plus" style="font-size: 14px;"></i> New box type
+        </a>
+    </div>
+
+    <div x-show="!loading && items.length > 0" style="overflow-x: auto;">
+        <table class="wms-table">
+            <thead>
+                <tr>
+                    <th @@click="sort('code')" style="cursor: pointer;">Code</th>
+                    <th @@click="sort('name')" style="cursor: pointer;">Name</th>
+                    <th>Internal (L×W×H cm)</th>
+                    <th>External (L×W×H cm)</th>
+                    <th class="numeric" @@click="sort('weight')" style="cursor: pointer;">Empty (kg)</th>
+                    <th class="numeric">Max load (kg)</th>
+                    <th class="numeric" @@click="sort('cost')" style="cursor: pointer;">Unit cost</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="b in items" :key="b.id">
+                    <tr @@click="goEdit(b.code)" style="cursor: pointer;">
+                        <td class="code" x-text="b.code"></td>
+                        <td x-text="b.name"></td>
+                        <td x-text="dim(b.internalLengthCm, b.internalWidthCm, b.internalHeightCm)"></td>
+                        <td x-text="dim(b.externalLengthCm, b.externalWidthCm, b.externalHeightCm)"></td>
+                        <td class="numeric" x-text="fmt(b.emptyWeightKg, 3)"></td>
+                        <td class="numeric" x-text="fmt(b.maxLoadKg, 2)"></td>
+                        <td class="numeric" x-text="fmt(b.unitCost, 2)"></td>
+                        <td>
+                            <span class="wms-badge" :class="badgeClass(b.status)">
+                                <span class="wms-badge-dot"></span>
+                                <span x-text="b.status === 'active' ? 'Active' : 'Inactive'"></span>
+                            </span>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="wms-pagination" x-show="!loading && total > 0">
+        <div class="wms-pagination-info">
+            <span x-text="`Showing ${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, total)} of ${total} box types`"></span>
+        </div>
+        <div class="wms-pagination-nav">
+            <button type="button" class="wms-pagination-btn" :disabled="page === 1" @@click="page--; load()">
+                <i class="ti ti-chevron-left" style="font-size: 12px;"></i>
+            </button>
+            <span x-text="`Page ${page} / ${totalPages}`" style="padding: 0 8px;"></span>
+            <button type="button" class="wms-pagination-btn" :disabled="page === totalPages" @@click="page++; load()">
+                <i class="ti ti-chevron-right" style="font-size: 12px;"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function boxTypeList() {
+            return {
+                items: [], total: 0, totalPages: 0, counts: {},
+                page: 1, pageSize: 20, search: '', status: 'all',
+                sortBy: 'code', sortDesc: false, loading: false,
+                statuses: [
+                    { value: 'all', label: 'All' },
+                    { value: 'active', label: 'Active' },
+                    { value: 'inactive', label: 'Inactive' },
+                ],
+                async load() {
+                    this.loading = true;
+                    try {
+                        const p = new URLSearchParams({
+                            page: this.page, pageSize: this.pageSize,
+                            search: this.search, status: this.status,
+                            sortBy: this.sortBy, sortDesc: this.sortDesc,
+                        });
+                        const r = await fetch(`/BoxTypes/Data?${p}`);
+                        const d = await r.json();
+                        this.items = d.items;
+                        this.total = d.total;
+                        this.totalPages = d.totalPages;
+                        this.counts = d.counts;
+                    } finally { this.loading = false; }
+                },
+                sort(col) {
+                    if (this.sortBy === col) this.sortDesc = !this.sortDesc;
+                    else { this.sortBy = col; this.sortDesc = false; }
+                    this.load();
+                },
+                goEdit(code) { window.location.href = `/BoxTypes/Edit/${encodeURIComponent(code)}`; },
+                dim(l, w, h) {
+                    if (l == null && w == null && h == null) return '—';
+                    return `${l ?? '?'} × ${w ?? '?'} × ${h ?? '?'}`;
+                },
+                fmt(v, dp) { return v == null ? '—' : Number(v).toFixed(dp); },
+                badgeClass(s) {
+                    return s === 'active' ? 'wms-badge-success' : 'wms-badge-neutral';
+                },
+            };
+        }
+    </script>
+}

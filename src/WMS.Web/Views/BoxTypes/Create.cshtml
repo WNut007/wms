@@ -1,0 +1,159 @@
+@model WMS.Web.Models.Master.BoxTypeCreateViewModel
+@{
+    ViewData["Title"] = "New box type";
+}
+
+<form asp-action="Create" method="post" class="wmsf-page" autocomplete="off">
+    <nav class="wmsf-breadcrumb" aria-label="Breadcrumb">
+        <a asp-controller="Home" asp-action="Index">Master Data</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <a asp-action="Index">Box types</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <span class="current">New box type</span>
+    </nav>
+
+    <header class="wmsf-header">
+        <div class="wmsf-header-title">
+            <div class="wmsf-header-icon" aria-hidden="true"><i class="ti ti-box"></i></div>
+            <div class="wmsf-header-text">
+                <h1>New box type</h1>
+                <p>Add a carton size to the packing catalogue.</p>
+            </div>
+        </div>
+    </header>
+
+    @if (ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div class="wmsf-form-error" role="alert">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Identity</p>
+                <h2>Code and name</h2>
+                <p class="wmsf-pane-desc">Code is permanent. Cartons reference box types by code.</p>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field">
+                <label asp-for="Code" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Code) <span class="req">*</span>
+                </label>
+                <input asp-for="Code" class="wmsf-input" autofocus />
+                <span asp-validation-for="Code" class="wmsf-error"></span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="Name" class="wmsf-field-label">
+                    @Html.DisplayNameFor(m => m.Name) <span class="req">*</span>
+                </label>
+                <input asp-for="Name" class="wmsf-input" />
+                <span asp-validation-for="Name" class="wmsf-error"></span>
+            </div>
+        </div>
+    </section>
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Dimensions</p>
+                <h2>Internal and external (cm)</h2>
+                <p class="wmsf-pane-desc">Internal = usable interior. External = bounding box for dim-weight pricing.</p>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-4">
+            <div class="wmsf-field">
+                <label asp-for="InternalLengthCm" class="wmsf-field-label">Int. length</label>
+                <input asp-for="InternalLengthCm" class="wmsf-input" step="0.01" />
+                <span asp-validation-for="InternalLengthCm" class="wmsf-error"></span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="InternalWidthCm" class="wmsf-field-label">Int. width</label>
+                <input asp-for="InternalWidthCm" class="wmsf-input" step="0.01" />
+                <span asp-validation-for="InternalWidthCm" class="wmsf-error"></span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="InternalHeightCm" class="wmsf-field-label">Int. height</label>
+                <input asp-for="InternalHeightCm" class="wmsf-input" step="0.01" />
+                <span asp-validation-for="InternalHeightCm" class="wmsf-error"></span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="InternalVolumeCubicCm" class="wmsf-field-label">Int. volume (cm³)</label>
+                <input asp-for="InternalVolumeCubicCm" class="wmsf-input" step="0.01" />
+                <span asp-validation-for="InternalVolumeCubicCm" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="ExternalLengthCm" class="wmsf-field-label">Ext. length</label>
+                <input asp-for="ExternalLengthCm" class="wmsf-input" step="0.01" />
+                <span asp-validation-for="ExternalLengthCm" class="wmsf-error"></span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="ExternalWidthCm" class="wmsf-field-label">Ext. width</label>
+                <input asp-for="ExternalWidthCm" class="wmsf-input" step="0.01" />
+                <span asp-validation-for="ExternalWidthCm" class="wmsf-error"></span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="ExternalHeightCm" class="wmsf-field-label">Ext. height</label>
+                <input asp-for="ExternalHeightCm" class="wmsf-input" step="0.01" />
+                <span asp-validation-for="ExternalHeightCm" class="wmsf-error"></span>
+            </div>
+        </div>
+    </section>
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Weights and cost</p>
+                <h2>Carrier billing inputs</h2>
+                <p class="wmsf-pane-desc">Empty weight at 3-decimal precision — small parcels shift billing brackets.</p>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-3">
+            <div class="wmsf-field">
+                <label asp-for="EmptyWeightKg" class="wmsf-field-label">@Html.DisplayNameFor(m => m.EmptyWeightKg)</label>
+                <input asp-for="EmptyWeightKg" class="wmsf-input" step="0.001" />
+                <span asp-validation-for="EmptyWeightKg" class="wmsf-error"></span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="MaxLoadKg" class="wmsf-field-label">@Html.DisplayNameFor(m => m.MaxLoadKg)</label>
+                <input asp-for="MaxLoadKg" class="wmsf-input" step="0.01" />
+                <span asp-validation-for="MaxLoadKg" class="wmsf-error"></span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="UnitCost" class="wmsf-field-label">@Html.DisplayNameFor(m => m.UnitCost)</label>
+                <input asp-for="UnitCost" class="wmsf-input" step="0.01" />
+                <span asp-validation-for="UnitCost" class="wmsf-error"></span>
+            </div>
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Active</label>
+                <label class="wmsf-check-item">
+                    <input asp-for="IsActive" type="checkbox" />
+                    Available for packing
+                </label>
+            </div>
+        </div>
+    </section>
+
+    <div class="wmsf-actions">
+        <a asp-action="Index" class="wmsf-btn">
+            <i class="ti ti-x" aria-hidden="true"></i> Cancel
+        </a>
+        <span class="wmsf-actions-info"></span>
+        <button type="submit" class="wmsf-btn wmsf-btn-primary">
+            <i class="ti ti-check" aria-hidden="true"></i> Create box type
+        </button>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
