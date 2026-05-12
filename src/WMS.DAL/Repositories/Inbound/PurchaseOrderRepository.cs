@@ -77,18 +77,11 @@ internal sealed class PurchaseOrderRepository : IPurchaseOrderRepository
             foreach (var line in lines)
             {
                 await _connection.ExecuteAsync(new CommandDefinition(
-                    // Block 4.5.1 chunk c — LineNo column populated
-                    // inline as (LineNumber * 10) so the gap-10
-                    // invariant lands at INSERT time without a service-
-                    // layer hop. DisplayOrder defaults to 0; chunk d's
-                    // Edit-flow grid populates it via the Reorder
-                    // endpoint when the operator drags rows.
                     @"INSERT INTO inbound.PurchaseOrderLines
-                          (Id, PurchaseOrderId, LineNumber, LineNo, ProductId, UomId,
+                          (Id, PurchaseOrderId, LineNumber, ProductId, UomId,
                            ExpectedQuantity, ReceivedQuantity, Status, CreatedBy)
                       VALUES
-                          (@Id, @PurchaseOrderId, @LineNumber, (@LineNumber * 10),
-                           @ProductId, @UomId,
+                          (@Id, @PurchaseOrderId, @LineNumber, @ProductId, @UomId,
                            @ExpectedQuantity, @ReceivedQuantity, @Status, @UserId);",
                     new
                     {
@@ -301,18 +294,11 @@ WHERE Id = @Id;";
             foreach (var line in lines)
             {
                 await _connection.ExecuteAsync(new CommandDefinition(
-                    // Block 4.5.1 chunk c — LineNo column populated
-                    // inline as (LineNumber * 10) so the gap-10
-                    // invariant lands at INSERT time without a service-
-                    // layer hop. DisplayOrder defaults to 0; chunk d's
-                    // Edit-flow grid populates it via the Reorder
-                    // endpoint when the operator drags rows.
                     @"INSERT INTO inbound.PurchaseOrderLines
-                          (Id, PurchaseOrderId, LineNumber, LineNo, ProductId, UomId,
+                          (Id, PurchaseOrderId, LineNumber, ProductId, UomId,
                            ExpectedQuantity, ReceivedQuantity, Status, CreatedBy)
                       VALUES
-                          (@Id, @PurchaseOrderId, @LineNumber, (@LineNumber * 10),
-                           @ProductId, @UomId,
+                          (@Id, @PurchaseOrderId, @LineNumber, @ProductId, @UomId,
                            @ExpectedQuantity, @ReceivedQuantity, @Status, @UserId);",
                     new
                     {

@@ -8,23 +8,15 @@
     var hasS2Err = ViewData.ModelState.Keys.Any(k => k.StartsWith("Lines"));
     var initialStep = hasS1Err ? 1 : (hasS2Err ? 2 : 1);
 
-    // Block 4.5.2 chunk c — Lines section is now driven by the
-    // poLineGrid Alpine factory in /js/grids/po-line-grid.js. The
-    // factory composes with wmsfFormState via Object.assign and
-    // exposes lines[] + addLine/removeLine/duplicateRow/move* +
-    // SortableJS init + Tom Select per Product cell.
-    //
-    // Initial line shape carries the fields the grid renders +
-    // submits (LineNumber via hidden input; ProductId via Tom Select
-    // <select>; UomId + ExpectedQuantity via existing inputs). Lot /
-    // UnitPrice / DisplayOrder columns deferred to a later chunk
-    // that adds VM + entity wire-through.
+    // Bootstrap Alpine state with the existing lines + lookup options.
+    // Server-rendered Razor + Alpine combo: server writes the initial
+    // Lines array as a JSON-ish literal that Alpine wraps into its
+    // reactive proxy. Each line carries lineNumber/productId/uomId/
+    // expectedQuantity (DB columns).
     var initialLinesJson = System.Text.Json.JsonSerializer.Serialize(
         Model.Lines.Select(l => new {
             lineNumber       = l.LineNumber,
             productId        = l.ProductId == Guid.Empty ? "" : l.ProductId.ToString(),
-            productCode      = "",
-            productName      = "",
             uomId            = l.UomId == Guid.Empty ? "" : l.UomId.ToString(),
             expectedQuantity = l.ExpectedQuantity,
         }));
@@ -33,7 +25,6 @@
 <form asp-controller="PurchaseOrders" asp-action="Create" method="post"
       class="wmsf-page"
       autocomplete="off"
-      x-init="initGrid()"
       x-data="Object.assign(wmsfFormState({
           totalSteps: 3,
           initialStep: @initialStep,
@@ -43,10 +34,33 @@
               3: false
           },
           required: { 1: ['PoNumber', 'OwnerId', 'WarehouseId'], 2: [], 3: [] }
-      }), poLineGrid({
-          initialLines: @Html.Raw(initialLinesJson),
-          mode: 'create'
       }), {
+          lines: @initialLinesJson,
+          addLine() {
+              const nextNum = this.lines.length === 0
+                  ? 1
+                  : Math.max(...this.lines.map(l => l.lineNumber || 0)) + 1;
+              this.lines.push({
+                  lineNumber: nextNum, productId: '', uomId: '', expectedQuantity: 1,
+              });
+          },
+          removeLine(idx) {
+              if (this.lines.length <= 1) return;
+              this.lines.splice(idx, 1);
+          },
+          allLinesComplete() {
+              return this.lines.every(l =>
+                  l.lineNumber > 0 && l.productId && l.uomId && l.expectedQuantity > 0);
+          },
+          linesDotClass() {
+              if (this.serverErrors[2]) return 'is-error';
+              if (this.lines.length > 0 && this.allLinesComplete()) return 'is-complete';
+              if (this.lines.some(l => l.productId || l.uomId)) return 'is-progress';
+              return '';
+          },
+          totalQty() {
+              return this.lines.reduce((s, l) => s + (Number(l.expectedQuantity) || 0), 0);
+          },
           poNumberPreview() {
               return this.$root.querySelector('[name=PoNumber]')?.value || '—';
           },
@@ -200,116 +214,63 @@
         </div>
     </section>
 
-    @* === Section 2 — Lines (Block 4.5.2 grid factory) === *@
-    @* Drag handle for reorder · Product (Tom Select with code/name/   *@
-    @* brand/onHand multi-column) · UoM · Qty · ⋯ menu (Duplicate /    *@
-    @* Move top / Move bottom / Delete). Lot / Unit price / Total /    *@
-    @* Row status / multi-select checkbox columns deferred to chunks    *@
-    @* that add the matching VM + entity wire-through.                  *@
+    @* === Section 2 — Lines (editable Alpine grid) === *@
     <section class="wmsf-pane" x-show="step === 2" x-cloak role="tabpanel">
         <div class="wmsf-pane-head">
             <div>
                 <p class="wmsf-pane-eyebrow">— Section 02</p>
                 <h2>Lines</h2>
-                <p class="wmsf-pane-desc">Drag rows to reorder · search SKU by code / name / brand · ⋯ menu for per-row actions.</p>
+                <p class="wmsf-pane-desc">What's on order. Add a row per (Product, UoM, Quantity) line item.</p>
             </div>
             <span class="wmsf-required-badge"
                   :class="{ 'is-empty': lines.length > 0 && allLinesComplete() }"
                   x-text="lines.length === 0 ? '1+ line required' : (allLinesComplete() ? 'All set' : 'Some lines incomplete')"></span>
         </div>
 
-        <div class="wmsg-toolbar">
-            <div class="wmsg-toolbar-actions">
-                <button type="button" class="wmsf-btn wmsf-btn-primary" @@click="addLine()">
-                    <i class="ti ti-plus" aria-hidden="true"></i> Add line
-                </button>
-            </div>
-            <div class="wmsg-toolbar-stats">
-                <span x-text="lines.length"></span> line<span x-show="lines.length !== 1">s</span>
-                · total qty <strong x-text="totalQty().toFixed(2)"></strong>
-            </div>
-        </div>
-
         <div style="overflow-x: auto;">
-            <table class="wmsg-table" style="min-width: 600px;">
+            <table class="wms-table" style="width: 100%; min-width: 600px;">
                 <thead>
                     <tr>
-                        <th class="wmsg-cell-handle" aria-label="Reorder"></th>
+                        <th style="width: 50px;">#</th>
                         <th>Product</th>
-                        <th style="width: 90px;">UoM</th>
-                        <th class="wmsg-cell-num" style="width: 110px;">Qty</th>
-                        <th class="wmsg-cell-actions" aria-label="Actions"></th>
+                        <th>UoM</th>
+                        <th style="width: 140px;">Expected qty</th>
+                        <th style="width: 80px;"></th>
                     </tr>
                 </thead>
-                <tbody x-ref="linesTbody">
-                    @* :key=line.key — stable identity through reorders + Tom Select instance map. *@
-                    <template x-for="(line, idx) in lines" :key="line.key">
-                        <tr class="wmsg-row" :data-row-key="line.key">
-                            @* Drag handle (column 1) *@
-                            <td class="wmsg-cell-handle">
-                                <span class="wmsg-handle" :class="{ 'is-disabled': readOnly }" title="Drag to reorder" aria-label="Drag to reorder">
-                                    <i class="ti ti-grip-vertical" aria-hidden="true"></i>
-                                </span>
-                            </td>
-
-                            @* Product (column 2) — Tom Select, multi-column dropdown *@
+                <tbody>
+                    <template x-for="(line, idx) in lines" :key="idx">
+                        <tr>
                             <td>
-                                @* Hidden LineNumber preserves form binding (decision #8 — operator never sees this). *@
-                                <input type="hidden" :name="`Lines[${idx}].LineNumber`" :value="line.lineNumber" />
-                                @* Tom Select attaches to the <select>; its name attribute drives the form value. *@
-                                <select class="wmsg-product-input"
-                                        :name="`Lines[${idx}].ProductId`"
-                                        x-init="initProductCell($el, line.key)"
-                                        required>
+                                <input type="number" :name="`Lines[${idx}].LineNumber`" x-model.number="line.lineNumber"
+                                       class="wmsf-input" style="width: 60px;" />
+                            </td>
+                            <td>
+                                <select :name="`Lines[${idx}].ProductId`" x-model="line.productId" class="wmsf-select">
+                                    <option value="">— Select —</option>
+                                    @foreach (var p in Model.Products)
+                                    {
+                                        <option value="@p.Id">@p.Code · @p.Name</option>
+                                    }
                                 </select>
                             </td>
-
-                            @* UoM (column 3) — manual select; auto-derive from Product is a future TD. *@
                             <td>
-                                <select :name="`Lines[${idx}].UomId`" x-model="line.uomId" class="wmsf-select" required>
-                                    <option value="">—</option>
+                                <select :name="`Lines[${idx}].UomId`" x-model="line.uomId" class="wmsf-select">
+                                    <option value="">— Select —</option>
                                     @foreach (var u in Model.Uoms)
                                     {
                                         <option value="@u.Id">@u.Code</option>
                                     }
                                 </select>
                             </td>
-
-                            @* Qty (column 4) — right-aligned mono *@
-                            <td class="wmsg-cell-num">
-                                <input type="number" step="0.0001" min="0.0001"
-                                       :name="`Lines[${idx}].ExpectedQuantity`"
-                                       x-model.number="line.expectedQuantity"
-                                       class="wmsf-input"
-                                       style="width: 100%; text-align: right;" required />
+                            <td>
+                                <input type="number" step="0.0001" :name="`Lines[${idx}].ExpectedQuantity`"
+                                       x-model.number="line.expectedQuantity" class="wmsf-input" />
                             </td>
-
-                            @* Actions (column 5) — ⋯ menu *@
-                            <td class="wmsg-cell-actions">
-                                <div class="wmsg-actions">
-                                    <button type="button"
-                                            class="wmsg-actions-trigger"
-                                            @@click.stop="toggleMenu(line.key)"
-                                            :aria-expanded="openMenuKey === line.key"
-                                            aria-label="Row actions">
-                                        <i class="ti ti-dots" aria-hidden="true"></i>
-                                    </button>
-                                    <div class="wmsg-actions-menu" x-show="openMenuKey === line.key" x-cloak>
-                                        <button type="button" class="wmsg-actions-item" @@click="duplicateRow(line.key)">
-                                            <i class="ti ti-copy" aria-hidden="true"></i> Duplicate this row
-                                        </button>
-                                        <button type="button" class="wmsg-actions-item" @@click="moveTop(line.key)" :disabled="idx === 0">
-                                            <i class="ti ti-arrow-bar-to-up" aria-hidden="true"></i> Move to top
-                                        </button>
-                                        <button type="button" class="wmsg-actions-item" @@click="moveBottom(line.key)" :disabled="idx === lines.length - 1">
-                                            <i class="ti ti-arrow-bar-to-down" aria-hidden="true"></i> Move to bottom
-                                        </button>
-                                        <div class="wmsg-actions-divider"></div>
-                                        <button type="button" class="wmsg-actions-item is-danger" @@click="removeLine(line.key)" :disabled="lines.length <= 1">
-                                            <i class="ti ti-trash" aria-hidden="true"></i> Delete row
-                                        </button>
-                                    </div>
-                                </div>
+                            <td>
+                                <button type="button" class="wmsf-btn" @@click="removeLine(idx)" :disabled="lines.length <= 1" title="Remove line">
+                                    <i class="ti ti-trash" aria-hidden="true"></i>
+                                </button>
                             </td>
                         </tr>
                     </template>
@@ -317,9 +278,11 @@
             </table>
         </div>
 
-        <button type="button" class="wmsg-add-row" @@click="addLine()">
-            <i class="ti ti-plus" aria-hidden="true"></i> Add another line
-        </button>
+        <div style="margin-top: 12px;">
+            <button type="button" class="wmsf-btn" @@click="addLine()">
+                <i class="ti ti-plus" aria-hidden="true"></i> Add line
+            </button>
+        </div>
     </section>
 
     @* === Section 3 — Review === *@
@@ -368,13 +331,4 @@
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
     <script src="~/js/wmsf-form-state.js" asp-append-version="true"></script>
-
-    @* Block 4.5.2 grid libs + factories — loaded per-view (~110 KB
-       combined; not worth adding to every authenticated page). Tom
-       Select CSS via <link>; browsers parse <link> in body fine. *@
-    <link rel="stylesheet" href="~/lib/tom-select/dist/css/tom-select.bootstrap5.min.css" />
-    <script src="~/lib/sortablejs/dist/Sortable.min.js" asp-append-version="true"></script>
-    <script src="~/lib/tom-select/dist/js/tom-select.complete.min.js" asp-append-version="true"></script>
-    <script src="~/js/grids/grid-common.js" asp-append-version="true"></script>
-    <script src="~/js/grids/po-line-grid.js" asp-append-version="true"></script>
 }
