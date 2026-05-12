@@ -1,0 +1,151 @@
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Categories";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Categories</p>
+        <div class="wms-breadcrumb">
+            <span>Master Data</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Categories</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <a asp-action="Create" class="wms-btn wms-btn-purple">
+            <i class="ti ti-plus" style="font-size: 14px;" aria-hidden="true"></i>
+            New category
+        </a>
+    </div>
+</div>
+
+<div class="wms-card" style="padding: 0;" x-data="categoryList()" x-init="load()">
+    <div class="wms-filter-bar">
+        <div class="wms-filter-search">
+            <i class="ti ti-search wms-filter-search-icon" aria-hidden="true"></i>
+            <input type="text" class="wms-input" placeholder="Search code, name, or path..."
+                   x-model="search" @@input.debounce.300ms="page=1; load()" />
+        </div>
+        <div class="wmsp-chips" style="display: flex; gap: 8px; padding: 0 16px;">
+            <template x-for="s in statuses" :key="s.value">
+                <button type="button" class="wmsp-chip"
+                        :class="{ 'is-active': status === s.value }"
+                        @@click="status = s.value; page = 1; load()">
+                    <span x-text="s.label"></span>
+                    <span class="wmsp-chip-count" x-text="counts[s.countKey] ?? 0"></span>
+                </button>
+            </template>
+            <button type="button" class="wmsp-chip"
+                    :class="{ 'is-active': rootsOnly }"
+                    @@click="rootsOnly = !rootsOnly; page = 1; load()">
+                <span>Roots only</span>
+                <span class="wmsp-chip-count" x-text="counts.roots ?? 0"></span>
+            </button>
+        </div>
+    </div>
+
+    <div x-show="loading" class="wms-list-loading">
+        <div class="wms-list-loading-spinner"></div> Loading categories...
+    </div>
+
+    <div x-show="!loading && items.length === 0" class="wms-empty-state">
+        <div class="wms-empty-state-icon"><i class="ti ti-category" aria-hidden="true"></i></div>
+        <p class="wms-empty-state-title">No categories found</p>
+        <p class="wms-empty-state-desc">Adjust your filters or create one to get started.</p>
+        <a asp-action="Create" class="wms-btn wms-btn-purple">
+            <i class="ti ti-plus" style="font-size: 14px;"></i> New category
+        </a>
+    </div>
+
+    <div x-show="!loading && items.length > 0" style="overflow-x: auto;">
+        <table class="wms-table">
+            <thead>
+                <tr>
+                    <th @@click="sort('code')" style="cursor: pointer;">Code</th>
+                    <th @@click="sort('name')" style="cursor: pointer;">Name</th>
+                    <th @@click="sort('path')" style="cursor: pointer;">Path</th>
+                    <th>Parent</th>
+                    <th class="numeric" @@click="sort('displayorder')" style="cursor: pointer;">Order</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="c in items" :key="c.id">
+                    <tr @@click="goEdit(c.code)" style="cursor: pointer;">
+                        <td class="code" x-text="c.code"></td>
+                        <td x-text="c.name"></td>
+                        <td style="font-family: var(--wms-font-mono); color: var(--wms-text-secondary); font-size: 12px;"
+                            x-text="c.path ?? '—'"></td>
+                        <td style="color: var(--wms-text-secondary);" x-text="c.parentName ?? '(root)'"></td>
+                        <td class="numeric" x-text="c.displayOrder ?? '—'"></td>
+                        <td>
+                            <span class="wms-badge" :class="badgeClass(c.status)">
+                                <span class="wms-badge-dot"></span>
+                                <span x-text="c.status === 'active' ? 'Active' : 'Inactive'"></span>
+                            </span>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="wms-pagination" x-show="!loading && total > 0">
+        <div class="wms-pagination-info">
+            <span x-text="`Showing ${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, total)} of ${total} categories`"></span>
+        </div>
+        <div class="wms-pagination-nav">
+            <button type="button" class="wms-pagination-btn" :disabled="page === 1" @@click="page--; load()">
+                <i class="ti ti-chevron-left" style="font-size: 12px;"></i>
+            </button>
+            <span x-text="`Page ${page} / ${totalPages}`" style="padding: 0 8px;"></span>
+            <button type="button" class="wms-pagination-btn" :disabled="page === totalPages" @@click="page++; load()">
+                <i class="ti ti-chevron-right" style="font-size: 12px;"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function categoryList() {
+            return {
+                items: [], total: 0, totalPages: 0, counts: {},
+                page: 1, pageSize: 20, search: '', status: 'all', rootsOnly: false,
+                sortBy: 'path', sortDesc: false, loading: false,
+                statuses: [
+                    { value: 'all', label: 'All', countKey: 'all' },
+                    { value: 'active', label: 'Active', countKey: 'active' },
+                    { value: 'inactive', label: 'Inactive', countKey: 'inactive' },
+                ],
+                async load() {
+                    this.loading = true;
+                    try {
+                        const p = new URLSearchParams({
+                            page: this.page, pageSize: this.pageSize,
+                            search: this.search, status: this.status,
+                            rootsOnly: this.rootsOnly,
+                            sortBy: this.sortBy, sortDesc: this.sortDesc,
+                        });
+                        const r = await fetch(`/Categories/Data?${p}`);
+                        const d = await r.json();
+                        this.items = d.items;
+                        this.total = d.total;
+                        this.totalPages = d.totalPages;
+                        this.counts = d.counts;
+                    } finally { this.loading = false; }
+                },
+                sort(col) {
+                    if (this.sortBy === col) this.sortDesc = !this.sortDesc;
+                    else { this.sortBy = col; this.sortDesc = false; }
+                    this.load();
+                },
+                goEdit(code) { window.location.href = `/Categories/Edit/${encodeURIComponent(code)}`; },
+                badgeClass(s) {
+                    return s === 'active' ? 'wms-badge-success' : 'wms-badge-neutral';
+                },
+            };
+        }
+    </script>
+}
