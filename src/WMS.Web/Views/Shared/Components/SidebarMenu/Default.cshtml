@@ -268,7 +268,7 @@
             var masterExpanded = IsActive("MASTER")
                 || IsActive("Warehouses") || IsActive("Products") || IsActive("Customers")
                 || IsActive("BoxTypes") || IsActive("Uoms") || IsActive("Carriers")
-                || IsActive("Categories") || IsActive("Zones");
+                || IsActive("Categories") || IsActive("Zones") || IsActive("Locations");
             <a href="@Url.Action("Index", "Warehouses")"
                class="wms-sidebar-item @(masterExpanded ? "expanded" : "")"
                title="@module.DisplayName">
@@ -308,6 +308,10 @@
                 <a href="@Url.Action("Index", "Zones")"
                    class="wms-sidebar-item @(IsActive("Zones") ? "active" : "")">
                     <span class="wms-sidebar-item-text">Zones</span>
+                </a>
+                <a href="@Url.Action("Index", "Locations")"
+                   class="wms-sidebar-item @(IsActive("Locations") ? "active" : "")">
+                    <span class="wms-sidebar-item-text">Locations</span>
                 </a>
             </div>
         }

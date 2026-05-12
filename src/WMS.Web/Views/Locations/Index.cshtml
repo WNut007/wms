@@ -1,0 +1,203 @@
+@{
+    Layout = "_OfficeLayout";
+    ViewData["Title"] = "Locations";
+}
+
+<div class="wms-page-header">
+    <div>
+        <p class="wms-page-title">Locations</p>
+        <div class="wms-breadcrumb">
+            <span>Master Data</span>
+            <span class="wms-breadcrumb-sep">/</span>
+            <span class="wms-breadcrumb-current">Locations</span>
+        </div>
+    </div>
+    <div class="wms-page-actions">
+        <a asp-action="Create" class="wms-btn wms-btn-purple">
+            <i class="ti ti-plus" style="font-size: 14px;" aria-hidden="true"></i>
+            New location
+        </a>
+    </div>
+</div>
+
+<div class="wms-card" style="padding: 0;" x-data="locationList()" x-init="init()">
+    <div class="wms-filter-bar">
+        <div class="wms-filter-search">
+            <i class="ti ti-search wms-filter-search-icon" aria-hidden="true"></i>
+            <input type="text" class="wms-input" placeholder="Search code, description, warehouse, or zone..."
+                   x-model="search" @@input.debounce.300ms="page=1; load()" />
+        </div>
+        <select class="wms-input" style="max-width: 200px;"
+                x-model="warehouseId" @@change="onWarehouseChange()">
+            <option value="">All warehouses</option>
+            <template x-for="w in warehouses" :key="w.id">
+                <option :value="w.id" x-text="`${w.code} — ${w.name}`"></option>
+            </template>
+        </select>
+        <select class="wms-input" style="max-width: 180px;"
+                x-model="zoneId" @@change="page=1; load()"
+                :disabled="!warehouseId">
+            <option value="">All zones</option>
+            <template x-for="z in zones" :key="z.id">
+                <option :value="z.id" x-text="`${z.code} — ${z.name}`"></option>
+            </template>
+        </select>
+        <div class="wmsp-chips" style="display: flex; gap: 8px; padding: 0 16px;">
+            <template x-for="s in statuses" :key="s.value">
+                <button type="button" class="wmsp-chip"
+                        :class="{ 'is-active': status === s.value }"
+                        @@click="status = s.value; page = 1; load()">
+                    <span x-text="s.label"></span>
+                    <span class="wmsp-chip-count" x-text="counts[s.countKey] ?? 0"></span>
+                </button>
+            </template>
+        </div>
+    </div>
+
+    <div x-show="loading" class="wms-list-loading">
+        <div class="wms-list-loading-spinner"></div> Loading locations...
+    </div>
+
+    <div x-show="!loading && items.length === 0" class="wms-empty-state">
+        <div class="wms-empty-state-icon"><i class="ti ti-map-pin" aria-hidden="true"></i></div>
+        <p class="wms-empty-state-title">No locations found</p>
+        <p class="wms-empty-state-desc">Adjust your filters or create one to get started.</p>
+        <a asp-action="Create" class="wms-btn wms-btn-purple">
+            <i class="ti ti-plus" style="font-size: 14px;"></i> New location
+        </a>
+    </div>
+
+    <div x-show="!loading && items.length > 0" style="overflow-x: auto;">
+        <table class="wms-table">
+            <thead>
+                <tr>
+                    <th @@click="sort('warehouse')" style="cursor: pointer;">Warehouse</th>
+                    <th @@click="sort('zone')" style="cursor: pointer;">Zone</th>
+                    <th @@click="sort('code')" style="cursor: pointer;">Code</th>
+                    <th>Description</th>
+                    <th class="numeric" @@click="sort('binrank')" style="cursor: pointer;">Rank</th>
+                    <th>Capacity</th>
+                    <th>Pickface?</th>
+                    <th class="numeric">Stock rows</th>
+                    <th @@click="sort('status')" style="cursor: pointer;">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="l in items" :key="l.id">
+                    <tr @@click="goEdit(l.id)" style="cursor: pointer;">
+                        <td class="code" x-text="l.warehouseCode"></td>
+                        <td>
+                            <span class="code" x-text="l.zoneCode"></span>
+                            <span style="color: var(--wms-text-secondary); font-size: 11px; margin-left: 4px;"
+                                  x-text="l.zoneType"></span>
+                        </td>
+                        <td class="code" x-text="l.code"></td>
+                        <td style="color: var(--wms-text-secondary);" x-text="l.description ?? '—'"></td>
+                        <td class="numeric" x-text="l.binRank"></td>
+                        <td>
+                            <span class="wms-badge wms-badge-neutral" x-text="l.capacityPolicy"></span>
+                        </td>
+                        <td>
+                            <template x-if="l.isPickface">
+                                <span class="wms-badge wms-badge-success">
+                                    <i class="ti ti-arrow-right" style="font-size: 11px;"></i>
+                                </span>
+                            </template>
+                            <template x-if="!l.isPickface">
+                                <span style="color: var(--wms-text-tertiary);">—</span>
+                            </template>
+                        </td>
+                        <td class="numeric" x-text="l.stockRows"></td>
+                        <td>
+                            <span class="wms-badge" :class="`wms-badge-${l.statusVariant}`">
+                                <span class="wms-badge-dot"></span>
+                                <span x-text="l.status"></span>
+                            </span>
+                            <template x-if="!l.isActive">
+                                <span class="wms-badge wms-badge-neutral" style="margin-left: 4px;">archived</span>
+                            </template>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="wms-pagination" x-show="!loading && total > 0">
+        <div class="wms-pagination-info">
+            <span x-text="`Showing ${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, total)} of ${total} locations`"></span>
+        </div>
+        <div class="wms-pagination-nav">
+            <button type="button" class="wms-pagination-btn" :disabled="page === 1" @@click="page--; load()">
+                <i class="ti ti-chevron-left" style="font-size: 12px;"></i>
+            </button>
+            <span x-text="`Page ${page} / ${totalPages}`" style="padding: 0 8px;"></span>
+            <button type="button" class="wms-pagination-btn" :disabled="page === totalPages" @@click="page++; load()">
+                <i class="ti ti-chevron-right" style="font-size: 12px;"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function locationList() {
+            return {
+                items: [], total: 0, totalPages: 0, counts: {},
+                warehouses: [], zones: [],
+                page: 1, pageSize: 20, search: '', status: 'all',
+                warehouseId: '', zoneId: '',
+                sortBy: 'warehouse', sortDesc: false, loading: false,
+                statuses: [
+                    { value: 'all',         label: 'All',          countKey: 'all' },
+                    { value: 'Active',      label: 'Active',       countKey: 'statusActive' },
+                    { value: 'Blocked',     label: 'Blocked',      countKey: 'statusBlocked' },
+                    { value: 'Maintenance', label: 'Maintenance',  countKey: 'statusMaintenance' },
+                ],
+                async init() {
+                    try {
+                        const r = await fetch('/Locations/Warehouses');
+                        this.warehouses = await r.json();
+                    } catch { /* ignore */ }
+                    await this.load();
+                },
+                async onWarehouseChange() {
+                    this.zoneId = '';
+                    this.zones = [];
+                    if (this.warehouseId) {
+                        try {
+                            const r = await fetch(`/Locations/ZonesForWarehouse/${this.warehouseId}`);
+                            this.zones = await r.json();
+                        } catch { /* ignore */ }
+                    }
+                    this.page = 1;
+                    await this.load();
+                },
+                async load() {
+                    this.loading = true;
+                    try {
+                        const p = new URLSearchParams({
+                            page: this.page, pageSize: this.pageSize,
+                            search: this.search, status: this.status,
+                            sortBy: this.sortBy, sortDesc: this.sortDesc,
+                        });
+                        if (this.warehouseId) p.set('warehouseId', this.warehouseId);
+                        if (this.zoneId) p.set('zoneId', this.zoneId);
+                        const r = await fetch(`/Locations/Data?${p}`);
+                        const d = await r.json();
+                        this.items = d.items;
+                        this.total = d.total;
+                        this.totalPages = d.totalPages;
+                        this.counts = d.counts;
+                    } finally { this.loading = false; }
+                },
+                sort(col) {
+                    if (this.sortBy === col) this.sortDesc = !this.sortDesc;
+                    else { this.sortBy = col; this.sortDesc = false; }
+                    this.load();
+                },
+                goEdit(id) { window.location.href = `/Locations/Edit/${id}`; },
+            };
+        }
+    </script>
+}

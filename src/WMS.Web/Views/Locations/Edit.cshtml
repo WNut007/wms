@@ -1,0 +1,260 @@
+@model WMS.Web.Models.Master.LocationEditViewModel
+@{
+    ViewData["Title"] = $"Edit {Model.Code}";
+    var zones = (ViewBag.Zones as IReadOnlyList<WMS.DAL.Common.LookupItem>)
+        ?? Array.Empty<WMS.DAL.Common.LookupItem>();
+    var statusVariant = Model.Status switch
+    {
+        "Active"      => "s-success",
+        "Blocked"     => "s-danger",
+        "Maintenance" => "s-warning",
+        _             => "s-neutral",
+    };
+}
+
+<form asp-action="Edit" asp-route-id="@Model.Id" method="post"
+      class="wmsf-page" autocomplete="off">
+    <input type="hidden" asp-for="Id" />
+    <input type="hidden" asp-for="WarehouseId" />
+    <input type="hidden" asp-for="WarehouseCode" />
+    <input type="hidden" asp-for="WarehouseName" />
+    <input type="hidden" asp-for="Code" />
+
+    <nav class="wmsf-breadcrumb" aria-label="Breadcrumb">
+        <a asp-controller="Home" asp-action="Index">Master Data</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <a asp-action="Index">Locations</a>
+        <i class="ti ti-chevron-right sep" aria-hidden="true"></i>
+        <span class="current">@Model.WarehouseCode / @Model.Code</span>
+    </nav>
+
+    <header class="wmsf-header">
+        <div class="wmsf-header-title">
+            <div class="wmsf-header-icon" aria-hidden="true"><i class="ti ti-map-pin"></i></div>
+            <div class="wmsf-header-text">
+                <h1>@(Model.Description ?? Model.Code)</h1>
+                <p style="font-family: var(--wms-font-mono);">@Model.WarehouseCode / @Model.Code</p>
+            </div>
+        </div>
+        <div class="wmsf-header-status">
+            <span class="wmsf-status-badge @statusVariant">@Model.Status</span>
+            @if (!Model.IsActive)
+            {
+                <span class="wmsf-status-badge s-neutral" style="margin-left: 6px;">Archived</span>
+            }
+        </div>
+    </header>
+
+    @if (ViewData.ModelState[""]?.Errors.Count > 0)
+    {
+        <div class="wmsf-form-error" role="alert">
+            @foreach (var err in ViewData.ModelState[""]!.Errors)
+            {
+                <div>@err.ErrorMessage</div>
+            }
+        </div>
+    }
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Identity</p>
+                <h2>Warehouse, zone, code</h2>
+                <p class="wmsf-pane-desc">Warehouse + Code are permanent. Zone can be reassigned within this warehouse.</p>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-2">
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Warehouse</label>
+                <input class="wmsf-input" value="@Model.WarehouseCode — @Model.WarehouseName" readonly disabled />
+                <span class="wmsf-helper">Warehouse cannot be changed.</span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="ZoneId" class="wmsf-field-label">Zone <span class="req">*</span></label>
+                <select asp-for="ZoneId" class="wmsf-input">
+                    @foreach (var z in zones)
+                    {
+                        <option value="@z.Id" selected="@(z.Id == Model.ZoneId)">@z.Code — @z.Name</option>
+                    }
+                </select>
+                <span asp-validation-for="ZoneId" class="wmsf-error"></span>
+                <span class="wmsf-helper">Only zones in @Model.WarehouseCode are shown.</span>
+            </div>
+
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Code</label>
+                <input class="wmsf-input" value="@Model.Code" readonly disabled />
+                <span class="wmsf-helper">Code cannot be changed.</span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="Description" class="wmsf-field-label">@Html.DisplayNameFor(m => m.Description)</label>
+                <input asp-for="Description" class="wmsf-input" />
+                <span asp-validation-for="Description" class="wmsf-error"></span>
+            </div>
+        </div>
+    </section>
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Capacity & Pick</p>
+                <h2>Dimensions, capacity policy, pick thresholds</h2>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-3">
+            <div class="wmsf-field">
+                <label asp-for="LengthCm" class="wmsf-field-label">Length (cm)</label>
+                <input asp-for="LengthCm" class="wmsf-input" step="0.01" />
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="WidthCm" class="wmsf-field-label">Width (cm)</label>
+                <input asp-for="WidthCm" class="wmsf-input" step="0.01" />
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="HeightCm" class="wmsf-field-label">Height (cm)</label>
+                <input asp-for="HeightCm" class="wmsf-input" step="0.01" />
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="CapacityVolumeCubicCm" class="wmsf-field-label">Cap. volume (cm³)</label>
+                <input asp-for="CapacityVolumeCubicCm" class="wmsf-input" step="0.01" />
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="CapacityWeightKg" class="wmsf-field-label">Cap. weight (kg)</label>
+                <input asp-for="CapacityWeightKg" class="wmsf-input" step="0.01" />
+            </div>
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Capacity policy <span class="req">*</span></label>
+                <select asp-for="CapacityPolicy" class="wmsf-input">
+                    @foreach (var p in WMS.Web.Models.Master.LocationEditViewModel.AllCapacityPolicies)
+                    {
+                        <option value="@p" selected="@(p == Model.CapacityPolicy)">@p</option>
+                    }
+                </select>
+                <span asp-validation-for="CapacityPolicy" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="BinRank" class="wmsf-field-label">@Html.DisplayNameFor(m => m.BinRank)</label>
+                <input asp-for="BinRank" class="wmsf-input" type="number" min="0" max="9999" />
+                <span asp-validation-for="BinRank" class="wmsf-error"></span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="MinPickQty" class="wmsf-field-label">Min pick qty</label>
+                <input asp-for="MinPickQty" class="wmsf-input" step="0.0001" />
+                <span asp-validation-for="MinPickQty" class="wmsf-error"></span>
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="MaxPickQty" class="wmsf-field-label">Max pick qty</label>
+                <input asp-for="MaxPickQty" class="wmsf-input" step="0.0001" />
+                <span asp-validation-for="MaxPickQty" class="wmsf-error"></span>
+            </div>
+
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Multi-item</label>
+                <label class="wmsf-check-item">
+                    <input asp-for="AllowMultipleItems" type="checkbox" />
+                    Allow multiple SKUs
+                </label>
+            </div>
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Pick face</label>
+                <label class="wmsf-check-item">
+                    <input asp-for="IsPickface" type="checkbox" />
+                    Dedicated to picking
+                </label>
+            </div>
+        </div>
+    </section>
+
+    <section class="wmsf-pane">
+        <div class="wmsf-pane-head">
+            <div>
+                <p class="wmsf-pane-eyebrow">— Position & Status</p>
+                <h2>3D coords, grouping, operational state</h2>
+                <p class="wmsf-pane-desc">Status is the operational state. Uncheck Active to archive — distinct from Blocked/Maintenance.</p>
+            </div>
+        </div>
+
+        <div class="wmsf-grid wmsf-grid-4">
+            <div class="wmsf-field">
+                <label asp-for="PositionX" class="wmsf-field-label">X</label>
+                <input asp-for="PositionX" class="wmsf-input" step="0.001" />
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="PositionY" class="wmsf-field-label">Y</label>
+                <input asp-for="PositionY" class="wmsf-input" step="0.001" />
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="PositionZ" class="wmsf-field-label">Z</label>
+                <input asp-for="PositionZ" class="wmsf-input" step="0.001" />
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="Rotation" class="wmsf-field-label">Rotation</label>
+                <input asp-for="Rotation" class="wmsf-input" step="0.01" />
+            </div>
+
+            <div class="wmsf-field">
+                <label asp-for="Aisle" class="wmsf-field-label">@Html.DisplayNameFor(m => m.Aisle)</label>
+                <input asp-for="Aisle" class="wmsf-input" />
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="Bay" class="wmsf-field-label">@Html.DisplayNameFor(m => m.Bay)</label>
+                <input asp-for="Bay" class="wmsf-input" type="number" />
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="Level" class="wmsf-field-label">@Html.DisplayNameFor(m => m.Level)</label>
+                <input asp-for="Level" class="wmsf-input" type="number" />
+            </div>
+            <div class="wmsf-field">
+                <label asp-for="DisplayColor" class="wmsf-field-label">@Html.DisplayNameFor(m => m.DisplayColor)</label>
+                <input asp-for="DisplayColor" class="wmsf-input" />
+            </div>
+
+            <div class="wmsf-field col-span-2">
+                <label class="wmsf-field-label">Status <span class="req">*</span></label>
+                <div class="wmsf-radio-group">
+                    @foreach (var s in WMS.Web.Models.Master.LocationEditViewModel.AllStatuses)
+                    {
+                        <label class="wmsf-radio-item">
+                            <input asp-for="Status" type="radio" value="@s" />
+                            @s
+                        </label>
+                    }
+                </div>
+                <span asp-validation-for="Status" class="wmsf-error"></span>
+            </div>
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Show in 3D</label>
+                <label class="wmsf-check-item">
+                    <input asp-for="Show3D" type="checkbox" />
+                    Include in 3D viz
+                </label>
+            </div>
+            <div class="wmsf-field">
+                <label class="wmsf-field-label">Active</label>
+                <label class="wmsf-check-item">
+                    <input asp-for="IsActive" type="checkbox" />
+                    Available for routing
+                </label>
+                <span class="wmsf-helper">Uncheck to archive.</span>
+            </div>
+        </div>
+    </section>
+
+    <div class="wmsf-actions">
+        <a asp-action="Index" class="wmsf-btn">
+            <i class="ti ti-arrow-left" aria-hidden="true"></i> Back to list
+        </a>
+        <span class="wmsf-actions-info"></span>
+        <button type="submit" class="wmsf-btn wmsf-btn-primary">
+            <i class="ti ti-check" aria-hidden="true"></i> Save changes
+        </button>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
