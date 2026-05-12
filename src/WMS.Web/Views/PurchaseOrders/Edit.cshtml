@@ -21,14 +21,25 @@
         }));
 }
 
+@* Config hoist — JSON in <script> body, never inline @Html.Raw(json)
+   inside x-data="..." (the first `"` in the JSON closes the HTML
+   attribute, Alpine gets a truncated expression, lines[] stays
+   undefined → grid renders empty + operator can't edit anything).
+   Same root cause as hotfix 745900a (PO/GR Create); Edit was missed
+   then because only Create was operator-smoked. See memory
+   feedback_json_in_attribute_script_hoist.md. *@
+<script>
+    window.__poEditConfig = {
+        linesLocked: @(Model.LinesLocked ? "true" : "false"),
+        initialLines: @Html.Raw(initialLinesJson)
+    };
+</script>
+
 <form asp-controller="PurchaseOrders" asp-action="Edit" asp-route-id="@Model.Id"
       method="post"
       class="wmsf-page"
       autocomplete="off"
-      x-data="poEditForm({
-          linesLocked: @(Model.LinesLocked ? "true" : "false"),
-          initialLines: @Html.Raw(initialLinesJson)
-      })">
+      x-data="poEditForm(window.__poEditConfig)">
     <input type="hidden" asp-for="Id" />
     <input type="hidden" asp-for="LinesLocked" />
 
