@@ -35,7 +35,7 @@
           },
           required: { 1: ['PoNumber', 'OwnerId', 'WarehouseId'], 2: [], 3: [] }
       }), {
-          lines: @Html.Raw(initialLinesJson),
+          lines: @initialLinesJson,
           addLine() {
               const nextNum = this.lines.length === 0
                   ? 1

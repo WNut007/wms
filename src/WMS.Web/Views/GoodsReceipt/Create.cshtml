@@ -40,8 +40,8 @@
           },
           required: { 1: ['ReceivingNumber', 'WarehouseId'], 2: [], 3: [], 4: [] }
       }), {
-          lines: @Html.Raw(initialLinesJson),
-          poId: @Html.Raw(initialPoJson),
+          lines: @initialLinesJson,
+          poId: @initialPoJson,
           vendorDisplay: '',
           loadingPoLines: false,
           init() {
