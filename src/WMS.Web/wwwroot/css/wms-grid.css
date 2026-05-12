@@ -1,0 +1,407 @@
+/* ==================================================================
+   wms-grid.css — Block 4.5.2 PO Lines Grid styling
+
+   Token namespace: --wmsg-* (per the design-token-namespacing pattern
+   established in Phase 8 — distinct from --wmsf- (forms), --wmsd-
+   (detail), --wmsp- (picker), --wms- (legacy core)).
+
+   Loaded after wms-picker.css in _OfficeLayout. Component classes
+   prefixed .wmsg- so they don't collide with anything.
+
+   Used by po-line-grid.js (Block 4.5.2). Future GR / SO / Transfer
+   line grids and Block 5 ship-to picker reuse the same primitives.
+   ================================================================== */
+
+:root {
+    /* Layout */
+    --wmsg-row-min-height: 40px;
+    --wmsg-cell-pad-y: 6px;
+    --wmsg-cell-pad-x: 8px;
+    --wmsg-cell-border: #E8E6E0;
+
+    /* Typography (reuse legacy mono token) */
+    --wmsg-mono: var(--wms-font-mono, 'JetBrains Mono', monospace);
+
+    /* Drag handle */
+    --wmsg-handle-color: #B5B0A4;
+    --wmsg-handle-hover-bg: #F1EFE8;
+
+    /* Row state */
+    --wmsg-row-hover-bg: #FAFAF8;
+    --wmsg-row-selected-bg: #EEEDFE;     /* purple-50 — chunk 4.5.4 */
+
+    /* Per-row actions menu */
+    --wmsg-menu-bg: #FFFFFF;
+    --wmsg-menu-border: #E0DDD4;
+    --wmsg-menu-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    --wmsg-menu-item-hover-bg: #F5F3EE;
+    --wmsg-menu-item-danger: #A32D2D;
+
+    /* Tom Select option (multi-column dropdown row) */
+    --wmsg-option-pad-y: 8px;
+    --wmsg-option-pad-x: 12px;
+    --wmsg-option-active-bg: #EEEDFE;
+    --wmsg-option-code-color: #534AB7;
+    --wmsg-option-name-color: #444441;
+    --wmsg-option-brand-color: #8C8980;
+    --wmsg-option-stock-color: #444441;
+    --wmsg-option-stock-zero-color: #B5B0A4;
+}
+
+/* ----------------------------------------------------------------
+   Grid table
+   ---------------------------------------------------------------- */
+.wmsg-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.wmsg-table th {
+    text-align: left;
+    font-weight: 500;
+    color: #6B6960;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 8px var(--wmsg-cell-pad-x);
+    border-bottom: 1px solid var(--wmsg-cell-border);
+    background: #FAFAF8;
+}
+
+.wmsg-table td {
+    padding: var(--wmsg-cell-pad-y) var(--wmsg-cell-pad-x);
+    border-bottom: 1px solid var(--wmsg-cell-border);
+    vertical-align: middle;
+}
+
+.wmsg-row {
+    min-height: var(--wmsg-row-min-height);
+    transition: background-color 120ms ease;
+}
+
+.wmsg-row:hover {
+    background-color: var(--wmsg-row-hover-bg);
+}
+
+.wmsg-row.is-selected {
+    background-color: var(--wmsg-row-selected-bg);
+}
+
+/* Right-align numeric cells */
+.wmsg-cell-num {
+    text-align: right;
+    font-family: var(--wmsg-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+.wmsg-cell-total {
+    font-weight: 500;
+}
+
+/* Read-only computed cells (UoM auto-derived, Total computed) */
+.wmsg-cell-readonly {
+    color: #6B6960;
+    background: #FAFAF8;
+}
+
+/* ----------------------------------------------------------------
+   Drag handle
+   ---------------------------------------------------------------- */
+.wmsg-cell-handle {
+    width: 28px;
+    padding-left: 4px;
+    padding-right: 0;
+}
+
+.wmsg-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    color: var(--wmsg-handle-color);
+    cursor: grab;
+    border-radius: 4px;
+    transition: background-color 120ms ease, color 120ms ease;
+}
+
+.wmsg-handle:hover {
+    background-color: var(--wmsg-handle-hover-bg);
+    color: #534AB7;
+}
+
+.wmsg-handle:active {
+    cursor: grabbing;
+}
+
+.wmsg-handle.is-disabled {
+    color: #D7D4CB;
+    cursor: not-allowed;
+}
+
+/* SortableJS class overrides */
+.sortable-ghost {
+    opacity: 0.4;
+    background: #EEEDFE !important;
+}
+
+.sortable-chosen {
+    background: #FFFFFF;
+    box-shadow: 0 4px 12px rgba(83, 74, 183, 0.15);
+}
+
+.sortable-drag {
+    background: #FFFFFF;
+    box-shadow: 0 8px 24px rgba(83, 74, 183, 0.25);
+    opacity: 0.95;
+}
+
+/* ----------------------------------------------------------------
+   Per-row actions menu (⋯)
+   ---------------------------------------------------------------- */
+.wmsg-cell-actions {
+    width: 40px;
+    text-align: center;
+}
+
+.wmsg-actions {
+    position: relative;
+    display: inline-block;
+}
+
+.wmsg-actions-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: #6B6960;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 120ms ease, color 120ms ease;
+}
+
+.wmsg-actions-trigger:hover {
+    background-color: var(--wmsg-handle-hover-bg);
+    color: #534AB7;
+}
+
+.wmsg-actions-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 10;
+    min-width: 180px;
+    background: var(--wmsg-menu-bg);
+    border: 1px solid var(--wmsg-menu-border);
+    border-radius: 6px;
+    box-shadow: var(--wmsg-menu-shadow);
+    padding: 4px 0;
+    margin-top: 2px;
+}
+
+.wmsg-actions-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 12px;
+    border: none;
+    background: transparent;
+    color: #2A2925;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 100ms ease;
+}
+
+.wmsg-actions-item:hover {
+    background-color: var(--wmsg-menu-item-hover-bg);
+}
+
+.wmsg-actions-item.is-danger {
+    color: var(--wmsg-menu-item-danger);
+}
+
+.wmsg-actions-item.is-disabled {
+    color: #B5B0A4;
+    cursor: not-allowed;
+}
+
+.wmsg-actions-item.is-disabled:hover {
+    background-color: transparent;
+}
+
+.wmsg-actions-divider {
+    height: 1px;
+    background: var(--wmsg-menu-border);
+    margin: 4px 0;
+}
+
+/* ----------------------------------------------------------------
+   Toolbar (above grid)
+   ---------------------------------------------------------------- */
+.wmsg-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.wmsg-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.wmsg-toolbar-stats {
+    font-size: 12px;
+    color: #6B6960;
+}
+
+.wmsg-toolbar-stats strong {
+    color: #2A2925;
+    font-weight: 500;
+}
+
+/* ----------------------------------------------------------------
+   Grid footer
+   ---------------------------------------------------------------- */
+.wmsg-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 12px 8px 4px;
+    border-top: 1px solid var(--wmsg-cell-border);
+    margin-top: 4px;
+}
+
+.wmsg-footer-totals {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 4px 16px;
+    font-size: 13px;
+    color: #444441;
+}
+
+.wmsg-footer-totals .label {
+    text-align: right;
+}
+
+.wmsg-footer-totals .value {
+    font-family: var(--wmsg-mono);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.wmsg-footer-totals .grand .value {
+    font-size: 15px;
+    font-weight: 500;
+    color: #2A2925;
+}
+
+/* ----------------------------------------------------------------
+   "Add another line" affordance below grid
+   ---------------------------------------------------------------- */
+.wmsg-add-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    margin-top: 8px;
+    padding: 10px;
+    border: 1px dashed #C7C3B8;
+    border-radius: 6px;
+    background: transparent;
+    color: #6B6960;
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.wmsg-add-row:hover {
+    border-color: #534AB7;
+    background-color: #FAFAFE;
+    color: #534AB7;
+}
+
+/* ----------------------------------------------------------------
+   Tom Select multi-column option
+   ---------------------------------------------------------------- */
+.wmsg-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: var(--wmsg-option-pad-y) var(--wmsg-option-pad-x);
+}
+
+.ts-dropdown .option.active .wmsg-option,
+.ts-dropdown .active .wmsg-option {
+    background-color: var(--wmsg-option-active-bg);
+}
+
+.wmsg-option-left {
+    flex: 1;
+    min-width: 0;
+}
+
+.wmsg-option-code {
+    font-family: var(--wmsg-mono);
+    font-weight: 500;
+    color: var(--wmsg-option-code-color);
+    font-size: 13px;
+}
+
+.wmsg-option-name {
+    color: var(--wmsg-option-name-color);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wmsg-option-brand {
+    color: var(--wmsg-option-brand-color);
+    font-size: 11px;
+}
+
+.wmsg-option-right {
+    flex-shrink: 0;
+    text-align: right;
+}
+
+.wmsg-option-stock {
+    color: var(--wmsg-option-stock-color);
+    font-family: var(--wmsg-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+}
+
+.wmsg-option-stock.is-zero {
+    color: var(--wmsg-option-stock-zero-color);
+}
+
+/* Selected-item display in the closed combo */
+.wmsg-item-code {
+    font-family: var(--wmsg-mono);
+    font-weight: 500;
+}
+
+/* Tom Select control styling — match wmsf-input baseline */
+.ts-control {
+    min-height: 32px;
+    padding: 4px 8px;
+    border: 1px solid #D7D4CB;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.ts-control.focus {
+    border-color: #534AB7;
+    box-shadow: 0 0 0 2px rgba(83, 74, 183, 0.15);
+}
