@@ -186,8 +186,47 @@
         });
     }
 
+    // ----------------------------------------------------------------
+    // mountSelectsInRow — Block 4.5.2 chunk c.1.1 hotfix
+    // ----------------------------------------------------------------
+    //
+    // Canonical entry point for wiring Tom Select to every combo cell
+    // in a single grid row. Designed for reuse across:
+    //   - po-line-grid.js addLine / duplicateRow / initGrid (chunk c.1.1)
+    //   - po-line-grid.js UoM cell (chunk c.3 will add 'uom' kind)
+    //   - Edit.cshtml's server-hydrated row walk (chunk d)
+    //   - Block 5 Customer multi-address picker
+    //
+    // rowEl: the row element (typically a <tr>) containing the selects.
+    // cells: an object mapping kind → { selector, config } where:
+    //   selector — CSS selector to find the <select> within rowEl
+    //   config   — opts for setupTomSelect (valueField, searchUrl, etc.)
+    //
+    // Skips selects that already have a Tom Select instance attached
+    // (sel.tomselect truthy) — idempotent under x-init double-fire +
+    // belt-and-suspenders explicit init in factory methods.
+    //
+    // Returns: { kind: tomSelectInstance } for each cell that mounted.
+    // Caller is responsible for stashing instances in its own Map keyed
+    // by row.key (Alpine factory state — outside this helper's scope).
+    function mountSelectsInRow(rowEl, cells) {
+        if (!rowEl || !cells) return {};
+        const out = {};
+        for (const [kind, spec] of Object.entries(cells)) {
+            if (!spec || !spec.selector) continue;
+            const sel = rowEl.querySelector(spec.selector);
+            // Skip if already mounted (Tom Select sets `.tomselect` on
+            // the element it wraps).
+            if (sel && !sel.tomselect) {
+                out[kind] = setupTomSelect(sel, spec.config);
+            }
+        }
+        return out;
+    }
+
     window.WmsGrid = {
-        setupTomSelect: setupTomSelect,
-        setupSortable:  setupSortable
+        setupTomSelect:    setupTomSelect,
+        setupSortable:     setupSortable,
+        mountSelectsInRow: mountSelectsInRow
     };
 })(window);

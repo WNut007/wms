@@ -14,18 +14,36 @@
    closes the attribute prematurely; bug bit twice — hotfix 745900a
    then chunk c c7fdd43, reverted as 215b389).
 
+   ROW MOUNTING (Block 4.5.2 chunk c.1.1 hotfix):
+     Tom Select wiring is centralized through _mountRow(rowEl, key)
+     which calls WmsGrid.mountSelectsInRow with the configs for all
+     combo cells in the row. Three call sites converge on it:
+       1. initGrid() walks initial rows on mount (defensive against
+          x-init not firing in some Alpine versions; idempotent via
+          tsInstances.has(key) guard)
+       2. addLine() explicitly mounts the new row's selects after
+          $nextTick (was missing in the original c — caused the row-2
+          dropdown not rendering bug, reported as smoke phase B.3 fail)
+       3. duplicateRow() same pattern as addLine
+     plus the x-init="initProductCell($el, line.key)" template binding
+     remains as belt-and-suspenders. All paths are idempotent.
+
+     Chunk c.3 will extend _mountRow to also wire the UoM cell. Chunk d
+     will use the same helper to hydrate Edit.cshtml's N server-rendered
+     rows on mount.
+
    Exposes:
      state:
        lines[]              — array of line rows
        selected (Set)       — bulk selection (chunk 4.5.4 will read it)
        openMenuKey          — which row's ⋯ menu is open (or null)
      actions:
-       initGrid()           — wire SortableJS to the tbody (call from x-init)
+       initGrid()           — wire SortableJS to the tbody + mount initial rows
        initProductCell(input, key)
-                            — wire Tom Select to a Product cell
-       addLine()            — append empty row + open Tom Select on it
+                            — backward-compat wrapper for x-init template binding
+       addLine()            — append empty row + mount + open Tom Select on it
        removeLine(key)      — remove + clean up Tom Select instance
-       duplicateRow(key)    — in-place row copy (no drawer; chunk 4.5.4 = drawer)
+       duplicateRow(key)    — in-place row copy + mount (no drawer; chunk 4.5.4 = drawer)
        moveTop(key)         — reorder helper
        moveBottom(key)      — reorder helper
        toggleMenu(key)      — open/close per-row ⋯ menu
@@ -89,6 +107,18 @@ function poLineGrid(opts) {
         initGrid() {
             this.$nextTick(() => {
                 if (!this.$refs.linesTbody) return;
+
+                // Walk initial rows + mount selects on each. Defensive
+                // against x-init not firing reliably for initially-rendered
+                // template instances (Alpine 3.x lifecycle quirks). Also
+                // covers chunk d's Edit.cshtml hydration of N server-
+                // rendered rows.
+                this.$refs.linesTbody.querySelectorAll('[data-row-key]').forEach((rowEl) => {
+                    const key = rowEl.dataset.rowKey;
+                    this._mountRow(rowEl, key);
+                });
+
+                // Wire SortableJS on the tbody.
                 this.sortable = window.WmsGrid.setupSortable(this.$refs.linesTbody, {
                     handleSelector: '.wmsg-handle',
                     disabled: this.readOnly,
@@ -113,13 +143,61 @@ function poLineGrid(opts) {
             tsInstances.clear();
         },
 
+        // Backward-compat wrapper for the template's x-init binding.
+        // x-init="initProductCell($el, line.key)" remains in the Razor
+        // markup as belt-and-suspenders. If x-init fires first, this
+        // mounts the row. If addLine/duplicateRow's explicit call fires
+        // first, the tsInstances.has(key) guard inside _mountRow makes
+        // this a no-op.
         initProductCell(input, key) {
-            // Skip if already wired (Alpine may re-run x-init on certain
-            // re-renders; the WmsGrid.setupTomSelect call would double-init).
             if (tsInstances.has(key)) return;
+            const rowEl = input.closest('tr');
+            if (rowEl) this._mountRow(rowEl, key);
+        },
 
+        // ------- row mount (canonical) -------
+        // Calls WmsGrid.mountSelectsInRow with cell configs for every
+        // combo in the row. Stashes resulting Tom Select instance in
+        // tsInstances so destroyGrid + removeLine can clean up.
+        // Seeds pre-selected option for Edit hydration paths.
+        //
+        // Chunk c.3 will add a 'uom' entry to the cells map.
+        _mountRow(rowEl, key) {
+            if (tsInstances.has(key)) return;
             const row = this.lines.find(l => l.key === key);
-            const ts = window.WmsGrid.setupTomSelect(input, {
+            if (!row) return;
+
+            const instances = window.WmsGrid.mountSelectsInRow(rowEl, {
+                product: {
+                    selector: '.wmsg-product-input',
+                    config:   this._productCellConfig(key)
+                }
+                // c.3: uom: { selector: '.wmsg-uom-input', config: this._uomCellConfig(key) }
+            });
+
+            if (instances.product) {
+                tsInstances.set(key, instances.product);
+                // Seed Tom Select for pre-selected product (Edit hydration
+                // path — server-rendered row already has productId).
+                if (row.productId && row.productCode) {
+                    instances.product.addOption({
+                        id: row.productId,
+                        code: row.productCode,
+                        name: row.productName || '',
+                        brand: ''
+                    });
+                    instances.product.setValue(row.productId, true /* silent */);
+                }
+            }
+        },
+
+        // Per-cell config builder for the Product Tom Select. Lives on
+        // the factory because onChange needs to mutate this.lines[i] +
+        // read the Tom Select instance from tsInstances. Captures the
+        // row.key in closure so reorders don't break the lookup.
+        _productCellConfig(rowKey) {
+            const self = this;
+            return {
                 valueField:  'id',
                 labelField:  'code',
                 searchField: ['code', 'name', 'brand'],
@@ -146,31 +224,17 @@ function poLineGrid(opts) {
                 renderItem: (item, escape) =>
                     `<span class="wmsg-item-code">${escape(item.code)}</span>`,
                 onChange: (value) => {
+                    const row = self.lines.find(l => l.key === rowKey);
                     if (!row) return;
                     row.productId = value;
-                    // Stash code/name from the selected item so we can
-                    // re-render the cell after a reorder without a
-                    // round-trip back to the server.
-                    const opt = ts.options[value];
+                    const ts = tsInstances.get(rowKey);
+                    const opt = ts && ts.options[value];
                     if (opt) {
                         row.productCode = opt.code;
                         row.productName = opt.name;
                     }
                 }
-            });
-
-            // If row has a pre-selected product (Edit flow), seed Tom Select
-            if (row && row.productId && row.productCode) {
-                ts.addOption({
-                    id: row.productId,
-                    code: row.productCode,
-                    name: row.productName || '',
-                    brand: ''
-                });
-                ts.setValue(row.productId, true /* silent */);
-            }
-
-            tsInstances.set(key, ts);
+            };
         },
 
         // ------- row mutations -------
@@ -182,14 +246,15 @@ function poLineGrid(opts) {
             const row = _blankRow(newKey, nextLineNumber);
             row.displayOrder = nextDisplayOrder;
             this.lines.push(row);
-            // Focus the new row's Product Tom Select on next tick.
+            // Belt-and-suspenders: explicitly mount the new row's selects.
+            // Was missing in the original chunk c — caused row 2 dropdown
+            // not rendering (smoke phase B.3 fail). x-init in template
+            // remains as belt; this is the suspenders.
             this.$nextTick(() => {
-                const newInput = this.$root.querySelector(
-                    `[data-row-key="${row.key}"] .wmsg-product-input`
-                );
+                const rowEl = this.$root.querySelector(`[data-row-key="${row.key}"]`);
+                if (rowEl) this._mountRow(rowEl, row.key);
                 const ts = tsInstances.get(row.key);
                 if (ts) ts.focus();
-                else if (newInput) newInput.focus();
             });
         },
 
@@ -222,12 +287,10 @@ function poLineGrid(opts) {
             this.lines.splice(idx + 1, 0, dup);
             this.closeMenus();
             this._renumberDisplayOrder();
-            // Seed Tom Select for the duplicated row on next tick.
+            // Same explicit-mount pattern as addLine.
             this.$nextTick(() => {
-                const newInput = this.$root.querySelector(
-                    `[data-row-key="${dup.key}"] .wmsg-product-input`
-                );
-                if (newInput) this.initProductCell(newInput, dup.key);
+                const rowEl = this.$root.querySelector(`[data-row-key="${dup.key}"]`);
+                if (rowEl) this._mountRow(rowEl, dup.key);
             });
         },
 
