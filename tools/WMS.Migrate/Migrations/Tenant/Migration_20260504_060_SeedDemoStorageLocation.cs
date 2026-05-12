@@ -2,20 +2,26 @@ using FluentMigrator;
 
 namespace WMS.Migrate.Migrations.Tenant;
 
-// Adds a STORAGE zone + STORAGE-A1 location under WH-MAIN so the
-// putaway flow has somewhere to move stock to. Mirrors the seed
-// pattern in 052 (idempotent existence checks, dependency-ordered
-// inserts).
+// Adds a STORAGE zone + STORAGE-A1 location under WH-MAIN so the demo
+// putaway flow has somewhere to move stock to. Mirrors the seed pattern
+// in 052 (idempotent existence checks, dependency-ordered inserts).
+//
+// Phase 30A.2: gated on DB_NAME() = 'WMS_Tenant_Template' so this demo
+// fixture doesn't pollute new tenant DBs. Real tenants create their own
+// storage zones via the master-data admin UI (Phase 7+).
 [Migration(20260504060L)]
 [Tags("Tenant")]
 public class Migration_20260504_060_SeedDemoStorageLocation : MigrationBase
 {
+    private const string TemplateDbName = "WMS_Tenant_Template";
+
     public override void Up()
     {
         // 1) STORAGE zone under WH-MAIN. Type 'Storage' is the bin-area
         // bucket (Receiving / Storage / Picking / Packing / ...).
-        Execute.Sql(@"
-IF NOT EXISTS (
+        Execute.Sql($@"
+IF DB_NAME() = '{TemplateDbName}'
+AND NOT EXISTS (
     SELECT 1
     FROM [master].[Zones] z
     JOIN [master].[Warehouses] w ON w.Id = z.WarehouseId
@@ -30,8 +36,9 @@ WHERE w.Code = 'WH-MAIN';");
         // 2) STORAGE-A1 location inside STORAGE. Aisle / Bay / Level
         // populated for future 3D viz (ADR-011 keeps the schema warm
         // even though Phase 1 doesn't render).
-        Execute.Sql(@"
-IF NOT EXISTS (
+        Execute.Sql($@"
+IF DB_NAME() = '{TemplateDbName}'
+AND NOT EXISTS (
     SELECT 1
     FROM [master].[Locations] l
     JOIN [master].[Warehouses] w ON w.Id = l.WarehouseId
@@ -53,14 +60,18 @@ WHERE w.Code = 'WH-MAIN';");
 
     public override void Down()
     {
-        // Reverse dependency order — location first, then zone.
-        Execute.Sql(@"
+        // Reverse dependency order — location first, then zone. Same
+        // gate so a Down() on a non-template DB is a no-op (matches
+        // the gated Up()).
+        Execute.Sql($@"
+IF DB_NAME() = '{TemplateDbName}'
 DELETE l
 FROM [master].[Locations] l
 JOIN [master].[Warehouses] w ON w.Id = l.WarehouseId
 WHERE w.Code = 'WH-MAIN' AND l.Code = 'STORAGE-A1';");
 
-        Execute.Sql(@"
+        Execute.Sql($@"
+IF DB_NAME() = '{TemplateDbName}'
 DELETE z
 FROM [master].[Zones] z
 JOIN [master].[Warehouses] w ON w.Id = z.WarehouseId

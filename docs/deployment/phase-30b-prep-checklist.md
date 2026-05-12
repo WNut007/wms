@@ -61,6 +61,17 @@ the customer can reach.
 - [ ] Master migrations applied via `tools/WMS.Migrate up master`
 - [ ] `InitialSuperAdmin` config-driven seed completes on first request
 - [ ] Manual SuperAdmin password change forced
+- [ ] First customer tenant provisioned via `/SuperAdmin/Onboarding` (creates `WMS_Tenant_<CODE>` + applies Tenant migrations + seeds bootstrap admin)
+- [ ] **Tenant pollution audit** — run `docs/deployment/phase-30a2-pollution-audit.sql`
+      against the new tenant DB to verify clean bootstrap (regression guard for
+      Phase 30A.2 P0-6). Expected counts:
+  - [ ] `master.Warehouses` = 1 (only `WH-MAIN`)
+  - [ ] `master.Owners` ≥ 1 (`SELF` present)
+  - [ ] `master.UnitsOfMeasure` ≥ 1 (`EA` present)
+  - [ ] `master.Customers` = 0, `master.Products` = 0, `master.ProductCategories` = 0
+  - [ ] Zero rows matching `WH-DM%`, `CUST-XXXX`, `PROD-XXXX`, `DEMO-001`
+  - [ ] If any demo pattern has `RowsPresent > 0`: a migration gate has regressed
+        — STOP, investigate, do not hand over to customer
 
 ### Email
 
