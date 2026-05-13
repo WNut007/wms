@@ -163,6 +163,12 @@ function poLineGrid(opts) {
         //
         // Chunk c.3 will add a 'uom' entry to the cells map.
         _mountRow(rowEl, key) {
+            // d.2.2: defence — readOnly rows render no <select> (Razor
+            // branch), so mountSelectsInRow finds nothing. Belt: short-
+            // circuit before reaching the cell config. If a future Razor
+            // change accidentally re-renders the <select> on a locked row,
+            // this guard keeps Tom Select from binding to it.
+            if (this.readOnly) return;
             if (tsInstances.has(key)) return;
             const row = this.lines.find(l => l.key === key);
             if (!row) return;

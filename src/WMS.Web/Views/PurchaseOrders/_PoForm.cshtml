@@ -395,21 +395,40 @@
                                 </span>
                             </td>
 
-                            @* Product (column 2) — Tom Select, multi-column dropdown *@
+                            @* Product (column 2) — Tom Select, multi-column dropdown. *@
+                            @* d.2.2: branch on LinesLocked. Locked rows render a       *@
+                            @* readonly text display of "{code} · {name}" + hidden      *@
+                            @* ProductId so form binding stays shape-stable; no <select> *@
+                            @* means _mountRow finds nothing to wire (no wasted Tom      *@
+                            @* Select index, no chance of stray interaction). The        *@
+                            @* server ignores submitted Lines when LinesLocked anyway    *@
+                            @* (Admin.cs:166), so the hidden input is symbolic.          *@
                             <td>
                                 @* Hidden LineNumber preserves form binding (decision #8 — operator never sees this). *@
                                 <input type="hidden" :name="`Lines[${idx}].LineNumber`" :value="line.lineNumber" />
-                                @* Tom Select attaches to the <select>; its name attribute drives the form value. *@
-                                <select class="wmsg-product-input"
-                                        :name="`Lines[${idx}].ProductId`"
-                                        x-init="initProductCell($el, line.key)"
-                                        required>
-                                </select>
+                                @if (Model.Locks.LinesLocked)
+                                {
+                                    <input type="hidden" :name="`Lines[${idx}].ProductId`" :value="line.productId" />
+                                    <input type="text" class="wmsf-input" readonly
+                                           :value="`${line.productCode} · ${line.productName}`" />
+                                }
+                                else
+                                {
+                                    @* Tom Select attaches to the <select>; its name attribute drives the form value. *@
+                                    <select class="wmsg-product-input"
+                                            :name="`Lines[${idx}].ProductId`"
+                                            x-init="initProductCell($el, line.key)"
+                                            required>
+                                    </select>
+                                }
                             </td>
 
                             @* UoM (column 3) — manual select; auto-derive from Product is a future TD. *@
+                            @* d.2.2: :disabled binds to readOnly. Disabled selects do not  *@
+                            @* POST, but Admin.cs:166 discards Lines when locked — no loss. *@
                             <td>
-                                <select :name="`Lines[${idx}].UomId`" x-model="line.uomId" class="wmsf-select" required>
+                                <select :name="`Lines[${idx}].UomId`" x-model="line.uomId" class="wmsf-select"
+                                        :disabled="readOnly" required>
                                     <option value="">—</option>
                                     @foreach (var u in Model.Uoms)
                                     {
@@ -418,11 +437,12 @@
                                 </select>
                             </td>
 
-                            @* Qty (column 4) — right-aligned mono *@
+                            @* Qty (column 4) — right-aligned mono. d.2.2: :readonly binds to readOnly. *@
                             <td class="wmsg-cell-num">
                                 <input type="number" step="0.0001" min="0.0001"
                                        :name="`Lines[${idx}].ExpectedQuantity`"
                                        x-model.number="line.expectedQuantity"
+                                       :readonly="readOnly"
                                        class="wmsf-input"
                                        style="width: 100%; text-align: right;" required />
                             </td>
