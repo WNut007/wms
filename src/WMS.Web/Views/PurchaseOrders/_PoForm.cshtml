@@ -16,9 +16,11 @@
     // Create render shape exactly. On Edit (d.2), Lines carry real
     // ProductIds and Tom Select hydrates the selected pill.
     var productMap = Model.Products.ToDictionary(p => p.Id);
+    var uomMap     = Model.Uoms.ToDictionary(u => u.Id);
     var initialLines = Model.Lines.Select(l =>
     {
         productMap.TryGetValue(l.ProductId, out var p);
+        uomMap.TryGetValue(l.UomId, out var u);
         return new
         {
             lineNumber       = l.LineNumber,
@@ -26,6 +28,11 @@
             productCode      = p?.Code ?? "",
             productName      = p?.Name ?? "",
             uomId            = l.UomId == Guid.Empty ? "" : l.UomId.ToString(),
+            // d.2.3.b — uomCode rendered as readonly display on locked
+            // rows + receivedQuantity drives the per-row lock flag.
+            uomCode          = u?.Code ?? "",
+            receivedQuantity = l.ReceivedQuantity,
+            isLocked         = l.ReceivedQuantity > 0,
             expectedQuantity = l.ExpectedQuantity,
         };
     });
@@ -66,10 +73,13 @@
    references window.__poFormConfig instead of embedding JSON inline.
    See memory feedback_json_in_attribute_script_hoist.md. *@
 <script>
+    // d.2.3.b — per-line lock state lives on initialLines[i].isLocked.
+    // The grid-wide readOnly flag is retired (TD-026 closure); the
+    // factory + Razor read line.isLocked directly. Banner display
+    // gating still uses Model.Locks.LinesLocked (any line locked).
     window.__poFormConfig = {
         initialLines: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(initialLines)),
-        mode:     '@Model.Mode',
-        readOnly: @(Model.Locks.LinesLocked ? "true" : "false")
+        mode: '@Model.Mode'
     };
 </script>
 
@@ -324,54 +334,41 @@
         <div class="wmsf-pane-head">
             <div>
                 <p class="wmsf-pane-eyebrow">— Section 02</p>
-                <h2>@(Model.Locks.LinesLocked ? "Lines (read-only)" : "Lines")</h2>
+                <h2>Lines</h2>
                 <p class="wmsf-pane-desc">
                     @(Model.Locks.LinesLocked
-                        ? "Receipts have been posted against this PO; lines are locked."
+                        ? "Some lines have receipts. Locked rows show a lock icon — other rows + new lines are editable."
                         : "Drag rows to reorder · search SKU by code / name / brand · ⋯ menu for per-row actions.")
                 </p>
             </div>
-            @if (!Model.Locks.LinesLocked)
-            {
-                <span class="wmsf-required-badge"
-                      :class="{ 'is-empty': lines.length > 0 && allLinesComplete() }"
-                      x-text="lines.length === 0 ? '1+ line required' : (allLinesComplete() ? 'All set' : 'Some lines incomplete')"></span>
-            }
+            @* d.2.3.b — badge stays on across lock states (operator can still add lines on partial-lock POs). *@
+            <span class="wmsf-required-badge"
+                  :class="{ 'is-empty': lines.length > 0 && allLinesComplete() }"
+                  x-text="lines.length === 0 ? '1+ line required' : (allLinesComplete() ? 'All set' : 'Some lines incomplete')"></span>
         </div>
 
         @if (Model.Locks.LinesLocked)
         {
             <div style="background: var(--wmsf-warning-bg); color: var(--wmsf-warning-fg); padding: 10px 14px; border-radius: 8px; font-size: 12px; border: 0.5px solid rgba(133, 79, 11, 0.2); margin-bottom: 14px;">
-                <strong>Lines locked.</strong> Receipts have been posted; lines are read-only.
-                Cancel-and-recreate is the path to change line shape.
+                <strong>Some lines have receipts.</strong> Locked rows show a lock icon — other rows + new lines are editable.
             </div>
         }
 
-        @if (!Model.Locks.LinesLocked)
-        {
-            <div class="wmsg-toolbar">
-                <div class="wmsg-toolbar-actions">
-                    <button type="button" class="wmsf-btn wmsf-btn-primary" @@click="addLine()">
-                        <i class="ti ti-plus" aria-hidden="true"></i> Add line
-                    </button>
-                </div>
-                <div class="wmsg-toolbar-stats">
-                    <span x-text="lines.length"></span> line<span x-show="lines.length !== 1">s</span>
-                    · total qty <strong x-text="totalQty().toFixed(2)"></strong>
-                </div>
+        @* d.2.3.b — Add line button always shown (per spec: add allowed on
+           partial-receipt POs because new lines have no receipts by
+           definition). Closed/Cancelled POs redirect at Admin.cs:98 so
+           this only renders on Open/Receiving. *@
+        <div class="wmsg-toolbar">
+            <div class="wmsg-toolbar-actions">
+                <button type="button" class="wmsf-btn wmsf-btn-primary" @@click="addLine()">
+                    <i class="ti ti-plus" aria-hidden="true"></i> Add line
+                </button>
             </div>
-        }
-        else
-        {
-            @* Locked-state toolbar — stats only, no Add button *@
-            <div class="wmsg-toolbar">
-                <div></div>
-                <div class="wmsg-toolbar-stats">
-                    <span x-text="lines.length"></span> line<span x-show="lines.length !== 1">s</span>
-                    · total qty <strong x-text="totalQty().toFixed(2)"></strong>
-                </div>
+            <div class="wmsg-toolbar-stats">
+                <span x-text="lines.length"></span> line<span x-show="lines.length !== 1">s</span>
+                · total qty <strong x-text="totalQty().toFixed(2)"></strong>
             </div>
-        }
+        </div>
 
         <div style="overflow-x: auto;">
             <table class="wmsg-table" style="min-width: 600px;">
@@ -387,71 +384,88 @@
                 <tbody x-ref="linesTbody">
                     @* :key=line.key — stable identity through reorders + Tom Select instance map. *@
                     <template x-for="(line, idx) in lines" :key="line.key">
-                        <tr class="wmsg-row" :data-row-key="line.key">
-                            @* Drag handle (column 1) *@
+                        <tr class="wmsg-row" :data-row-key="line.key" :class="{ 'is-locked': line.isLocked }">
+                            @* Drag handle (column 1) — d.2.3.b: always enabled
+                               (reorder of locked rows changes DisplayOrder only,
+                               no math impact). Lock icon shown alongside when
+                               line.isLocked = true; both icons coexist. *@
                             <td class="wmsg-cell-handle">
-                                <span class="wmsg-handle" :class="{ 'is-disabled': readOnly }" title="Drag to reorder" aria-label="Drag to reorder">
+                                <span class="wmsg-handle" title="Drag to reorder" aria-label="Drag to reorder">
                                     <i class="ti ti-grip-vertical" aria-hidden="true"></i>
+                                </span>
+                                <span x-show="line.isLocked"
+                                      :title="'Receipts posted (qty ' + line.receivedQuantity + ') — Product / UoM / Qty locked'"
+                                      style="display: inline-flex; align-items: center; margin-left: 4px; color: var(--wmsf-warning-fg, #b45309);"
+                                      aria-label="Line locked — receipts posted">
+                                    <i class="ti ti-lock" aria-hidden="true"></i>
                                 </span>
                             </td>
 
-                            @* Product (column 2) — Tom Select, multi-column dropdown. *@
-                            @* d.2.2: branch on LinesLocked. Locked rows render a       *@
-                            @* readonly text display of "{code} · {name}" + hidden      *@
-                            @* ProductId so form binding stays shape-stable; no <select> *@
-                            @* means _mountRow finds nothing to wire (no wasted Tom      *@
-                            @* Select index, no chance of stray interaction). The        *@
-                            @* server ignores submitted Lines when LinesLocked anyway    *@
-                            @* (Admin.cs:166), so the hidden input is symbolic.          *@
+                            @* Product (column 2) — d.2.3.b: per-row branch via
+                               Alpine x-if. Locked → readonly display + hidden
+                               ProductId so the form round-trips it (controller
+                               filter via dbLockedNumbers still defends server-
+                               side). Unlocked → editable Tom Select. *@
                             <td>
-                                @* Hidden LineNumber preserves form binding (decision #8 — operator never sees this). *@
                                 <input type="hidden" :name="`Lines[${idx}].LineNumber`" :value="line.lineNumber" />
-                                @if (Model.Locks.LinesLocked)
-                                {
-                                    <input type="hidden" :name="`Lines[${idx}].ProductId`" :value="line.productId" />
-                                    <input type="text" class="wmsf-input" readonly
-                                           :value="`${line.productCode} · ${line.productName}`" />
-                                }
-                                else
-                                {
-                                    @* Tom Select attaches to the <select>; its name attribute drives the form value. *@
+                                <template x-if="line.isLocked">
+                                    <div>
+                                        <input type="hidden" :name="`Lines[${idx}].ProductId`" :value="line.productId" />
+                                        <input type="text" class="wmsf-input" readonly
+                                               :value="`${line.productCode} · ${line.productName}`" />
+                                    </div>
+                                </template>
+                                <template x-if="!line.isLocked">
                                     <select class="wmsg-product-input"
                                             :name="`Lines[${idx}].ProductId`"
                                             x-init="initProductCell($el, line.key)"
                                             required>
                                     </select>
-                                }
+                                </template>
                             </td>
 
-                            @* UoM (column 3) — manual select; auto-derive from Product is a future TD. *@
-                            @* d.2.2: :disabled binds to readOnly. Disabled selects do not  *@
-                            @* POST, but Admin.cs:166 discards Lines when locked — no loss. *@
+                            @* UoM (column 3) — d.2.3.b: same per-row branch
+                               pattern. Locked → readonly text display of uomCode
+                               + hidden UomId. Unlocked → editable native select. *@
                             <td>
-                                <select :name="`Lines[${idx}].UomId`" x-model="line.uomId" class="wmsf-select"
-                                        :disabled="readOnly" required>
-                                    <option value="">—</option>
-                                    @foreach (var u in Model.Uoms)
-                                    {
-                                        <option value="@u.Id">@u.Code</option>
-                                    }
-                                </select>
+                                <template x-if="line.isLocked">
+                                    <div>
+                                        <input type="hidden" :name="`Lines[${idx}].UomId`" :value="line.uomId" />
+                                        <input type="text" class="wmsf-input" readonly :value="line.uomCode" />
+                                    </div>
+                                </template>
+                                <template x-if="!line.isLocked">
+                                    <select :name="`Lines[${idx}].UomId`" x-model="line.uomId" class="wmsf-select" required>
+                                        <option value="">—</option>
+                                        @foreach (var u in Model.Uoms)
+                                        {
+                                            <option value="@u.Id">@u.Code</option>
+                                        }
+                                    </select>
+                                </template>
                             </td>
 
-                            @* Qty (column 4) — right-aligned mono. d.2.2: :readonly binds to readOnly. *@
+                            @* Qty (column 4) — d.2.3.b: :readonly binds per-row
+                               isLocked. Readonly inputs DO POST so locked rows
+                               round-trip qty correctly. *@
                             <td class="wmsg-cell-num">
                                 <input type="number" step="0.0001" min="0.0001"
                                        :name="`Lines[${idx}].ExpectedQuantity`"
                                        x-model.number="line.expectedQuantity"
-                                       :readonly="readOnly"
+                                       :readonly="line.isLocked"
                                        class="wmsf-input"
                                        style="width: 100%; text-align: right;" required />
                             </td>
 
-                            @* Actions (column 5) — ⋯ menu. Hidden when readOnly
-                               (LinesLocked). Trigger button + menu both omitted
-                               so operator gets no affordance + no confusion. *@
+                            @* Actions (column 5) — ⋯ menu. d.2.3.b: menu opens
+                               for all rows. Delete item disabled per-row when
+                               locked (with tooltip). Duplicate stays enabled —
+                               duplicating a locked row creates a NEW unlocked
+                               row (operator workaround for "edit" a locked line).
+                               Move top / Move bottom always enabled (DisplayOrder
+                               only — no math impact). *@
                             <td class="wmsg-cell-actions">
-                                <div class="wmsg-actions" x-show="!readOnly">
+                                <div class="wmsg-actions">
                                     <button type="button"
                                             class="wmsg-actions-trigger"
                                             @@click.stop="toggleMenu(line.key)"
@@ -470,7 +484,10 @@
                                             <i class="ti ti-arrow-bar-to-down" aria-hidden="true"></i> Move to bottom
                                         </button>
                                         <div class="wmsg-actions-divider"></div>
-                                        <button type="button" class="wmsg-actions-item is-danger" @@click="removeLine(line.key)" :disabled="lines.length <= 1">
+                                        <button type="button" class="wmsg-actions-item is-danger"
+                                                @@click="removeLine(line.key)"
+                                                :disabled="lines.length <= 1 || line.isLocked"
+                                                :title="line.isLocked ? 'Cannot delete — receipts posted' : null">
                                             <i class="ti ti-trash" aria-hidden="true"></i> Delete row
                                         </button>
                                     </div>
@@ -482,12 +499,13 @@
             </table>
         </div>
 
-        @if (!Model.Locks.LinesLocked)
-        {
-            <button type="button" class="wmsg-add-row" @@click="addLine()">
-                <i class="ti ti-plus" aria-hidden="true"></i> Add another line
-            </button>
-        }
+        @* d.2.3.b — "Add another line" always shown. Per spec: adding lines
+           is allowed on partial-receipt POs because new lines have no
+           receipts. Terminal POs (Closed/Cancelled) redirect at Admin.cs:98
+           before reaching the form. *@
+        <button type="button" class="wmsg-add-row" @@click="addLine()">
+            <i class="ti ti-plus" aria-hidden="true"></i> Add another line
+        </button>
     </section>
 
     @* === Section 3 — Review === *@

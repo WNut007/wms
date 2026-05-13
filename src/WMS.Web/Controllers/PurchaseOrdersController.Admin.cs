@@ -148,25 +148,28 @@ public partial class PurchaseOrdersController
         // Server overrides the VM's hint with DB truth.
         vm.LinesLocked = detail.Lines.Any(l => l.ReceivedQuantity > 0);
 
-        // d.2.3.a.2 — repopulate vm.Lines from DB state when whole-grid
-        // lock is on. The d.2.2 UI disables every UoM <select> in this
-        // case, so vm.Lines arrives with Guid.Empty UomId across the
-        // board (disabled selects don't POST). Two consequences without
-        // this repopulate:
-        //   1. Razor's error-path re-render shows '—' for every UoM cell.
-        //   2. Even unrelated future validation surfaces would see bad
-        //      input shape.
-        // Source-of-truth handoff: the controller's short-circuit (below)
-        // already drops line classification when LinesLocked; this just
-        // brings the bound VM into agreement with DB so re-render is
-        // sane. d.2.3.b's per-row UI will only disable per-locked-row,
-        // so this fixup no-ops there.
+        // d.2.3.a.2 + d.2.3.b — repopulate vm.Lines from DB state for
+        // LOCKED ROWS ONLY. Two reasons to repopulate:
+        //   1. d.2.2's whole-grid disable left every UoM <select> empty
+        //      in the POST → vm.Lines[*].UomId arrived Guid.Empty across
+        //      the board → error-path re-render showed '—'.
+        //   2. d.2.3.b's per-row disable still leaves locked-row UomId
+        //      hidden in POST (via :disabled on the readonly text or
+        //      via x-if branch with hidden inputs); operator tampering
+        //      could still inject bad values into locked-row POST keys.
+        //
+        // Scope MUST be locked rows only — d.2.3.b's per-row UI allows
+        // the operator to edit unlocked rows on a partial-lock PO.
+        // Repopulating ALL vm.Lines (the earlier shape) would clobber
+        // those operator edits with DB values, silently losing the
+        // edit. dbLine.ReceivedQuantity > 0 narrows to truly-locked rows.
         if (vm.LinesLocked && vm.Lines is { Count: > 0 })
         {
             var dbByLineNumber = detail.Lines.ToDictionary(l => l.LineNumber);
             foreach (var line in vm.Lines)
             {
-                if (dbByLineNumber.TryGetValue(line.LineNumber, out var dbLine))
+                if (dbByLineNumber.TryGetValue(line.LineNumber, out var dbLine)
+                    && dbLine.ReceivedQuantity > 0)
                 {
                     line.ProductId = dbLine.ProductId;
                     line.UomId = dbLine.UomId;
@@ -189,47 +192,52 @@ public partial class PurchaseOrdersController
             return View(vm);
         }
 
-        // d.2.3.a.1 — short-circuit when whole-grid lock is on. The
-        // d.2.2 UI applies LinesLocked = (any DB line has receipts) to
-        // the WHOLE grid, disabling every UoM <select> regardless of
-        // per-line state. Disabled <select>s don't POST their value, so
-        // vm.Lines[*].UomId arrives Guid.Empty across the board. Per-
-        // line classification against this body would mis-classify the
-        // unlocked-but-UI-disabled rows as legitimate "edit to empty
-        // UomId" attempts — service-layer would refuse with "UomId is
-        // required". Effective semantics for d.2.2 UI's locked state:
-        // header-only update. d.2.3.b's per-row UI sends per-line state
-        // and replaces this branch with real classification.
+        // d.2.3.b — per-line classification (TD-026 closure). The UI
+        // now sends per-row state: locked rows round-trip via hidden
+        // inputs (LineNumber + ProductId + UomId; readonly Qty input
+        // POSTs its current value); unlocked rows submit their editable
+        // selections. Classification by LineNumber — Path X (d.2.3.b
+        // could switch to line.Id but LineNumber matches the existing
+        // POST shape's stable key + the UI doesn't change LineNumber
+        // on Edit mode, so no Id-vs-LineNumber drift risk).
+        //
+        // Two filters layered:
+        //   1. dbLockedNumbers — locked DB lines never enter updates
+        //      or deletes. Operator-tampered POSTs that try to mutate
+        //      a locked LineNumber are silently dropped at this layer
+        //      AND refused at the service layer (defence in depth).
+        //   2. Service-side ReceivedQuantity > 0 check in
+        //      UpdatePartialAsync — final authority. If an in-flight
+        //      receipt landed between classification and service call,
+        //      the service refuses with a friendly error.
+        var dbLinesByNumber = detail.Lines.ToDictionary(l => l.LineNumber);
+        var dbLockedNumbers = detail.Lines
+            .Where(l => l.ReceivedQuantity > 0)
+            .Select(l => l.LineNumber)
+            .ToHashSet();
+        var postedLineNumbers = (vm.Lines ?? new())
+            .Select(l => l.LineNumber).ToHashSet();
+
         var lineUpdates = new List<PartialUpdateLineEdit>();
         var lineInserts = new List<PartialUpdateLineInsert>();
         var lineDeletes = new List<Guid>();
 
-        if (!vm.LinesLocked)
+        foreach (var posted in vm.Lines ?? Enumerable.Empty<PurchaseOrderLineViewModel>())
         {
-            // Unlocked path: no DB line has receipts. UI keeps all
-            // cells editable, POST carries authoritative values.
-            // Classification by LineNumber — Path X (transitional;
-            // d.2.3.b switches to line.Id once UI adds the hidden POST
-            // field).
-            var dbLinesByNumber = detail.Lines.ToDictionary(l => l.LineNumber);
-            var postedLineNumbers = (vm.Lines ?? new())
-                .Select(l => l.LineNumber).ToHashSet();
+            if (dbLockedNumbers.Contains(posted.LineNumber)) continue;
+            if (dbLinesByNumber.TryGetValue(posted.LineNumber, out var dbLine))
+                lineUpdates.Add(new PartialUpdateLineEdit(
+                    dbLine.Id, posted.ProductId, posted.UomId, posted.ExpectedQuantity));
+            else
+                lineInserts.Add(new PartialUpdateLineInsert(
+                    posted.LineNumber, posted.ProductId, posted.UomId, posted.ExpectedQuantity));
+        }
 
-            foreach (var posted in vm.Lines ?? Enumerable.Empty<PurchaseOrderLineViewModel>())
-            {
-                if (dbLinesByNumber.TryGetValue(posted.LineNumber, out var dbLine))
-                    lineUpdates.Add(new PartialUpdateLineEdit(
-                        dbLine.Id, posted.ProductId, posted.UomId, posted.ExpectedQuantity));
-                else
-                    lineInserts.Add(new PartialUpdateLineInsert(
-                        posted.LineNumber, posted.ProductId, posted.UomId, posted.ExpectedQuantity));
-            }
-
-            foreach (var dbLine in detail.Lines)
-            {
-                if (!postedLineNumbers.Contains(dbLine.LineNumber))
-                    lineDeletes.Add(dbLine.Id);
-            }
+        foreach (var dbLine in detail.Lines)
+        {
+            if (dbLockedNumbers.Contains(dbLine.LineNumber)) continue;
+            if (!postedLineNumbers.Contains(dbLine.LineNumber))
+                lineDeletes.Add(dbLine.Id);
         }
 
         var request = new PartialUpdatePurchaseOrderRequest(

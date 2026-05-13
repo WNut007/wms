@@ -392,26 +392,28 @@ public class PurchaseOrdersAdminTests
     }
 
     [Fact]
-    public async Task Edit_Post_PartialLockPo_DisabledUoms_HeaderOnly_NoLineOps()
+    public async Task Edit_Post_MixedLockPo_PreservesLocked_UpdatesUnlocked()
     {
-        // d.2.3.a.1 regression — d.2.2 UI applies whole-grid lock when
-        // any line has receipts, so ALL UoM <select>s are disabled
-        // across the grid (locked + unlocked alike). Disabled selects
-        // don't POST, so vm.Lines arrives with Guid.Empty UomId across
-        // every row. Without the LinesLocked short-circuit, the
-        // unlocked DB lines would be classified as updates with empty
-        // UomId → service refuses with "UomId is required". Controller
-        // must short-circuit to header-only when whole-grid lock is on.
+        // d.2.3.b regression (TD-026 closure) — per-line classification
+        // on a partial-lock PO. With per-row UI:
+        //   Line 1 locked: hidden ProductId + hidden UomId + readonly Qty
+        //                  round-trip via POST. Controller filter
+        //                  (dbLockedNumbers) drops line 1 from updates.
+        //   Line 2 unlocked: editable Tom Select + UoM + Qty POST real
+        //                    values. Controller classifies as update.
         var b = BuildAdmin();
         var poId = Guid.NewGuid();
 
-        // Two-line detail: line 1 received, line 2 not.
         var line1Id = Guid.NewGuid();
         var line2Id = Guid.NewGuid();
+        var line1DbProductId = Guid.NewGuid();
+        var line1DbUomId = Guid.NewGuid();
+        var line2DbProductId = Guid.NewGuid();
+        var line2DbUomId = Guid.NewGuid();
         var detail = new PurchaseOrderDetail(
             new PurchaseOrder
             {
-                Id = poId, PoNumber = "PO-PART",
+                Id = poId, PoNumber = "PO-MIX",
                 OwnerId = Guid.NewGuid(), WarehouseId = Guid.NewGuid(),
                 Status = "Receiving",
             },
@@ -419,13 +421,13 @@ public class PurchaseOrdersAdminTests
             {
                 new() {
                     Id = line1Id, PurchaseOrderId = poId, LineNumber = 1,
-                    ProductId = Guid.NewGuid(), UomId = Guid.NewGuid(),
+                    ProductId = line1DbProductId, UomId = line1DbUomId,
                     ExpectedQuantity = 10m, ReceivedQuantity = 5m,
                     Status = "PartiallyReceived",
                 },
                 new() {
                     Id = line2Id, PurchaseOrderId = poId, LineNumber = 2,
-                    ProductId = Guid.NewGuid(), UomId = Guid.NewGuid(),
+                    ProductId = line2DbProductId, UomId = line2DbUomId,
                     ExpectedQuantity = 8m, ReceivedQuantity = 0m,
                     Status = "Open",
                 },
@@ -441,46 +443,60 @@ public class PurchaseOrdersAdminTests
                 (_, _, r, _, _) => captured = r)
             .ReturnsAsync(detail);
 
-        // d.2.2 UI POST shape: both lines round-trip with empty UomId
-        // (disabled selects don't POST). ProductId IS populated because
-        // the Product cell uses a hidden input in locked mode (d.2.2).
-        // ExpectedQuantity is populated because readonly inputs DO POST.
+        // d.2.3.b UI POST shape:
+        //   Line 1 (locked) round-trips real ProductId + UomId via hidden
+        //     inputs and readonly Qty. Operator can't mutate but the
+        //     values are present in POST.
+        //   Line 2 (unlocked) submits operator's edited values.
+        var line2EditedProductId = Guid.NewGuid();
+        var line2EditedUomId = Guid.NewGuid();
         var vm = new PurchaseOrderEditViewModel
         {
             Id = poId,
-            PoNumber = "PO-PART",
-            Notes = "header edit",
+            PoNumber = "PO-MIX",
+            Notes = "mixed-lock edit",
             Lines = new List<PurchaseOrderLineViewModel>
             {
-                new() { LineNumber = 1, ProductId = Guid.NewGuid(),
-                        UomId = Guid.Empty, ExpectedQuantity = 10m },
-                new() { LineNumber = 2, ProductId = Guid.NewGuid(),
-                        UomId = Guid.Empty, ExpectedQuantity = 8m },
+                new() { LineNumber = 1, ProductId = line1DbProductId,
+                        UomId = line1DbUomId, ExpectedQuantity = 10m },
+                new() { LineNumber = 2, ProductId = line2EditedProductId,
+                        UomId = line2EditedUomId, ExpectedQuantity = 12m },
             },
-            LinesLocked = false,  // lying — server overrides to true
         };
-
-        var line1OriginalUom = detail.Lines[0].UomId;
-        var line2OriginalUom = detail.Lines[1].UomId;
 
         var result = await b.Controller.Edit(poId, vm, default);
 
         var redirect = Assert.IsType<RedirectToActionResult>(result);
         Assert.Equal("Detail", redirect.ActionName);
 
-        // Controller short-circuited to header-only because the server
-        // re-derived LinesLocked = true.
         Assert.NotNull(captured);
-        Assert.Empty(captured!.LineUpdates);
+
+        // Line 1 (locked) filtered out — operator's POST round-tripped
+        // values do not become a service-layer update.
+        Assert.Single(captured!.LineUpdates);
+        Assert.Equal(line2Id, captured.LineUpdates[0].LineId);
+        Assert.Equal(line2EditedProductId, captured.LineUpdates[0].ProductId);
+        Assert.Equal(line2EditedUomId, captured.LineUpdates[0].UomId);
+        Assert.Equal(12m, captured.LineUpdates[0].ExpectedQuantity);
+
         Assert.Empty(captured.LineInserts);
         Assert.Empty(captured.LineDeletes);
-        Assert.Equal("header edit", captured.Notes);
+        Assert.Equal("mixed-lock edit", captured.Notes);
 
-        // d.2.3.a.2 — repopulate brings vm.Lines into agreement with DB
-        // so the error-path re-render shows real values (not the '—'
-        // empty-option fallback the disabled-select POST would produce).
-        Assert.Equal(line1OriginalUom, vm.Lines[0].UomId);
-        Assert.Equal(line2OriginalUom, vm.Lines[1].UomId);
+        // d.2.3.b — repopulate is now scoped to locked rows ONLY (via
+        // dbLine.ReceivedQuantity > 0 check). Verify:
+        //   Locked row (line 1): repopulated from DB → vm.Lines[0]
+        //     ends up with DB values regardless of what the operator
+        //     might have tampered with in the POST body.
+        //   Unlocked row (line 2): NOT repopulated → vm.Lines[1] keeps
+        //     the operator's edited values from the POST. This is what
+        //     made captured.LineUpdates[0] above carry the edited
+        //     ProductId / UomId / ExpectedQuantity.
+        Assert.Equal(line1DbProductId, vm.Lines[0].ProductId);   // locked: from DB
+        Assert.Equal(line1DbUomId, vm.Lines[0].UomId);           // locked: from DB
+        Assert.Equal(line2EditedProductId, vm.Lines[1].ProductId);// unlocked: from operator
+        Assert.Equal(line2EditedUomId, vm.Lines[1].UomId);       // unlocked: from operator
+        Assert.Equal(12m, vm.Lines[1].ExpectedQuantity);          // unlocked: from operator
     }
 
     [Fact]

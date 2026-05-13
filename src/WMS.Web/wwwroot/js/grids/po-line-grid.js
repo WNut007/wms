@@ -57,7 +57,6 @@
    opts:
      initialLines          — array of seed rows (server-rendered, may be empty)
      mode                  — 'create' | 'edit' (default 'create')
-     readOnly              — boolean, default false (Edit-locked when receipts exist)
      onReorder             — (Array<{lineId, displayOrder}>) => void
                              Edit flow's eager-AJAX path (chunk d will pass it).
                              Create flow leaves it null — drag-drop is in-memory only.
@@ -74,8 +73,17 @@
        lotNumber:     string,
        expectedQuantity: number,
        uomId:         string,
+       uomCode:       string,   // d.2.3.b — displayed on locked rows (readonly text)
+       receivedQuantity: number,// d.2.3.b — drives isLocked flag
+       isLocked:      boolean,  // d.2.3.b — true when receivedQuantity > 0
        unitPrice:     number?
      }
+
+   d.2.3.b — grid-wide `readOnly` config flag retired (TD-026 closure).
+   Lock state is per-row via `line.isLocked` (derived from receivedQuantity
+   server-side in the Razor seed). The factory + Razor read line.isLocked
+   directly; Sortable is always enabled (reorder of locked rows changes
+   DisplayOrder only — no math impact).
    ================================================================== */
 
 function poLineGrid(opts) {
@@ -99,7 +107,6 @@ function poLineGrid(opts) {
         lines:        seed.length > 0 ? seed : [_blankRow(newKey, 1)],
         selected:     new Set(),
         openMenuKey:  null,
-        readOnly:     !!opts.readOnly,
         mode:         opts.mode || 'create',
         sortable:     null,
 
@@ -118,10 +125,11 @@ function poLineGrid(opts) {
                     this._mountRow(rowEl, key);
                 });
 
-                // Wire SortableJS on the tbody.
+                // d.2.3.b — Sortable always enabled. Locked rows can still
+                // be reordered (DisplayOrder is presentation-only; LineNumber
+                // + receipt math unaffected).
                 this.sortable = window.WmsGrid.setupSortable(this.$refs.linesTbody, {
                     handleSelector: '.wmsg-handle',
-                    disabled: this.readOnly,
                     onEnd: (evt) => this._handleReorder(evt.oldIndex, evt.newIndex)
                 });
             });
@@ -163,15 +171,14 @@ function poLineGrid(opts) {
         //
         // Chunk c.3 will add a 'uom' entry to the cells map.
         _mountRow(rowEl, key) {
-            // d.2.2: defence — readOnly rows render no <select> (Razor
-            // branch), so mountSelectsInRow finds nothing. Belt: short-
-            // circuit before reaching the cell config. If a future Razor
-            // change accidentally re-renders the <select> on a locked row,
-            // this guard keeps Tom Select from binding to it.
-            if (this.readOnly) return;
             if (tsInstances.has(key)) return;
             const row = this.lines.find(l => l.key === key);
             if (!row) return;
+            // d.2.3.b: per-row lock. Locked rows render readonly text
+            // (Razor x-if branch), no <select> exists — mountSelectsInRow
+            // would find nothing, but short-circuit here so we don't even
+            // call it (cheaper + clearer intent).
+            if (row.isLocked) return;
 
             const instances = window.WmsGrid.mountSelectsInRow(rowEl, {
                 product: {
@@ -268,6 +275,9 @@ function poLineGrid(opts) {
             if (this.lines.length <= 1) return; // always keep at least one
             const idx = this.lines.findIndex(l => l.key === key);
             if (idx === -1) return;
+            // d.2.3.b — defence: UI disables the menu Delete on locked
+            // rows, but a stray @click from elsewhere shouldn't bypass.
+            if (this.lines[idx].isLocked) return;
             const ts = tsInstances.get(key);
             if (ts) {
                 ts.destroy();
@@ -284,11 +294,18 @@ function poLineGrid(opts) {
             if (idx === -1) return;
             const src = this.lines[idx];
             const nextLineNumber = Math.max.apply(null, this.lines.map(l => l.lineNumber || 0)) + 1;
+            // d.2.3.b — duplicate of a locked row creates a NEW unlocked
+            // line (new lines have no receipts by definition). This is
+            // the documented workaround for "edit a locked line" — operator
+            // clones, edits the clone, asks warehouse to receive against
+            // the new line going forward.
             const dup = Object.assign({}, src, {
-                key:          newKey(),
-                lineNumber:   nextLineNumber,
-                id:           null,             // unsaved copy
-                displayOrder: src.displayOrder  // recomputed by _renumberDisplayOrder
+                key:              newKey(),
+                lineNumber:       nextLineNumber,
+                id:               null,             // unsaved copy
+                displayOrder:     src.displayOrder, // recomputed by _renumberDisplayOrder
+                receivedQuantity: 0,
+                isLocked:         false
             });
             this.lines.splice(idx + 1, 0, dup);
             this.closeMenus();
@@ -399,7 +416,8 @@ function poLineGrid(opts) {
     };
 }
 
-// Internal: a fresh blank row.
+// Internal: a fresh blank row. d.2.3.b — new rows have no receipts by
+// definition (isLocked=false, receivedQuantity=0).
 function _blankRow(newKeyFn, lineNumber) {
     return {
         key:              newKeyFn(),
@@ -412,6 +430,9 @@ function _blankRow(newKeyFn, lineNumber) {
         lotNumber:        '',
         expectedQuantity: 1,
         uomId:            '',
+        uomCode:          '',
+        receivedQuantity: 0,
+        isLocked:         false,
         unitPrice:        null
     };
 }
