@@ -247,6 +247,24 @@ public sealed class PurchaseOrderService : IPurchaseOrderService
             if (i.ExpectedQuantity <= 0)
                 throw new InvalidOperationException(
                     $"Insert line {i.LineNumber}: ExpectedQuantity must be positive.");
+            if (i.DisplayOrder < 0)
+                throw new InvalidOperationException(
+                    $"Insert line {i.LineNumber}: DisplayOrder must be non-negative.");
+        }
+
+        // ---- Validate reorders ----
+        // d.2.3.c — locked-row reorder path. Target must exist; NO
+        // ReceivedQuantity check (DisplayOrder is presentation-only,
+        // safe to update on locked rows).
+        foreach (var r in request.LineReorders)
+        {
+            if (!dbLinesById.TryGetValue(r.LineId, out var dbLine))
+                throw new InvalidOperationException(
+                    $"Cannot reorder line {r.LineId}: not found on PO " +
+                    $"{existing.Header.PoNumber}.");
+            if (r.DisplayOrder < 0)
+                throw new InvalidOperationException(
+                    $"Line {dbLine.LineNumber}: DisplayOrder must be non-negative.");
         }
 
         // ---- Atomic apply ----
@@ -287,14 +305,22 @@ public sealed class PurchaseOrderService : IPurchaseOrderService
             {
                 await repo.UpdateLineAsync(
                     u.LineId, u.ProductId, u.UomId, u.ExpectedQuantity,
-                    currentUserId, ct);
+                    u.DisplayOrder, currentUserId, ct);
             }
 
             foreach (var i in request.LineInserts)
             {
                 await repo.InsertSingleLineAsync(
                     purchaseOrderId, i.LineNumber, i.ProductId, i.UomId,
-                    i.ExpectedQuantity, currentUserId, ct);
+                    i.ExpectedQuantity, i.DisplayOrder, currentUserId, ct);
+            }
+
+            // d.2.3.c — locked-row reorder writes. DisplayOrder only;
+            // no ReceivedQuantity check (presentation-only mutation).
+            foreach (var r in request.LineReorders)
+            {
+                await repo.UpdateLineDisplayOrderAsync(
+                    r.LineId, r.DisplayOrder, currentUserId, ct);
             }
 
             foreach (var deleteId in request.LineDeletes)
@@ -328,9 +354,9 @@ public sealed class PurchaseOrderService : IPurchaseOrderService
                 $"PurchaseOrder {purchaseOrderId} not found after partial update.");
 
         _logger.LogInformation(
-            "Partial-updated PO {PoNumber} ({PoId}) — {UpdateCount} update(s), {InsertCount} insert(s), {DeleteCount} delete(s)",
+            "Partial-updated PO {PoNumber} ({PoId}) — {UpdateCount} update(s), {InsertCount} insert(s), {DeleteCount} delete(s), {ReorderCount} reorder(s)",
             detail.Header.PoNumber, purchaseOrderId,
-            request.LineUpdates.Count, request.LineInserts.Count, request.LineDeletes.Count);
+            request.LineUpdates.Count, request.LineInserts.Count, request.LineDeletes.Count, request.LineReorders.Count);
 
         return detail;
     }

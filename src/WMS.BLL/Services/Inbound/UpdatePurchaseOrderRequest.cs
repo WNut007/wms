@@ -48,16 +48,29 @@ public sealed record PartialUpdatePurchaseOrderRequest(
     string? Notes,
     IReadOnlyList<PartialUpdateLineEdit> LineUpdates,
     IReadOnlyList<PartialUpdateLineInsert> LineInserts,
-    IReadOnlyList<Guid> LineDeletes);
+    IReadOnlyList<Guid> LineDeletes,
+    // Block 4.5.2 d.2.3.c — drag-reorder persistence (Option X). DisplayOrder-
+    // only changes on rows that are otherwise locked (ReceivedQuantity > 0).
+    // Unlocked rows that were both edited AND reordered carry DisplayOrder
+    // in LineUpdates; this list is exclusively for the locked-row case.
+    // Service skips its ReceivedQuantity guard for entries here — reorder
+    // is presentation-only, doesn't touch receipt math.
+    IReadOnlyList<PartialLineReorder> LineReorders);
 
 public sealed record PartialUpdateLineEdit(
     Guid LineId,
     Guid ProductId,
     Guid UomId,
-    decimal ExpectedQuantity);
+    decimal ExpectedQuantity,
+    int DisplayOrder);
 
 public sealed record PartialUpdateLineInsert(
     int LineNumber,
     Guid ProductId,
     Guid UomId,
-    decimal ExpectedQuantity);
+    decimal ExpectedQuantity,
+    int DisplayOrder);
+
+public sealed record PartialLineReorder(
+    Guid LineId,
+    int DisplayOrder);

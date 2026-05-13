@@ -17,7 +17,7 @@
     // ProductIds and Tom Select hydrates the selected pill.
     var productMap = Model.Products.ToDictionary(p => p.Id);
     var uomMap     = Model.Uoms.ToDictionary(u => u.Id);
-    var initialLines = Model.Lines.Select(l =>
+    var initialLines = Model.Lines.Select((l, idx) =>
     {
         productMap.TryGetValue(l.ProductId, out var p);
         uomMap.TryGetValue(l.UomId, out var u);
@@ -34,6 +34,11 @@
             receivedQuantity = l.ReceivedQuantity,
             isLocked         = l.ReceivedQuantity > 0,
             expectedQuantity = l.ExpectedQuantity,
+            // d.2.3.c — drives drag-reorder hidden input. Edit GET
+            // populates DisplayOrder from DB (with LineNumber*10
+            // fallback for d.2.3.c-predate rows); _renumberDisplayOrder
+            // in the factory updates this after every reorder.
+            displayOrder     = l.DisplayOrder == 0 ? (idx + 1) * 10 : l.DisplayOrder,
         };
     });
 
@@ -82,6 +87,28 @@
         mode: '@Model.Mode'
     };
 </script>
+
+@* d.2.3.c — Sortable drag-drop visual tuning. .sortable-ghost is the
+   placeholder slot Sortable shows where the dragged row will land.
+   Default browser style is invisible-fade; promote to a clear visual
+   indicator (dashed purple outline + warning-tint background) so the
+   operator can see the drop target. Scoped to this partial — promote
+   to wms-forms.css if other grids need the same. *@
+<style>
+    .wmsg-row.sortable-ghost {
+        opacity: 0.5;
+        background: var(--wmsf-warning-bg, #fef3c7) !important;
+        outline: 2px dashed var(--wmsf-primary, #5b21b6);
+        outline-offset: -2px;
+    }
+    .wmsg-row.sortable-chosen {
+        background: var(--wmsf-primary-tint, rgba(91, 33, 182, 0.05));
+    }
+    .wmsg-row.sortable-drag {
+        opacity: 0.9;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+</style>
 
 <form action="@formActionUrl"
       method="post"
@@ -408,6 +435,11 @@
                                side). Unlocked → editable Tom Select. *@
                             <td>
                                 <input type="hidden" :name="`Lines[${idx}].LineNumber`" :value="line.lineNumber" />
+                                @* d.2.3.c — DisplayOrder round-trips per row.
+                                   Maintained by _renumberDisplayOrder on the
+                                   Alpine side; controller compares posted vs
+                                   DB to classify reorder ops. *@
+                                <input type="hidden" :name="`Lines[${idx}].DisplayOrder`" :value="line.displayOrder" />
                                 <template x-if="line.isLocked">
                                     <div>
                                         <input type="hidden" :name="`Lines[${idx}].ProductId`" :value="line.productId" />

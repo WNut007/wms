@@ -189,9 +189,10 @@ public class PurchaseOrderServiceTests
         var req = new PartialUpdatePurchaseOrderRequest(
             ExpectedDate: new DateOnly(2026, 7, 1),
             Notes: "updated",
-            LineUpdates: new[] { new PartialUpdateLineEdit(line1Id, TestProductId, TestUomId, 50m) },
-            LineInserts: new[] { new PartialUpdateLineInsert(3, TestProductId, TestUomId, 15m) },
-            LineDeletes: new[] { detail.Lines[1].Id });
+            LineUpdates: new[] { new PartialUpdateLineEdit(line1Id, TestProductId, TestUomId, 50m, DisplayOrder: 10) },
+            LineInserts: new[] { new PartialUpdateLineInsert(3, TestProductId, TestUomId, 15m, DisplayOrder: 30) },
+            LineDeletes: new[] { detail.Lines[1].Id },
+            LineReorders: Array.Empty<PartialLineReorder>());
 
         await sut.UpdatePartialAsync(TestTenantId, poId, req, null);
 
@@ -199,10 +200,10 @@ public class PurchaseOrderServiceTests
             It.IsAny<PurchaseOrder>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
             Times.Once);
         repo.Verify(r => r.UpdateLineAsync(
-            line1Id, TestProductId, TestUomId, 50m, null, It.IsAny<CancellationToken>()),
+            line1Id, TestProductId, TestUomId, 50m, 10, null, It.IsAny<CancellationToken>()),
             Times.Once);
         repo.Verify(r => r.InsertSingleLineAsync(
-            poId, 3, TestProductId, TestUomId, 15m, null, It.IsAny<CancellationToken>()),
+            poId, 3, TestProductId, TestUomId, 15m, 30, null, It.IsAny<CancellationToken>()),
             Times.Once);
         repo.Verify(r => r.DeleteLineAsync(
             detail.Lines[1].Id, It.IsAny<CancellationToken>()),
@@ -224,16 +225,17 @@ public class PurchaseOrderServiceTests
 
         var req = new PartialUpdatePurchaseOrderRequest(
             ExpectedDate: null, Notes: null,
-            LineUpdates: new[] { new PartialUpdateLineEdit(lockedLineId, TestProductId, TestUomId, 99m) },
+            LineUpdates: new[] { new PartialUpdateLineEdit(lockedLineId, TestProductId, TestUomId, 99m, DisplayOrder: 10) },
             LineInserts: Array.Empty<PartialUpdateLineInsert>(),
-            LineDeletes: Array.Empty<Guid>());
+            LineDeletes: Array.Empty<Guid>(),
+            LineReorders: Array.Empty<PartialLineReorder>());
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             sut.UpdatePartialAsync(TestTenantId, poId, req, null));
         Assert.Contains("receipts posted", ex.Message);
         repo.Verify(r => r.UpdateLineAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
-            It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<int>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -252,7 +254,8 @@ public class PurchaseOrderServiceTests
             ExpectedDate: null, Notes: null,
             LineUpdates: Array.Empty<PartialUpdateLineEdit>(),
             LineInserts: Array.Empty<PartialUpdateLineInsert>(),
-            LineDeletes: new[] { lockedLineId });
+            LineDeletes: new[] { lockedLineId },
+            LineReorders: Array.Empty<PartialLineReorder>());
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             sut.UpdatePartialAsync(TestTenantId, poId, req, null));
@@ -276,15 +279,16 @@ public class PurchaseOrderServiceTests
             ExpectedDate: null, Notes: null,
             LineUpdates: Array.Empty<PartialUpdateLineEdit>(),
             // LineNumber 2 already exists → collision.
-            LineInserts: new[] { new PartialUpdateLineInsert(2, TestProductId, TestUomId, 5m) },
-            LineDeletes: Array.Empty<Guid>());
+            LineInserts: new[] { new PartialUpdateLineInsert(2, TestProductId, TestUomId, 5m, DisplayOrder: 20) },
+            LineDeletes: Array.Empty<Guid>(),
+            LineReorders: Array.Empty<PartialLineReorder>());
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             sut.UpdatePartialAsync(TestTenantId, poId, req, null));
         Assert.Contains("already exists", ex.Message);
         repo.Verify(r => r.InsertSingleLineAsync(
             It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-            It.IsAny<decimal>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
+            It.IsAny<decimal>(), It.IsAny<int>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -309,10 +313,10 @@ public class PurchaseOrderServiceTests
             Times.Once);
         repo.Verify(r => r.UpdateLineAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
-            It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<int>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
         repo.Verify(r => r.InsertSingleLineAsync(
             It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-            It.IsAny<decimal>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
+            It.IsAny<decimal>(), It.IsAny<int>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()),
             Times.Never);
         repo.Verify(r => r.DeleteLineAsync(
             It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -331,13 +335,52 @@ public class PurchaseOrderServiceTests
             ExpectedDate: null, Notes: null,
             LineUpdates: Array.Empty<PartialUpdateLineEdit>(),
             LineInserts: new[] {
-                new PartialUpdateLineInsert(2, Guid.Empty, TestUomId, 5m)
+                new PartialUpdateLineInsert(2, Guid.Empty, TestUomId, 5m, DisplayOrder: 20)
             },
-            LineDeletes: Array.Empty<Guid>());
+            LineDeletes: Array.Empty<Guid>(),
+            LineReorders: Array.Empty<PartialLineReorder>());
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             sut.UpdatePartialAsync(TestTenantId, detail.Header.Id, req, null));
         Assert.Contains("ProductId is required", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpdatePartialAsync_LineReorder_OnLockedRow_BypassesReceivedQuantityCheck()
+    {
+        // d.2.3.c — DisplayOrder-only update via LineReorders is allowed
+        // on locked rows (ReceivedQty > 0). Verifies the service does NOT
+        // run the receipt guard for entries in LineReorders.
+        var sut = NewService(out var repo);
+        var detail = DetailWithLines("Receiving",
+            lines: new[] { (1, 10m, 5m), (2, 20m, 0m) });   // line 1 locked
+        var poId = detail.Header.Id;
+        var lockedLineId = detail.Lines[0].Id;
+
+        repo.Setup(r => r.GetByIdAsync(poId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+        repo.Setup(r => r.UpdateHeaderAsync(It.IsAny<PurchaseOrder>(),
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var req = new PartialUpdatePurchaseOrderRequest(
+            ExpectedDate: null, Notes: null,
+            LineUpdates: Array.Empty<PartialUpdateLineEdit>(),
+            LineInserts: Array.Empty<PartialUpdateLineInsert>(),
+            LineDeletes: Array.Empty<Guid>(),
+            // Locked row's new DisplayOrder (operator dragged it).
+            LineReorders: new[] { new PartialLineReorder(lockedLineId, DisplayOrder: 20) });
+
+        await sut.UpdatePartialAsync(TestTenantId, poId, req, null);
+
+        repo.Verify(r => r.UpdateLineDisplayOrderAsync(
+            lockedLineId, 20, null, It.IsAny<CancellationToken>()),
+            Times.Once);
+        // UpdateLineAsync NOT called — locked row reorder doesn't go
+        // through the full-edit path.
+        repo.Verify(r => r.UpdateLineAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+            It.IsAny<int>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // ------------------------------------------------------------------
@@ -349,7 +392,8 @@ public class PurchaseOrderServiceTests
             ExpectedDate: null, Notes: null,
             LineUpdates: Array.Empty<PartialUpdateLineEdit>(),
             LineInserts: Array.Empty<PartialUpdateLineInsert>(),
-            LineDeletes: Array.Empty<Guid>());
+            LineDeletes: Array.Empty<Guid>(),
+            LineReorders: Array.Empty<PartialLineReorder>());
 
     // (LineNumber, ExpectedQuantity, ReceivedQuantity) per line. Status
     // derived from received vs expected — not authoritative for tests but

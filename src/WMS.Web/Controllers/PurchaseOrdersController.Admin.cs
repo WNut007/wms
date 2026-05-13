@@ -114,7 +114,8 @@ public partial class PurchaseOrdersController
             Status = detail.Header.Status,
             LinesLocked = locked,
             Lines = detail.Lines
-                .OrderBy(l => l.LineNumber)
+                .OrderBy(l => l.DisplayOrder == 0 ? l.LineNumber * 10 : l.DisplayOrder)
+                .ThenBy(l => l.LineNumber)
                 .Select(l => new PurchaseOrderLineViewModel
                 {
                     LineNumber = l.LineNumber,
@@ -122,6 +123,12 @@ public partial class PurchaseOrdersController
                     UomId = l.UomId,
                     ExpectedQuantity = l.ExpectedQuantity,
                     ReceivedQuantity = l.ReceivedQuantity,
+                    // d.2.3.c — drives drag-reorder hidden input.
+                    // Fallback (DisplayOrder=0) is the pre-d.2.3.c
+                    // backfill state per Migration_037; treat as
+                    // LineNumber*10 so initial render matches LineNumber
+                    // order until first drag.
+                    DisplayOrder = l.DisplayOrder == 0 ? l.LineNumber * 10 : l.DisplayOrder,
                 })
                 .ToList(),
         };
@@ -221,16 +228,37 @@ public partial class PurchaseOrdersController
         var lineUpdates = new List<PartialUpdateLineEdit>();
         var lineInserts = new List<PartialUpdateLineInsert>();
         var lineDeletes = new List<Guid>();
+        var lineReorders = new List<PartialLineReorder>();
 
         foreach (var posted in vm.Lines ?? Enumerable.Empty<PurchaseOrderLineViewModel>())
         {
-            if (dbLockedNumbers.Contains(posted.LineNumber)) continue;
+            // d.2.3.c — locked row classification: dbLockedNumbers
+            // continues to drop locked rows from LineUpdates (defence
+            // against operator tampering on Product/UoM/Qty). But if
+            // their DisplayOrder changed from DB (operator drag-
+            // reordered them), they enter LineReorders so the new
+            // position persists.
+            if (dbLockedNumbers.Contains(posted.LineNumber))
+            {
+                if (dbLinesByNumber.TryGetValue(posted.LineNumber, out var lockedDbLine)
+                    && lockedDbLine.DisplayOrder != posted.DisplayOrder)
+                {
+                    lineReorders.Add(new PartialLineReorder(
+                        lockedDbLine.Id, posted.DisplayOrder));
+                }
+                continue;
+            }
+
             if (dbLinesByNumber.TryGetValue(posted.LineNumber, out var dbLine))
+                // Unlocked existing: include DisplayOrder in the update
+                // so reorders + edits persist atomically.
                 lineUpdates.Add(new PartialUpdateLineEdit(
-                    dbLine.Id, posted.ProductId, posted.UomId, posted.ExpectedQuantity));
+                    dbLine.Id, posted.ProductId, posted.UomId,
+                    posted.ExpectedQuantity, posted.DisplayOrder));
             else
                 lineInserts.Add(new PartialUpdateLineInsert(
-                    posted.LineNumber, posted.ProductId, posted.UomId, posted.ExpectedQuantity));
+                    posted.LineNumber, posted.ProductId, posted.UomId,
+                    posted.ExpectedQuantity, posted.DisplayOrder));
         }
 
         foreach (var dbLine in detail.Lines)
@@ -245,7 +273,8 @@ public partial class PurchaseOrdersController
             Notes: string.IsNullOrWhiteSpace(vm.Notes) ? null : vm.Notes.Trim(),
             LineUpdates: lineUpdates,
             LineInserts: lineInserts,
-            LineDeletes: lineDeletes);
+            LineDeletes: lineDeletes,
+            LineReorders: lineReorders);
 
         try
         {

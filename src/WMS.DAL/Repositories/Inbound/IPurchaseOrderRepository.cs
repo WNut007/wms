@@ -138,12 +138,15 @@ public interface IPurchaseOrderRepository
         CancellationToken ct = default);
 
     // Block 4.5.2 d.2.3.a (TD-026 closure prep) — single-line UPDATE.
-    // SET covers ProductId / UomId / ExpectedQuantity + audit only;
-    // never touches ReceivedQuantity, LineNumber, LineNo, DisplayOrder,
+    // SET covers ProductId / UomId / ExpectedQuantity / DisplayOrder +
+    // audit only; never touches ReceivedQuantity, LineNumber, LineNo,
     // or Status. The exclusion is structural — even an operator-crafted
     // POST cannot mutate those fields through this method. UpdatedAt +
     // UpdatedBy stamped; Version += 1 for mutation tracking (no OCC
     // gate per the d.2.3 last-write-wins decision).
+    //
+    // d.2.3.c — DisplayOrder added so unlocked rows that were both
+    // edited AND reordered persist both changes in a single UPDATE.
     //
     // The service is expected to have pre-checked the target line has
     // ReceivedQuantity == 0. This method does NOT enforce that — it
@@ -155,6 +158,19 @@ public interface IPurchaseOrderRepository
         Guid productId,
         Guid uomId,
         decimal expectedQuantity,
+        int displayOrder,
+        Guid? userId,
+        CancellationToken ct = default);
+
+    // Block 4.5.2 d.2.3.c — DisplayOrder-only update for the drag-
+    // reorder path. UNLIKE UpdateLineAsync, this method is allowed on
+    // LOCKED rows (ReceivedQuantity > 0). Reordering is a presentation
+    // concern — it doesn't touch receipt math, so locked rows can
+    // freely change DisplayOrder. Service skips the ReceivedQuantity
+    // guard for entries in LineReorders.
+    Task UpdateLineDisplayOrderAsync(
+        Guid lineId,
+        int displayOrder,
         Guid? userId,
         CancellationToken ct = default);
 
@@ -163,12 +179,16 @@ public interface IPurchaseOrderRepository
     // by definition; excluding both from the parameter set eliminates
     // the operator-mutation surface). LineNo computed inline as
     // LineNumber * 10 per chunk c precedent.
+    //
+    // d.2.3.c — DisplayOrder added so a new line inserted via drag-
+    // reorder lands in the correct visual position immediately.
     Task InsertSingleLineAsync(
         Guid purchaseOrderId,
         int lineNumber,
         Guid productId,
         Guid uomId,
         decimal expectedQuantity,
+        int displayOrder,
         Guid? userId,
         CancellationToken ct = default);
 

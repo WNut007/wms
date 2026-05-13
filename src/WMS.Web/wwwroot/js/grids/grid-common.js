@@ -159,6 +159,12 @@
     //   disabled       — boolean, default false               (optional)
     //                    Edit-when-locked path — skip drag-drop wiring
     //                    entirely (PO Edit when ReceivedQuantity > 0).
+    //   swapThreshold  — number 0.0..1.0, default 0.5         (optional)
+    //                    d.2.3.c — lower threshold = swap triggers on
+    //                    partial overlap (easier to land for tables).
+    //                    Sortable's library default is 1.0 which
+    //                    requires full overlap; 0.5 is the documented
+    //                    sweet spot for vertical row reorder.
     //
     // Returns the Sortable instance.
     function setupSortable(tbody, opts) {
@@ -170,12 +176,13 @@
         }
 
         return new window.Sortable(tbody, {
-            handle:      opts.handleSelector || '.drag-handle',
-            animation:   opts.animation != null ? opts.animation : 150,
-            ghostClass:  opts.ghostClass  || 'sortable-ghost',
-            chosenClass: opts.chosenClass || 'sortable-chosen',
-            dragClass:   opts.dragClass   || 'sortable-drag',
-            disabled:    !!opts.disabled,
+            handle:        opts.handleSelector || '.drag-handle',
+            animation:     opts.animation != null ? opts.animation : 150,
+            ghostClass:    opts.ghostClass  || 'sortable-ghost',
+            chosenClass:   opts.chosenClass || 'sortable-chosen',
+            dragClass:     opts.dragClass   || 'sortable-drag',
+            disabled:      !!opts.disabled,
+            swapThreshold: opts.swapThreshold != null ? opts.swapThreshold : 0.5,
             onEnd: function (evt) {
                 // Filter no-op drops (e.g., drag and release on the same
                 // row) — saves a pointless reorder callback that would

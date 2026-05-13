@@ -27,4 +27,12 @@ public sealed class PurchaseOrderLineViewModel
     // entity. Used by the lock decision (any line with > 0 → lines
     // section locked) and rendered as read-only column.
     public decimal ReceivedQuantity { get; set; }
+
+    // d.2.3.c — drag-reorder persistence. Hidden input round-trips
+    // line.displayOrder from the Alpine state (maintained by
+    // _renumberDisplayOrder after every reorder / insert / remove).
+    // Controller compares posted vs DB DisplayOrder to classify
+    // reorder ops; locked rows go through LineReorders, unlocked
+    // through LineUpdates.
+    public int DisplayOrder { get; set; }
 }

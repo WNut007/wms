@@ -500,6 +500,94 @@ public class PurchaseOrdersAdminTests
     }
 
     [Fact]
+    public async Task Edit_Post_DragReorder_LockedAndUnlocked_ClassifiedCorrectly()
+    {
+        // d.2.3.c regression — drag-reorder persistence (Option X).
+        // Two-line PO, line 1 locked + line 2 unlocked. Operator drags
+        // line 1 down (now slot 2) → line 1 DisplayOrder = 20, line 2
+        // DisplayOrder = 10. Expected classification:
+        //   Line 1 (locked) → LineReorders (DisplayOrder-only)
+        //   Line 2 (unlocked) → LineUpdates (full edit, incl. new DO)
+        var b = BuildAdmin();
+        var poId = Guid.NewGuid();
+        var line1Id = Guid.NewGuid();
+        var line2Id = Guid.NewGuid();
+        var detail = new PurchaseOrderDetail(
+            new PurchaseOrder
+            {
+                Id = poId, PoNumber = "PO-DRAG",
+                OwnerId = Guid.NewGuid(), WarehouseId = Guid.NewGuid(),
+                Status = "Receiving",
+            },
+            new List<PurchaseOrderLine>
+            {
+                new() {
+                    Id = line1Id, PurchaseOrderId = poId, LineNumber = 1,
+                    ProductId = Guid.NewGuid(), UomId = Guid.NewGuid(),
+                    ExpectedQuantity = 10m, ReceivedQuantity = 5m,
+                    Status = "PartiallyReceived",
+                    DisplayOrder = 10,  // initial visual order
+                },
+                new() {
+                    Id = line2Id, PurchaseOrderId = poId, LineNumber = 2,
+                    ProductId = Guid.NewGuid(), UomId = Guid.NewGuid(),
+                    ExpectedQuantity = 8m, ReceivedQuantity = 0m,
+                    Status = "Open",
+                    DisplayOrder = 20,
+                },
+            });
+        b.Repo.Setup(r => r.GetByIdAsync(poId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+
+        PartialUpdatePurchaseOrderRequest? captured = null;
+        b.Service.Setup(s => s.UpdatePartialAsync(
+                It.IsAny<Guid>(), poId, It.IsAny<PartialUpdatePurchaseOrderRequest>(),
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, Guid, PartialUpdatePurchaseOrderRequest, Guid?, CancellationToken>(
+                (_, _, r, _, _) => captured = r)
+            .ReturnsAsync(detail);
+
+        // POST shape after operator drags line 1 below line 2:
+        //   Line 1: still locked, but DisplayOrder now 20
+        //   Line 2: now slot 1, DisplayOrder = 10, ProductId/UomId/Qty
+        //           round-tripped from POST (operator didn't edit them)
+        var vm = new PurchaseOrderEditViewModel
+        {
+            Id = poId,
+            PoNumber = "PO-DRAG",
+            Lines = new List<PurchaseOrderLineViewModel>
+            {
+                // Visual order after drag: line 2 first, then line 1.
+                new() { LineNumber = 2, ProductId = detail.Lines[1].ProductId,
+                        UomId = detail.Lines[1].UomId, ExpectedQuantity = 8m,
+                        DisplayOrder = 10 },
+                new() { LineNumber = 1, ProductId = detail.Lines[0].ProductId,
+                        UomId = detail.Lines[0].UomId, ExpectedQuantity = 10m,
+                        DisplayOrder = 20 },
+            },
+        };
+
+        var result = await b.Controller.Edit(poId, vm, default);
+
+        Assert.IsType<RedirectToActionResult>(result);
+        Assert.NotNull(captured);
+
+        // Line 1 (locked) → LineReorders with new DisplayOrder = 20.
+        Assert.Single(captured!.LineReorders);
+        Assert.Equal(line1Id, captured.LineReorders[0].LineId);
+        Assert.Equal(20, captured.LineReorders[0].DisplayOrder);
+
+        // Line 2 (unlocked) → LineUpdates with new DisplayOrder = 10.
+        Assert.Single(captured.LineUpdates);
+        Assert.Equal(line2Id, captured.LineUpdates[0].LineId);
+        Assert.Equal(10, captured.LineUpdates[0].DisplayOrder);
+
+        // No inserts, no deletes for a pure reorder.
+        Assert.Empty(captured.LineInserts);
+        Assert.Empty(captured.LineDeletes);
+    }
+
+    [Fact]
     public async Task Edit_Post_ClosedPo_RedirectsToDetail_NoServiceCall()
     {
         // Defence in depth — GET redirects Closed/Cancelled; POST does

@@ -22,7 +22,7 @@ internal sealed class PurchaseOrderRepository : IPurchaseOrderRepository
 
     private const string LineColumns = @"
         Id, PurchaseOrderId, LineNumber, ProductId, UomId,
-        ExpectedQuantity, ReceivedQuantity, Status,
+        ExpectedQuantity, ReceivedQuantity, Status, DisplayOrder,
         CreatedAt, UpdatedAt, CreatedBy, UpdatedBy, Version
         FROM inbound.PurchaseOrderLines";
 
@@ -353,14 +353,15 @@ WHERE Id = @Id;";
         }
     }
 
-    // Block 4.5.2 d.2.3.a — surgical single-line UPDATE. Single
-    // ExecuteAsync; enlists with ambient TransactionScope automatically
-    // when the service wraps the partial-update batch.
+    // Block 4.5.2 d.2.3.a — surgical single-line UPDATE. d.2.3.c — adds
+    // DisplayOrder so unlocked rows that were both edited AND reordered
+    // persist both in one statement.
     public Task UpdateLineAsync(
         Guid lineId,
         Guid productId,
         Guid uomId,
         decimal expectedQuantity,
+        int displayOrder,
         Guid? userId,
         CancellationToken ct = default) =>
         _connection.ExecuteAsync(new CommandDefinition(
@@ -368,6 +369,7 @@ WHERE Id = @Id;";
               SET ProductId        = @ProductId,
                   UomId            = @UomId,
                   ExpectedQuantity = @ExpectedQuantity,
+                  DisplayOrder     = @DisplayOrder,
                   UpdatedAt        = SYSUTCDATETIME(),
                   UpdatedBy        = @UserId,
                   Version          = Version + 1
@@ -378,6 +380,31 @@ WHERE Id = @Id;";
                 ProductId = productId,
                 UomId = uomId,
                 ExpectedQuantity = expectedQuantity,
+                DisplayOrder = displayOrder,
+                UserId = userId,
+            },
+            cancellationToken: ct));
+
+    // Block 4.5.2 d.2.3.c — DisplayOrder-only update for the drag-
+    // reorder path on locked rows. Allowed regardless of ReceivedQuantity
+    // because DisplayOrder is presentation-only (doesn't touch receipt
+    // math). Service skips its ReceivedQuantity guard for this method.
+    public Task UpdateLineDisplayOrderAsync(
+        Guid lineId,
+        int displayOrder,
+        Guid? userId,
+        CancellationToken ct = default) =>
+        _connection.ExecuteAsync(new CommandDefinition(
+            @"UPDATE inbound.PurchaseOrderLines
+              SET DisplayOrder = @DisplayOrder,
+                  UpdatedAt    = SYSUTCDATETIME(),
+                  UpdatedBy    = @UserId,
+                  Version      = Version + 1
+              WHERE Id = @LineId;",
+            new
+            {
+                LineId = lineId,
+                DisplayOrder = displayOrder,
                 UserId = userId,
             },
             cancellationToken: ct));
@@ -386,23 +413,25 @@ WHERE Id = @Id;";
     // and Status = 'Open' are SQL literals (not parameters) so operator-
     // crafted POSTs cannot subvert them. LineNo bracketed — LINENO is a
     // T-SQL reserved keyword in column-list context (same precedent as
-    // chunk c's INSERT).
+    // chunk c's INSERT). d.2.3.c — DisplayOrder added so a new line
+    // inserted via drag-reorder lands in the correct visual position.
     public Task InsertSingleLineAsync(
         Guid purchaseOrderId,
         int lineNumber,
         Guid productId,
         Guid uomId,
         decimal expectedQuantity,
+        int displayOrder,
         Guid? userId,
         CancellationToken ct = default) =>
         _connection.ExecuteAsync(new CommandDefinition(
             @"INSERT INTO inbound.PurchaseOrderLines
                   (Id, PurchaseOrderId, LineNumber, [LineNo], ProductId, UomId,
-                   ExpectedQuantity, ReceivedQuantity, Status, CreatedBy)
+                   ExpectedQuantity, ReceivedQuantity, Status, DisplayOrder, CreatedBy)
               VALUES
                   (NEWID(), @PurchaseOrderId, @LineNumber, (@LineNumber * 10),
                    @ProductId, @UomId,
-                   @ExpectedQuantity, 0, 'Open', @UserId);",
+                   @ExpectedQuantity, 0, 'Open', @DisplayOrder, @UserId);",
             new
             {
                 PurchaseOrderId = purchaseOrderId,
@@ -410,6 +439,7 @@ WHERE Id = @Id;";
                 ProductId = productId,
                 UomId = uomId,
                 ExpectedQuantity = expectedQuantity,
+                DisplayOrder = displayOrder,
                 UserId = userId,
             },
             cancellationToken: ct));
