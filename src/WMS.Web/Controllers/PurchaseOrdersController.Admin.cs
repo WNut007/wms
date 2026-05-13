@@ -148,6 +148,34 @@ public partial class PurchaseOrdersController
         // Server overrides the VM's hint with DB truth.
         vm.LinesLocked = detail.Lines.Any(l => l.ReceivedQuantity > 0);
 
+        // d.2.3.a.2 — repopulate vm.Lines from DB state when whole-grid
+        // lock is on. The d.2.2 UI disables every UoM <select> in this
+        // case, so vm.Lines arrives with Guid.Empty UomId across the
+        // board (disabled selects don't POST). Two consequences without
+        // this repopulate:
+        //   1. Razor's error-path re-render shows '—' for every UoM cell.
+        //   2. Even unrelated future validation surfaces would see bad
+        //      input shape.
+        // Source-of-truth handoff: the controller's short-circuit (below)
+        // already drops line classification when LinesLocked; this just
+        // brings the bound VM into agreement with DB so re-render is
+        // sane. d.2.3.b's per-row UI will only disable per-locked-row,
+        // so this fixup no-ops there.
+        if (vm.LinesLocked && vm.Lines is { Count: > 0 })
+        {
+            var dbByLineNumber = detail.Lines.ToDictionary(l => l.LineNumber);
+            foreach (var line in vm.Lines)
+            {
+                if (dbByLineNumber.TryGetValue(line.LineNumber, out var dbLine))
+                {
+                    line.ProductId = dbLine.ProductId;
+                    line.UomId = dbLine.UomId;
+                    line.ExpectedQuantity = dbLine.ExpectedQuantity;
+                    line.ReceivedQuantity = dbLine.ReceivedQuantity;
+                }
+            }
+        }
+
         var fv = await _editValidator.ValidateAsync(vm, ct);
         if (!fv.IsValid)
         {

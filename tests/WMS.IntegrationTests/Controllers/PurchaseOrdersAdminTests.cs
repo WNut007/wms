@@ -460,6 +460,9 @@ public class PurchaseOrdersAdminTests
             LinesLocked = false,  // lying — server overrides to true
         };
 
+        var line1OriginalUom = detail.Lines[0].UomId;
+        var line2OriginalUom = detail.Lines[1].UomId;
+
         var result = await b.Controller.Edit(poId, vm, default);
 
         var redirect = Assert.IsType<RedirectToActionResult>(result);
@@ -472,6 +475,12 @@ public class PurchaseOrdersAdminTests
         Assert.Empty(captured.LineInserts);
         Assert.Empty(captured.LineDeletes);
         Assert.Equal("header edit", captured.Notes);
+
+        // d.2.3.a.2 — repopulate brings vm.Lines into agreement with DB
+        // so the error-path re-render shows real values (not the '—'
+        // empty-option fallback the disabled-select POST would produce).
+        Assert.Equal(line1OriginalUom, vm.Lines[0].UomId);
+        Assert.Equal(line2OriginalUom, vm.Lines[1].UomId);
     }
 
     [Fact]

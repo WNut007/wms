@@ -253,62 +253,75 @@ public sealed class PurchaseOrderService : IPurchaseOrderService
         // TransactionScope spans the multi-connection batch (header +
         // per-line ops). MSDTC promotion accepted per TD-022; Phase
         // 10B / 11A / 12 / 13 precedent.
-        using var scope = new TransactionScope(
+        //
+        // d.2.3.a.2 — scope ENDS before the post-update re-fetch. With
+        // `using var scope = ...` the scope stays alive across the
+        // re-fetch GetByIdAsync, which opens a new connection and tries
+        // to enlist in a "Complete()d but not yet Disposed" scope
+        // (Transaction.Current still set, but TX state is voted-to-
+        // commit). Result: InvalidOperationException("The current
+        // TransactionScope is already complete."). Phase 11A/12 don't
+        // hit this because their post-Complete code is logging-only;
+        // this method needs a re-fetch for the return value.
+        using (var scope = new TransactionScope(
             TransactionScopeOption.Required,
             new TransactionOptions { IsolationLevel = IsolationLevel.ReadCommitted },
-            TransactionScopeAsyncFlowOption.Enabled);
-
-        var headerEntity = new PurchaseOrder
+            TransactionScopeAsyncFlowOption.Enabled))
         {
-            Id = purchaseOrderId,
-            PoNumber = existing.Header.PoNumber,       // frozen
-            OwnerId = existing.Header.OwnerId,          // frozen
-            WarehouseId = existing.Header.WarehouseId,  // frozen
-            ExpectedDate = request.ExpectedDate,
-            Notes = request.Notes,
-            Status = existing.Header.Status,            // unchanged here
-        };
-        var ok = await repo.UpdateHeaderAsync(headerEntity, currentUserId, ct);
-        if (!ok)
-            throw new InvalidOperationException(
-                $"Failed to update PurchaseOrder {purchaseOrderId} header.");
-
-        foreach (var u in request.LineUpdates)
-        {
-            await repo.UpdateLineAsync(
-                u.LineId, u.ProductId, u.UomId, u.ExpectedQuantity,
-                currentUserId, ct);
-        }
-
-        foreach (var i in request.LineInserts)
-        {
-            await repo.InsertSingleLineAsync(
-                purchaseOrderId, i.LineNumber, i.ProductId, i.UomId,
-                i.ExpectedQuantity, currentUserId, ct);
-        }
-
-        foreach (var deleteId in request.LineDeletes)
-        {
-            try
+            var headerEntity = new PurchaseOrder
             {
-                await repo.DeleteLineAsync(deleteId, ct);
-            }
-            catch (SqlException ex) when (ex.Number == 547)
-            {
-                // In-flight race: a receipt landed against this line
-                // after our pre-check but before the DELETE landed.
-                // FK NO ACTION on ReceivingLines refuses. Convert to
-                // a friendly InvalidOpEx so the controller can surface
-                // it to the operator.
-                var dbLine = dbLinesById[deleteId];
+                Id = purchaseOrderId,
+                PoNumber = existing.Header.PoNumber,       // frozen
+                OwnerId = existing.Header.OwnerId,          // frozen
+                WarehouseId = existing.Header.WarehouseId,  // frozen
+                ExpectedDate = request.ExpectedDate,
+                Notes = request.Notes,
+                Status = existing.Header.Status,            // unchanged here
+            };
+            var ok = await repo.UpdateHeaderAsync(headerEntity, currentUserId, ct);
+            if (!ok)
                 throw new InvalidOperationException(
-                    $"Cannot delete line {dbLine.LineNumber}: a receipt " +
-                    $"landed against it during this edit. Refresh and retry.",
-                    ex);
-            }
-        }
+                    $"Failed to update PurchaseOrder {purchaseOrderId} header.");
 
-        scope.Complete();
+            foreach (var u in request.LineUpdates)
+            {
+                await repo.UpdateLineAsync(
+                    u.LineId, u.ProductId, u.UomId, u.ExpectedQuantity,
+                    currentUserId, ct);
+            }
+
+            foreach (var i in request.LineInserts)
+            {
+                await repo.InsertSingleLineAsync(
+                    purchaseOrderId, i.LineNumber, i.ProductId, i.UomId,
+                    i.ExpectedQuantity, currentUserId, ct);
+            }
+
+            foreach (var deleteId in request.LineDeletes)
+            {
+                try
+                {
+                    await repo.DeleteLineAsync(deleteId, ct);
+                }
+                catch (SqlException ex) when (ex.Number == 547)
+                {
+                    // In-flight race: a receipt landed against this line
+                    // after our pre-check but before the DELETE landed.
+                    // FK NO ACTION on ReceivingLines refuses. Convert to
+                    // a friendly InvalidOpEx so the controller can surface
+                    // it to the operator.
+                    var dbLine = dbLinesById[deleteId];
+                    throw new InvalidOperationException(
+                        $"Cannot delete line {dbLine.LineNumber}: a receipt " +
+                        $"landed against it during this edit. Refresh and retry.",
+                        ex);
+                }
+            }
+
+            scope.Complete();
+        }
+        // Scope is disposed here; Transaction.Current is null. Safe to
+        // re-read without enlistment ambiguity.
 
         var detail = await repo.GetByIdAsync(purchaseOrderId, ct)
             ?? throw new InvalidOperationException(
