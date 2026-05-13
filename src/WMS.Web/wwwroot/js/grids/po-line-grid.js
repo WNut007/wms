@@ -128,13 +128,12 @@ function poLineGrid(opts) {
                 // d.2.3.b — Sortable always enabled. Locked rows can still
                 // be reordered (DisplayOrder is presentation-only; LineNumber
                 // + receipt math unaffected).
-                // d.2.3.c.2 — onEnd payload widened to { oldIndex, newIndex,
-                // newKeys }. _handleReorder prefers newKeys (live DOM order)
-                // over index splice for robustness against Sortable's index-
-                // reporting races on fast drag-release.
+                // d.2.3.c.3 — reverted to d.2.3.c.1's index-splice path.
+                // newKeys experiment in d.2.3.c.2 introduced a worse
+                // failure mode (full reversal on fast drag); see TD-120.
                 this.sortable = window.WmsGrid.setupSortable(this.$refs.linesTbody, {
                     handleSelector: '.wmsg-handle',
-                    onEnd: (payload) => this._handleReorder(payload)
+                    onEnd: (evt) => this._handleReorder(evt.oldIndex, evt.newIndex)
                 });
             });
 
@@ -416,25 +415,13 @@ function poLineGrid(opts) {
         },
 
         // ------- internals -------
-        _handleReorder(payload) {
-            // d.2.3.c.2 — payload is { oldIndex, newIndex, newKeys }.
-            // newKeys is the live DOM key order captured at drop time;
-            // sorting the Alpine array to match is robust against
-            // Sortable.js's index-reporting races on fast drag-release.
-            // Fallback to index-splice if newKeys is unavailable (e.g.
-            // a future test harness that doesn't render dataset.rowKey).
-            const oldIdx = payload.oldIndex;
-            const newIdx = payload.newIndex;
-            const newKeys = payload.newKeys;
-
-            if (Array.isArray(newKeys) && newKeys.length === this.lines.length) {
-                const order = new Map();
-                newKeys.forEach((k, i) => order.set(k, i));
-                this.lines.sort((a, b) => order.get(a.key) - order.get(b.key));
-            } else {
-                const [moved] = this.lines.splice(oldIdx, 1);
-                this.lines.splice(newIdx, 0, moved);
-            }
+        _handleReorder(oldIdx, newIdx) {
+            // d.2.3.c.3 — reverted to index splice. d.2.3.c.2's newKeys
+            // experiment shipped a worse failure mode for fast drag
+            // (full reversal); reverted in favor of partial fix.
+            // Fast-drag race tracked as TD-120.
+            const [moved] = this.lines.splice(oldIdx, 1);
+            this.lines.splice(newIdx, 0, moved);
             this._renumberDisplayOrder();
             this._notifyReorder();
         },
