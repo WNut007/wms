@@ -136,12 +136,17 @@ public partial class PurchaseOrdersController
     {
         var tenantId = _tenant.RequireTenantId();
         var repo = _repos.For(tenantId);
-
-        // Server-side authoritative lock check — UI's LinesLocked is
-        // a hint, not trustworthy.
-        var receivedCount = await repo.CountReceivedLinesAsync(id, ct);
-        vm.LinesLocked = receivedCount > 0;
         vm.Id = id;
+
+        // Authoritative DB state. Drives lock classification + the
+        // Closed/Cancelled redirect (defence; GET already redirects).
+        var detail = await repo.GetByIdAsync(id, ct);
+        if (detail is null) return NotFound();
+        if (detail.Header.Status is "Closed" or "Cancelled")
+            return RedirectToAction(nameof(Detail), new { id });
+
+        // Server overrides the VM's hint with DB truth.
+        vm.LinesLocked = detail.Lines.Any(l => l.ReceivedQuantity > 0);
 
         var fv = await _editValidator.ValidateAsync(vm, ct);
         if (!fv.IsValid)
@@ -152,31 +157,58 @@ public partial class PurchaseOrdersController
 
         if (!ModelState.IsValid)
         {
-            var detail = await repo.GetByIdAsync(id, ct);
-            await PopulateEditLookupsAsync(vm,
-                detail?.Header.OwnerId ?? Guid.Empty,
-                detail?.Header.WarehouseId ?? Guid.Empty, ct);
+            await PopulateEditLookupsAsync(vm, detail.Header.OwnerId, detail.Header.WarehouseId, ct);
             return View(vm);
         }
 
-        var request = new UpdatePurchaseOrderRequest(
+        // d.2.3.a — classify posted lines vs DB by LineNumber (Path X,
+        // transitional until d.2.3.b adds a hidden line.Id POST field).
+        // Locked-line filter: d.2.2's UI round-trips locked rows in the
+        // POST body via hidden inputs, but operator didn't intend to
+        // mutate them — skip on both sides (no update for locked, no
+        // delete for "missing from posted set"). Service still validates
+        // each op as defence against malicious POSTs that try to slip
+        // an edit through.
+        var dbLinesByNumber = detail.Lines.ToDictionary(l => l.LineNumber);
+        var dbLockedNumbers = detail.Lines
+            .Where(l => l.ReceivedQuantity > 0)
+            .Select(l => l.LineNumber)
+            .ToHashSet();
+        var postedLineNumbers = (vm.Lines ?? new())
+            .Select(l => l.LineNumber).ToHashSet();
+
+        var lineUpdates = new List<PartialUpdateLineEdit>();
+        var lineInserts = new List<PartialUpdateLineInsert>();
+        var lineDeletes = new List<Guid>();
+
+        foreach (var posted in vm.Lines ?? Enumerable.Empty<PurchaseOrderLineViewModel>())
+        {
+            if (dbLockedNumbers.Contains(posted.LineNumber)) continue;
+            if (dbLinesByNumber.TryGetValue(posted.LineNumber, out var dbLine))
+                lineUpdates.Add(new PartialUpdateLineEdit(
+                    dbLine.Id, posted.ProductId, posted.UomId, posted.ExpectedQuantity));
+            else
+                lineInserts.Add(new PartialUpdateLineInsert(
+                    posted.LineNumber, posted.ProductId, posted.UomId, posted.ExpectedQuantity));
+        }
+
+        foreach (var dbLine in detail.Lines)
+        {
+            if (dbLockedNumbers.Contains(dbLine.LineNumber)) continue;
+            if (!postedLineNumbers.Contains(dbLine.LineNumber))
+                lineDeletes.Add(dbLine.Id);
+        }
+
+        var request = new PartialUpdatePurchaseOrderRequest(
             ExpectedDate: vm.ExpectedDate,
             Notes: string.IsNullOrWhiteSpace(vm.Notes) ? null : vm.Notes.Trim(),
-            ReplaceLines: !vm.LinesLocked,
-            Lines: (vm.LinesLocked || vm.Lines is null)
-                ? Array.Empty<UpdatePurchaseOrderLineRequest>()
-                : vm.Lines
-                    .OrderBy(l => l.LineNumber)
-                    .Select(l => new UpdatePurchaseOrderLineRequest(
-                        LineNumber: l.LineNumber,
-                        ProductId: l.ProductId,
-                        UomId: l.UomId,
-                        ExpectedQuantity: l.ExpectedQuantity))
-                    .ToList());
+            LineUpdates: lineUpdates,
+            LineInserts: lineInserts,
+            LineDeletes: lineDeletes);
 
         try
         {
-            await _service.UpdateAsync(tenantId, id, request, _currentUser.UserId, ct);
+            await _service.UpdatePartialAsync(tenantId, id, request, _currentUser.UserId, ct);
             return RedirectToAction(nameof(Detail), new { id });
         }
         catch (InvalidOperationException ex)
@@ -189,10 +221,7 @@ public partial class PurchaseOrdersController
                 "Selected product or unit no longer exists. Please reselect.");
         }
 
-        var detailRefresh = await repo.GetByIdAsync(id, ct);
-        await PopulateEditLookupsAsync(vm,
-            detailRefresh?.Header.OwnerId ?? Guid.Empty,
-            detailRefresh?.Header.WarehouseId ?? Guid.Empty, ct);
+        await PopulateEditLookupsAsync(vm, detail.Header.OwnerId, detail.Header.WarehouseId, ct);
         return View(vm);
     }
 

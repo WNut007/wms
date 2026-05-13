@@ -38,6 +38,35 @@ public interface IPurchaseOrderService
         Guid? currentUserId,
         CancellationToken ct = default);
 
+    // Block 4.5.2 d.2.3.a (TD-026 closure prep) — surgical partial
+    // update. Replaces the wholesale UpdateAsync flow for Edit POST so
+    // per-line locked state can be preserved.
+    //
+    // Each operation classified against authoritative DB state:
+    //   LineUpdates  → refuse when target ReceivedQuantity > 0 (locked).
+    //                  UPDATE never touches ReceivedQuantity / LineNumber
+    //                  / LineNo / DisplayOrder / Status.
+    //   LineInserts  → refuse on LineNumber collision with existing or
+    //                  among inserts. ReceivedQuantity hardcoded 0 in
+    //                  INSERT (operator-supplied value not parameterised).
+    //   LineDeletes  → refuse when target ReceivedQuantity > 0 (locked).
+    //                  FK NO ACTION on ReceivingLines is the in-flight-
+    //                  race last-resort guard.
+    //
+    // All operations + header update wrapped in a single TransactionScope
+    // (TD-022 multi-connection MSDTC trade-off accepted per Phase 10B /
+    // 11A / 12 precedent). Mixed-batch atomicity: any failure rolls back
+    // every write, including header.
+    //
+    // Closed/Cancelled POs refused outright (controller redirects first;
+    // defence in depth here).
+    Task<PurchaseOrderDetail> UpdatePartialAsync(
+        Guid tenantId,
+        Guid purchaseOrderId,
+        PartialUpdatePurchaseOrderRequest request,
+        Guid? currentUserId,
+        CancellationToken ct = default);
+
     // Phase 9A — Cancel a PO. Sets header Status='Cancelled' (only
     // valid from Open or Receiving); cascades Cancelled to all lines
     // currently in Open or PartiallyReceived (lines with stock still

@@ -1,3 +1,5 @@
+using System.Transactions;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using WMS.DAL.Repositories.Inbound;
 using WMS.Domain.Entities.Inbound;
@@ -151,6 +153,171 @@ public sealed class PurchaseOrderService : IPurchaseOrderService
         _logger.LogInformation(
             "Updated PO {PoNumber} ({PoId}) — replaceLines={ReplaceLines}",
             detail.Header.PoNumber, purchaseOrderId, request.ReplaceLines);
+
+        return detail;
+    }
+
+    // ====================================================================
+    // d.2.3.a — surgical partial update (TD-026 closure prep)
+    // ====================================================================
+
+    public async Task<PurchaseOrderDetail> UpdatePartialAsync(
+        Guid tenantId,
+        Guid purchaseOrderId,
+        PartialUpdatePurchaseOrderRequest request,
+        Guid? currentUserId,
+        CancellationToken ct = default)
+    {
+        var repo = _repoFactory.For(tenantId);
+
+        var existing = await repo.GetByIdAsync(purchaseOrderId, ct)
+            ?? throw new InvalidOperationException(
+                $"PurchaseOrder {purchaseOrderId} not found.");
+
+        // Closed/Cancelled POs are terminal — controller redirects to
+        // Detail before reaching here; this is the defence-in-depth
+        // guard against direct service callers (background jobs, tests,
+        // a future API surface).
+        if (existing.Header.Status is "Closed" or "Cancelled")
+            throw new InvalidOperationException(
+                $"Cannot edit PO {existing.Header.PoNumber}: status is " +
+                $"{existing.Header.Status}.");
+
+        // Authoritative lookup. DB state — not the request — drives
+        // locked-vs-unlocked decisions.
+        var dbLinesById = existing.Lines.ToDictionary(l => l.Id);
+
+        // ---- Validate updates ----
+        foreach (var u in request.LineUpdates)
+        {
+            if (!dbLinesById.TryGetValue(u.LineId, out var dbLine))
+                throw new InvalidOperationException(
+                    $"Cannot update line {u.LineId}: not found on PO " +
+                    $"{existing.Header.PoNumber}.");
+            if (dbLine.ReceivedQuantity > 0)
+                throw new InvalidOperationException(
+                    $"Cannot edit line {dbLine.LineNumber}: receipts " +
+                    $"posted (qty {dbLine.ReceivedQuantity}).");
+            if (u.ProductId == Guid.Empty)
+                throw new InvalidOperationException(
+                    $"Line {dbLine.LineNumber}: ProductId is required.");
+            if (u.UomId == Guid.Empty)
+                throw new InvalidOperationException(
+                    $"Line {dbLine.LineNumber}: UomId is required.");
+            if (u.ExpectedQuantity <= 0)
+                throw new InvalidOperationException(
+                    $"Line {dbLine.LineNumber}: ExpectedQuantity must be positive.");
+        }
+
+        // ---- Validate deletes ----
+        foreach (var deleteId in request.LineDeletes)
+        {
+            if (!dbLinesById.TryGetValue(deleteId, out var dbLine))
+                throw new InvalidOperationException(
+                    $"Cannot delete line {deleteId}: not found on PO " +
+                    $"{existing.Header.PoNumber}.");
+            if (dbLine.ReceivedQuantity > 0)
+                throw new InvalidOperationException(
+                    $"Cannot delete line {dbLine.LineNumber}: receipts " +
+                    $"posted (qty {dbLine.ReceivedQuantity}). Cancel-and-" +
+                    $"recreate the PO to remove this line.");
+        }
+
+        // ---- Validate inserts ----
+        var existingLineNumbers = existing.Lines
+            .Select(l => l.LineNumber).ToHashSet();
+        var insertLineNumbers = new HashSet<int>();
+        foreach (var i in request.LineInserts)
+        {
+            if (i.LineNumber <= 0)
+                throw new InvalidOperationException(
+                    $"LineNumber must be positive (got {i.LineNumber}).");
+            if (existingLineNumbers.Contains(i.LineNumber))
+                throw new InvalidOperationException(
+                    $"LineNumber {i.LineNumber} already exists on this PO.");
+            if (!insertLineNumbers.Add(i.LineNumber))
+                throw new InvalidOperationException(
+                    $"Duplicate LineNumber {i.LineNumber} in insert batch.");
+            if (i.ProductId == Guid.Empty)
+                throw new InvalidOperationException(
+                    $"Insert line {i.LineNumber}: ProductId is required.");
+            if (i.UomId == Guid.Empty)
+                throw new InvalidOperationException(
+                    $"Insert line {i.LineNumber}: UomId is required.");
+            if (i.ExpectedQuantity <= 0)
+                throw new InvalidOperationException(
+                    $"Insert line {i.LineNumber}: ExpectedQuantity must be positive.");
+        }
+
+        // ---- Atomic apply ----
+        // TransactionScope spans the multi-connection batch (header +
+        // per-line ops). MSDTC promotion accepted per TD-022; Phase
+        // 10B / 11A / 12 / 13 precedent.
+        using var scope = new TransactionScope(
+            TransactionScopeOption.Required,
+            new TransactionOptions { IsolationLevel = IsolationLevel.ReadCommitted },
+            TransactionScopeAsyncFlowOption.Enabled);
+
+        var headerEntity = new PurchaseOrder
+        {
+            Id = purchaseOrderId,
+            PoNumber = existing.Header.PoNumber,       // frozen
+            OwnerId = existing.Header.OwnerId,          // frozen
+            WarehouseId = existing.Header.WarehouseId,  // frozen
+            ExpectedDate = request.ExpectedDate,
+            Notes = request.Notes,
+            Status = existing.Header.Status,            // unchanged here
+        };
+        var ok = await repo.UpdateHeaderAsync(headerEntity, currentUserId, ct);
+        if (!ok)
+            throw new InvalidOperationException(
+                $"Failed to update PurchaseOrder {purchaseOrderId} header.");
+
+        foreach (var u in request.LineUpdates)
+        {
+            await repo.UpdateLineAsync(
+                u.LineId, u.ProductId, u.UomId, u.ExpectedQuantity,
+                currentUserId, ct);
+        }
+
+        foreach (var i in request.LineInserts)
+        {
+            await repo.InsertSingleLineAsync(
+                purchaseOrderId, i.LineNumber, i.ProductId, i.UomId,
+                i.ExpectedQuantity, currentUserId, ct);
+        }
+
+        foreach (var deleteId in request.LineDeletes)
+        {
+            try
+            {
+                await repo.DeleteLineAsync(deleteId, ct);
+            }
+            catch (SqlException ex) when (ex.Number == 547)
+            {
+                // In-flight race: a receipt landed against this line
+                // after our pre-check but before the DELETE landed.
+                // FK NO ACTION on ReceivingLines refuses. Convert to
+                // a friendly InvalidOpEx so the controller can surface
+                // it to the operator.
+                var dbLine = dbLinesById[deleteId];
+                throw new InvalidOperationException(
+                    $"Cannot delete line {dbLine.LineNumber}: a receipt " +
+                    $"landed against it during this edit. Refresh and retry.",
+                    ex);
+            }
+        }
+
+        scope.Complete();
+
+        var detail = await repo.GetByIdAsync(purchaseOrderId, ct)
+            ?? throw new InvalidOperationException(
+                $"PurchaseOrder {purchaseOrderId} not found after partial update.");
+
+        _logger.LogInformation(
+            "Partial-updated PO {PoNumber} ({PoId}) — {UpdateCount} update(s), {InsertCount} insert(s), {DeleteCount} delete(s)",
+            detail.Header.PoNumber, purchaseOrderId,
+            request.LineUpdates.Count, request.LineInserts.Count, request.LineDeletes.Count);
 
         return detail;
     }

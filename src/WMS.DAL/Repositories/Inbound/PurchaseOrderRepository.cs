@@ -353,6 +353,77 @@ WHERE Id = @Id;";
         }
     }
 
+    // Block 4.5.2 d.2.3.a — surgical single-line UPDATE. Single
+    // ExecuteAsync; enlists with ambient TransactionScope automatically
+    // when the service wraps the partial-update batch.
+    public Task UpdateLineAsync(
+        Guid lineId,
+        Guid productId,
+        Guid uomId,
+        decimal expectedQuantity,
+        Guid? userId,
+        CancellationToken ct = default) =>
+        _connection.ExecuteAsync(new CommandDefinition(
+            @"UPDATE inbound.PurchaseOrderLines
+              SET ProductId        = @ProductId,
+                  UomId            = @UomId,
+                  ExpectedQuantity = @ExpectedQuantity,
+                  UpdatedAt        = SYSUTCDATETIME(),
+                  UpdatedBy        = @UserId,
+                  Version          = Version + 1
+              WHERE Id = @LineId;",
+            new
+            {
+                LineId = lineId,
+                ProductId = productId,
+                UomId = uomId,
+                ExpectedQuantity = expectedQuantity,
+                UserId = userId,
+            },
+            cancellationToken: ct));
+
+    // Block 4.5.2 d.2.3.a — single-line INSERT. ReceivedQuantity = 0
+    // and Status = 'Open' are SQL literals (not parameters) so operator-
+    // crafted POSTs cannot subvert them. LineNo bracketed — LINENO is a
+    // T-SQL reserved keyword in column-list context (same precedent as
+    // chunk c's INSERT).
+    public Task InsertSingleLineAsync(
+        Guid purchaseOrderId,
+        int lineNumber,
+        Guid productId,
+        Guid uomId,
+        decimal expectedQuantity,
+        Guid? userId,
+        CancellationToken ct = default) =>
+        _connection.ExecuteAsync(new CommandDefinition(
+            @"INSERT INTO inbound.PurchaseOrderLines
+                  (Id, PurchaseOrderId, LineNumber, [LineNo], ProductId, UomId,
+                   ExpectedQuantity, ReceivedQuantity, Status, CreatedBy)
+              VALUES
+                  (NEWID(), @PurchaseOrderId, @LineNumber, (@LineNumber * 10),
+                   @ProductId, @UomId,
+                   @ExpectedQuantity, 0, 'Open', @UserId);",
+            new
+            {
+                PurchaseOrderId = purchaseOrderId,
+                LineNumber = lineNumber,
+                ProductId = productId,
+                UomId = uomId,
+                ExpectedQuantity = expectedQuantity,
+                UserId = userId,
+            },
+            cancellationToken: ct));
+
+    // Block 4.5.2 d.2.3.a — single-line DELETE. FK NO ACTION on
+    // inbound.ReceivingLines.PurchaseOrderLineId (Migration_058) refuses
+    // the DELETE if any receipt points at this line; service catches the
+    // resulting SqlException 547 + converts to a friendly error.
+    public Task DeleteLineAsync(Guid lineId, CancellationToken ct = default) =>
+        _connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM inbound.PurchaseOrderLines WHERE Id = @LineId;",
+            new { LineId = lineId },
+            cancellationToken: ct));
+
     public async Task<bool> SetStatusAsync(
         Guid purchaseOrderId,
         string fromStatus,

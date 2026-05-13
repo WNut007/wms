@@ -297,19 +297,27 @@ public class PurchaseOrdersAdminTests
     }
 
     [Fact]
-    public async Task Edit_Post_HappyPath_CallsUpdate_AndRedirects()
+    public async Task Edit_Post_HappyPath_UnlockedLine_ClassifiedAsUpdate()
     {
+        // d.2.3.a — controller switched to UpdatePartialAsync. Posted
+        // line matches DB by LineNumber + DB has zero receipts → update.
         var b = BuildAdmin();
-        var poId = Guid.NewGuid();
-        b.Repo.Setup(r => r.CountReceivedLinesAsync(poId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(0);
-        UpdatePurchaseOrderRequest? captured = null;
-        b.Service.Setup(s => s.UpdateAsync(
-                It.IsAny<Guid>(), poId, It.IsAny<UpdatePurchaseOrderRequest>(),
-                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, Guid, UpdatePurchaseOrderRequest, Guid?, CancellationToken>((_, _, r, _, _) => captured = r)
-            .ReturnsAsync(SampleDetail("PO-X"));
+        var detail = SampleDetail("PO-X", receivedLines: 0);
+        var poId = detail.Header.Id;
+        var dbLineId = detail.Lines[0].Id;
+        b.Repo.Setup(r => r.GetByIdAsync(poId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
 
+        PartialUpdatePurchaseOrderRequest? captured = null;
+        b.Service.Setup(s => s.UpdatePartialAsync(
+                It.IsAny<Guid>(), poId, It.IsAny<PartialUpdatePurchaseOrderRequest>(),
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, Guid, PartialUpdatePurchaseOrderRequest, Guid?, CancellationToken>(
+                (_, _, r, _, _) => captured = r)
+            .ReturnsAsync(detail);
+
+        var postedProductId = Guid.NewGuid();
+        var postedUomId = Guid.NewGuid();
         var vm = new PurchaseOrderEditViewModel
         {
             Id = poId,
@@ -318,7 +326,7 @@ public class PurchaseOrdersAdminTests
             Notes = "edited",
             Lines = new List<PurchaseOrderLineViewModel>
             {
-                new() { LineNumber = 1, ProductId = Guid.NewGuid(), UomId = Guid.NewGuid(), ExpectedQuantity = 7m },
+                new() { LineNumber = 1, ProductId = postedProductId, UomId = postedUomId, ExpectedQuantity = 7m },
             },
         };
 
@@ -328,39 +336,169 @@ public class PurchaseOrdersAdminTests
         Assert.Equal("Detail", redirect.ActionName);
         Assert.Equal(poId, redirect.RouteValues!["id"]);
         Assert.NotNull(captured);
-        Assert.True(captured!.ReplaceLines, "Lines should be replaced when not locked");
+        Assert.Single(captured!.LineUpdates);
+        Assert.Empty(captured.LineInserts);
+        Assert.Empty(captured.LineDeletes);
+        // Classification by LineNumber resolves the DB line's Id.
+        Assert.Equal(dbLineId, captured.LineUpdates[0].LineId);
+        Assert.Equal(postedProductId, captured.LineUpdates[0].ProductId);
+        Assert.Equal(7m, captured.LineUpdates[0].ExpectedQuantity);
         Assert.Equal("edited", captured.Notes);
     }
 
     [Fact]
-    public async Task Edit_Post_LockedLines_ReplaceLinesFalse()
+    public async Task Edit_Post_LockedLines_FilteredOut_EmptyLineOps()
     {
+        // d.2.3.a — when DB line has receipts, the round-tripped POST
+        // body's value for that line is dropped (operator's intent
+        // matches "don't change"; server-side filter enforces it).
+        // Service is called with empty LineUpdates / Inserts / Deletes.
         var b = BuildAdmin();
-        var poId = Guid.NewGuid();
-        b.Repo.Setup(r => r.CountReceivedLinesAsync(poId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(2);
-        UpdatePurchaseOrderRequest? captured = null;
-        b.Service.Setup(s => s.UpdateAsync(
-                It.IsAny<Guid>(), poId, It.IsAny<UpdatePurchaseOrderRequest>(),
+        var detail = SampleDetail("PO-LOCKED", receivedLines: 2);  // line 1 has ReceivedQty>0
+        var poId = detail.Header.Id;
+        b.Repo.Setup(r => r.GetByIdAsync(poId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+
+        PartialUpdatePurchaseOrderRequest? captured = null;
+        b.Service.Setup(s => s.UpdatePartialAsync(
+                It.IsAny<Guid>(), poId, It.IsAny<PartialUpdatePurchaseOrderRequest>(),
                 It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, Guid, UpdatePurchaseOrderRequest, Guid?, CancellationToken>((_, _, r, _, _) => captured = r)
-            .ReturnsAsync(SampleDetail("PO-X"));
+            .Callback<Guid, Guid, PartialUpdatePurchaseOrderRequest, Guid?, CancellationToken>(
+                (_, _, r, _, _) => captured = r)
+            .ReturnsAsync(detail);
 
         var vm = new PurchaseOrderEditViewModel
         {
             Id = poId,
-            PoNumber = "PO-X",
+            PoNumber = "PO-LOCKED",
             ExpectedDate = DateOnly.FromDateTime(DateTime.UtcNow),
             Notes = "header-only edit",
-            Lines = new List<PurchaseOrderLineViewModel>(),
+            // d.2.2 UI round-trips locked lines in the POST body via
+            // hidden inputs; the controller filter is what drops them.
+            Lines = new List<PurchaseOrderLineViewModel>
+            {
+                new() { LineNumber = 1, ProductId = Guid.NewGuid(), UomId = Guid.NewGuid(), ExpectedQuantity = 999m },
+            },
             LinesLocked = false,  // lying — server overrides
         };
 
         await b.Controller.Edit(poId, vm, default);
 
         Assert.NotNull(captured);
-        // Server-side lock check overrode VM's LinesLocked=false.
-        Assert.False(captured!.ReplaceLines);
+        Assert.Empty(captured!.LineUpdates);
+        Assert.Empty(captured.LineInserts);
+        Assert.Empty(captured.LineDeletes);
+        Assert.Equal("header-only edit", captured.Notes);
+    }
+
+    [Fact]
+    public async Task Edit_Post_ClosedPo_RedirectsToDetail_NoServiceCall()
+    {
+        // Defence in depth — GET redirects Closed/Cancelled; POST does
+        // too so a direct form submission cannot edit a terminal PO.
+        var b = BuildAdmin();
+        var baseDetail = SampleDetail("PO-CLOSED");
+        var closedHeader = new PurchaseOrder
+        {
+            Id = baseDetail.Header.Id,
+            PoNumber = baseDetail.Header.PoNumber,
+            OwnerId = baseDetail.Header.OwnerId,
+            WarehouseId = baseDetail.Header.WarehouseId,
+            ExpectedDate = baseDetail.Header.ExpectedDate,
+            Status = "Closed",
+            Notes = baseDetail.Header.Notes,
+        };
+        var detail = new PurchaseOrderDetail(closedHeader, baseDetail.Lines);
+        var poId = detail.Header.Id;
+        b.Repo.Setup(r => r.GetByIdAsync(poId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+
+        var vm = new PurchaseOrderEditViewModel { Id = poId, PoNumber = "PO-CLOSED" };
+        var result = await b.Controller.Edit(poId, vm, default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Detail", redirect.ActionName);
+        b.Service.Verify(s => s.UpdatePartialAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid>(),
+            It.IsAny<PartialUpdatePurchaseOrderRequest>(),
+            It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Edit_Post_NewLineNumber_ClassifiedAsInsert()
+    {
+        // Posted LineNumber 2 doesn't exist in DB (only line 1) →
+        // classified as insert.
+        var b = BuildAdmin();
+        var detail = SampleDetail("PO-INS", receivedLines: 0);  // 1 line, LineNumber=1
+        var poId = detail.Header.Id;
+        b.Repo.Setup(r => r.GetByIdAsync(poId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+
+        PartialUpdatePurchaseOrderRequest? captured = null;
+        b.Service.Setup(s => s.UpdatePartialAsync(
+                It.IsAny<Guid>(), poId, It.IsAny<PartialUpdatePurchaseOrderRequest>(),
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, Guid, PartialUpdatePurchaseOrderRequest, Guid?, CancellationToken>(
+                (_, _, r, _, _) => captured = r)
+            .ReturnsAsync(detail);
+
+        var newProductId = Guid.NewGuid();
+        var vm = new PurchaseOrderEditViewModel
+        {
+            Id = poId,
+            PoNumber = "PO-INS",
+            Lines = new List<PurchaseOrderLineViewModel>
+            {
+                new() { LineNumber = 1, ProductId = detail.Lines[0].ProductId,
+                        UomId = detail.Lines[0].UomId, ExpectedQuantity = 10m },
+                new() { LineNumber = 2, ProductId = newProductId,
+                        UomId = Guid.NewGuid(), ExpectedQuantity = 5m },
+            },
+        };
+
+        await b.Controller.Edit(poId, vm, default);
+
+        Assert.NotNull(captured);
+        Assert.Single(captured!.LineInserts);
+        Assert.Equal(2, captured.LineInserts[0].LineNumber);
+        Assert.Equal(newProductId, captured.LineInserts[0].ProductId);
+    }
+
+    [Fact]
+    public async Task Edit_Post_MissingPostedLine_ClassifiedAsDelete()
+    {
+        // DB has line 1 (unlocked); posted Lines is empty → classified
+        // as delete.
+        var b = BuildAdmin();
+        var detail = SampleDetail("PO-DEL", receivedLines: 0);
+        var poId = detail.Header.Id;
+        var dbLineId = detail.Lines[0].Id;
+        b.Repo.Setup(r => r.GetByIdAsync(poId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+
+        PartialUpdatePurchaseOrderRequest? captured = null;
+        b.Service.Setup(s => s.UpdatePartialAsync(
+                It.IsAny<Guid>(), poId, It.IsAny<PartialUpdatePurchaseOrderRequest>(),
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, Guid, PartialUpdatePurchaseOrderRequest, Guid?, CancellationToken>(
+                (_, _, r, _, _) => captured = r)
+            .ReturnsAsync(detail);
+
+        var vm = new PurchaseOrderEditViewModel
+        {
+            Id = poId,
+            PoNumber = "PO-DEL",
+            Lines = new List<PurchaseOrderLineViewModel>(),
+        };
+
+        await b.Controller.Edit(poId, vm, default);
+
+        Assert.NotNull(captured);
+        Assert.Empty(captured!.LineUpdates);
+        Assert.Empty(captured.LineInserts);
+        Assert.Single(captured.LineDeletes);
+        Assert.Equal(dbLineId, captured.LineDeletes[0]);
     }
 
     [Fact]

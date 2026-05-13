@@ -136,4 +136,47 @@ public interface IPurchaseOrderRepository
         Guid purchaseOrderLineId,
         Guid? userId,
         CancellationToken ct = default);
+
+    // Block 4.5.2 d.2.3.a (TD-026 closure prep) — single-line UPDATE.
+    // SET covers ProductId / UomId / ExpectedQuantity + audit only;
+    // never touches ReceivedQuantity, LineNumber, LineNo, DisplayOrder,
+    // or Status. The exclusion is structural — even an operator-crafted
+    // POST cannot mutate those fields through this method. UpdatedAt +
+    // UpdatedBy stamped; Version += 1 for mutation tracking (no OCC
+    // gate per the d.2.3 last-write-wins decision).
+    //
+    // The service is expected to have pre-checked the target line has
+    // ReceivedQuantity == 0. This method does NOT enforce that — it
+    // happily UPDATEs ExpectedQuantity on a received line, which the
+    // invariants on inbound.ReceivingLines + Stock math do not allow.
+    // Service-layer guard is authoritative.
+    Task UpdateLineAsync(
+        Guid lineId,
+        Guid productId,
+        Guid uomId,
+        decimal expectedQuantity,
+        Guid? userId,
+        CancellationToken ct = default);
+
+    // Block 4.5.2 d.2.3.a — single-line INSERT. ReceivedQuantity
+    // hardcoded 0 + Status hardcoded 'Open' (new lines have no receipts
+    // by definition; excluding both from the parameter set eliminates
+    // the operator-mutation surface). LineNo computed inline as
+    // LineNumber * 10 per chunk c precedent.
+    Task InsertSingleLineAsync(
+        Guid purchaseOrderId,
+        int lineNumber,
+        Guid productId,
+        Guid uomId,
+        decimal expectedQuantity,
+        Guid? userId,
+        CancellationToken ct = default);
+
+    // Block 4.5.2 d.2.3.a — single-line DELETE. Service is expected
+    // to have pre-checked ReceivedQuantity == 0. SQL Server FK NO
+    // ACTION on inbound.ReceivingLines.PurchaseOrderLineId
+    // (Migration_058) is the last-resort guard — a 547 thrown here
+    // indicates an in-flight race the app layer can't fix (caller
+    // catches + converts to a friendly error).
+    Task DeleteLineAsync(Guid lineId, CancellationToken ct = default);
 }
