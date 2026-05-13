@@ -392,6 +392,89 @@ public class PurchaseOrdersAdminTests
     }
 
     [Fact]
+    public async Task Edit_Post_PartialLockPo_DisabledUoms_HeaderOnly_NoLineOps()
+    {
+        // d.2.3.a.1 regression — d.2.2 UI applies whole-grid lock when
+        // any line has receipts, so ALL UoM <select>s are disabled
+        // across the grid (locked + unlocked alike). Disabled selects
+        // don't POST, so vm.Lines arrives with Guid.Empty UomId across
+        // every row. Without the LinesLocked short-circuit, the
+        // unlocked DB lines would be classified as updates with empty
+        // UomId → service refuses with "UomId is required". Controller
+        // must short-circuit to header-only when whole-grid lock is on.
+        var b = BuildAdmin();
+        var poId = Guid.NewGuid();
+
+        // Two-line detail: line 1 received, line 2 not.
+        var line1Id = Guid.NewGuid();
+        var line2Id = Guid.NewGuid();
+        var detail = new PurchaseOrderDetail(
+            new PurchaseOrder
+            {
+                Id = poId, PoNumber = "PO-PART",
+                OwnerId = Guid.NewGuid(), WarehouseId = Guid.NewGuid(),
+                Status = "Receiving",
+            },
+            new List<PurchaseOrderLine>
+            {
+                new() {
+                    Id = line1Id, PurchaseOrderId = poId, LineNumber = 1,
+                    ProductId = Guid.NewGuid(), UomId = Guid.NewGuid(),
+                    ExpectedQuantity = 10m, ReceivedQuantity = 5m,
+                    Status = "PartiallyReceived",
+                },
+                new() {
+                    Id = line2Id, PurchaseOrderId = poId, LineNumber = 2,
+                    ProductId = Guid.NewGuid(), UomId = Guid.NewGuid(),
+                    ExpectedQuantity = 8m, ReceivedQuantity = 0m,
+                    Status = "Open",
+                },
+            });
+        b.Repo.Setup(r => r.GetByIdAsync(poId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+
+        PartialUpdatePurchaseOrderRequest? captured = null;
+        b.Service.Setup(s => s.UpdatePartialAsync(
+                It.IsAny<Guid>(), poId, It.IsAny<PartialUpdatePurchaseOrderRequest>(),
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, Guid, PartialUpdatePurchaseOrderRequest, Guid?, CancellationToken>(
+                (_, _, r, _, _) => captured = r)
+            .ReturnsAsync(detail);
+
+        // d.2.2 UI POST shape: both lines round-trip with empty UomId
+        // (disabled selects don't POST). ProductId IS populated because
+        // the Product cell uses a hidden input in locked mode (d.2.2).
+        // ExpectedQuantity is populated because readonly inputs DO POST.
+        var vm = new PurchaseOrderEditViewModel
+        {
+            Id = poId,
+            PoNumber = "PO-PART",
+            Notes = "header edit",
+            Lines = new List<PurchaseOrderLineViewModel>
+            {
+                new() { LineNumber = 1, ProductId = Guid.NewGuid(),
+                        UomId = Guid.Empty, ExpectedQuantity = 10m },
+                new() { LineNumber = 2, ProductId = Guid.NewGuid(),
+                        UomId = Guid.Empty, ExpectedQuantity = 8m },
+            },
+            LinesLocked = false,  // lying — server overrides to true
+        };
+
+        var result = await b.Controller.Edit(poId, vm, default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Detail", redirect.ActionName);
+
+        // Controller short-circuited to header-only because the server
+        // re-derived LinesLocked = true.
+        Assert.NotNull(captured);
+        Assert.Empty(captured!.LineUpdates);
+        Assert.Empty(captured.LineInserts);
+        Assert.Empty(captured.LineDeletes);
+        Assert.Equal("header edit", captured.Notes);
+    }
+
+    [Fact]
     public async Task Edit_Post_ClosedPo_RedirectsToDetail_NoServiceCall()
     {
         // Defence in depth — GET redirects Closed/Cancelled; POST does

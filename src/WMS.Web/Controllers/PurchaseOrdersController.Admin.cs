@@ -161,42 +161,47 @@ public partial class PurchaseOrdersController
             return View(vm);
         }
 
-        // d.2.3.a — classify posted lines vs DB by LineNumber (Path X,
-        // transitional until d.2.3.b adds a hidden line.Id POST field).
-        // Locked-line filter: d.2.2's UI round-trips locked rows in the
-        // POST body via hidden inputs, but operator didn't intend to
-        // mutate them — skip on both sides (no update for locked, no
-        // delete for "missing from posted set"). Service still validates
-        // each op as defence against malicious POSTs that try to slip
-        // an edit through.
-        var dbLinesByNumber = detail.Lines.ToDictionary(l => l.LineNumber);
-        var dbLockedNumbers = detail.Lines
-            .Where(l => l.ReceivedQuantity > 0)
-            .Select(l => l.LineNumber)
-            .ToHashSet();
-        var postedLineNumbers = (vm.Lines ?? new())
-            .Select(l => l.LineNumber).ToHashSet();
-
+        // d.2.3.a.1 — short-circuit when whole-grid lock is on. The
+        // d.2.2 UI applies LinesLocked = (any DB line has receipts) to
+        // the WHOLE grid, disabling every UoM <select> regardless of
+        // per-line state. Disabled <select>s don't POST their value, so
+        // vm.Lines[*].UomId arrives Guid.Empty across the board. Per-
+        // line classification against this body would mis-classify the
+        // unlocked-but-UI-disabled rows as legitimate "edit to empty
+        // UomId" attempts — service-layer would refuse with "UomId is
+        // required". Effective semantics for d.2.2 UI's locked state:
+        // header-only update. d.2.3.b's per-row UI sends per-line state
+        // and replaces this branch with real classification.
         var lineUpdates = new List<PartialUpdateLineEdit>();
         var lineInserts = new List<PartialUpdateLineInsert>();
         var lineDeletes = new List<Guid>();
 
-        foreach (var posted in vm.Lines ?? Enumerable.Empty<PurchaseOrderLineViewModel>())
+        if (!vm.LinesLocked)
         {
-            if (dbLockedNumbers.Contains(posted.LineNumber)) continue;
-            if (dbLinesByNumber.TryGetValue(posted.LineNumber, out var dbLine))
-                lineUpdates.Add(new PartialUpdateLineEdit(
-                    dbLine.Id, posted.ProductId, posted.UomId, posted.ExpectedQuantity));
-            else
-                lineInserts.Add(new PartialUpdateLineInsert(
-                    posted.LineNumber, posted.ProductId, posted.UomId, posted.ExpectedQuantity));
-        }
+            // Unlocked path: no DB line has receipts. UI keeps all
+            // cells editable, POST carries authoritative values.
+            // Classification by LineNumber — Path X (transitional;
+            // d.2.3.b switches to line.Id once UI adds the hidden POST
+            // field).
+            var dbLinesByNumber = detail.Lines.ToDictionary(l => l.LineNumber);
+            var postedLineNumbers = (vm.Lines ?? new())
+                .Select(l => l.LineNumber).ToHashSet();
 
-        foreach (var dbLine in detail.Lines)
-        {
-            if (dbLockedNumbers.Contains(dbLine.LineNumber)) continue;
-            if (!postedLineNumbers.Contains(dbLine.LineNumber))
-                lineDeletes.Add(dbLine.Id);
+            foreach (var posted in vm.Lines ?? Enumerable.Empty<PurchaseOrderLineViewModel>())
+            {
+                if (dbLinesByNumber.TryGetValue(posted.LineNumber, out var dbLine))
+                    lineUpdates.Add(new PartialUpdateLineEdit(
+                        dbLine.Id, posted.ProductId, posted.UomId, posted.ExpectedQuantity));
+                else
+                    lineInserts.Add(new PartialUpdateLineInsert(
+                        posted.LineNumber, posted.ProductId, posted.UomId, posted.ExpectedQuantity));
+            }
+
+            foreach (var dbLine in detail.Lines)
+            {
+                if (!postedLineNumbers.Contains(dbLine.LineNumber))
+                    lineDeletes.Add(dbLine.Id);
+            }
         }
 
         var request = new PartialUpdatePurchaseOrderRequest(
