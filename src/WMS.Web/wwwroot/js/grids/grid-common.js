@@ -150,9 +150,18 @@
     // opts:
     //   handleSelector — string, default '.drag-handle'       (optional)
     //   animation      — number ms, default 150               (optional)
-    //   onEnd          — ({oldIndex, newIndex}) => void       (required)
+    //   onEnd          — ({oldIndex, newIndex, newKeys}) => void  (required)
     //                    Fires only when the row actually moved. No-op
     //                    drops (drop on same row) are filtered.
+    //                    d.2.3.c.2 — newKeys is the live DOM key order
+    //                    captured before the revert; prefer it over
+    //                    oldIndex/newIndex when reordering an Alpine
+    //                    array since Sortable.js's index reports can
+    //                    race on fast drag-release.
+    //   dataIdAttr     — dataset key for row IDs, default 'rowKey'  (optional)
+    //                    d.2.3.c.2 — determines which dataset.* attr
+    //                    the row keys come from. The WMS grid renders
+    //                    `:data-row-key="line.key"` so default works.
     //   ghostClass     — string, default 'sortable-ghost'     (optional)
     //   chosenClass    — string, default 'sortable-chosen'    (optional)
     //   dragClass      — string, default 'sortable-drag'      (optional)
@@ -189,28 +198,42 @@
                 // otherwise fire AJAX in the Edit flow for nothing.
                 if (evt.oldIndex === evt.newIndex) return;
 
-                // d.2.3.c.1 — revert Sortable's DOM mutation BEFORE
-                // calling opts.onEnd. With Alpine x-for `<template>`
-                // bindings, Sortable's DOM mutation + a subsequent
-                // array splice both try to be the source of truth for
-                // DOM order, and Alpine's keyed diffing has to
-                // reconcile them. Result is non-deterministic across
-                // Alpine versions + Sortable timing — bug surfaced as
-                // "drag visual works but POST carries stale DisplayOrder"
-                // in d.2.3.c smoke.
+                // d.2.3.c.2 — capture the new DOM order BEFORE reverting.
+                // This is the SOURCE OF TRUTH for what the operator
+                // intended, regardless of whether evt.oldIndex/newIndex
+                // are reliable. d.2.3.c.1 trusted those indices for
+                // both the revert reference + the consumer's splice,
+                // which surfaced a speed-sensitive race on fast drag-
+                // release: Sortable.js can fire onEnd with stale
+                // indices when swaps queue mid-drag faster than the
+                // index-computation completes. Reading dataset.rowKey
+                // from the live post-mutation DOM gives us the
+                // authoritative new order regardless of Sortable's
+                // index timing.
                 //
-                // Revert makes Alpine the sole source of truth: it
-                // sees the array change + re-renders DOM cleanly.
-                // Move-up / Move-down menu actions already worked
-                // because they only mutate the array — no DOM
-                // mutation to fight.
+                // Indices remain in the callback for backward compat
+                // (consumers can prefer newKeys when present).
+                var dataAttr = opts.dataIdAttr || 'rowKey';
+                var newKeys = Array.prototype.map.call(
+                    evt.from.children,
+                    function (el) { return el.dataset[dataAttr]; });
+
+                // d.2.3.c.1 — revert Sortable's DOM mutation BEFORE
+                // returning. With Alpine x-for `<template>` bindings,
+                // Sortable's DOM mutation + a subsequent array reorder
+                // both try to be the source of truth for DOM order,
+                // and Alpine's keyed diffing has to reconcile them.
+                // Result is non-deterministic across Alpine versions +
+                // Sortable timing. Reverting makes Alpine the sole
+                // source of truth: it sees the array change and re-
+                // renders DOM cleanly.
                 //
                 // Algorithm: if item moved DOWN (oldIndex < newIndex),
                 // re-insert before the child currently at oldIndex
-                // (which is the original next-sibling after the move).
-                // If moved UP, re-insert before children[oldIndex+1]
-                // or append if oldIndex was last; appendChild handles
-                // the null reference correctly.
+                // (the original next-sibling after the move). If moved
+                // UP, re-insert before children[oldIndex+1] or append
+                // if oldIndex was last; appendChild handles the null
+                // reference correctly.
                 var parent = evt.from;
                 if (evt.oldIndex < evt.newIndex) {
                     parent.insertBefore(evt.item, parent.children[evt.oldIndex]);
@@ -219,7 +242,11 @@
                     parent.insertBefore(evt.item, ref);
                 }
 
-                opts.onEnd({ oldIndex: evt.oldIndex, newIndex: evt.newIndex });
+                opts.onEnd({
+                    oldIndex: evt.oldIndex,
+                    newIndex: evt.newIndex,
+                    newKeys: newKeys
+                });
             }
         });
     }

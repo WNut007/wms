@@ -128,9 +128,13 @@ function poLineGrid(opts) {
                 // d.2.3.b — Sortable always enabled. Locked rows can still
                 // be reordered (DisplayOrder is presentation-only; LineNumber
                 // + receipt math unaffected).
+                // d.2.3.c.2 — onEnd payload widened to { oldIndex, newIndex,
+                // newKeys }. _handleReorder prefers newKeys (live DOM order)
+                // over index splice for robustness against Sortable's index-
+                // reporting races on fast drag-release.
                 this.sortable = window.WmsGrid.setupSortable(this.$refs.linesTbody, {
                     handleSelector: '.wmsg-handle',
-                    onEnd: (evt) => this._handleReorder(evt.oldIndex, evt.newIndex)
+                    onEnd: (payload) => this._handleReorder(payload)
                 });
             });
 
@@ -412,11 +416,25 @@ function poLineGrid(opts) {
         },
 
         // ------- internals -------
-        _handleReorder(oldIdx, newIdx) {
-            // SortableJS already mutated the DOM. Sync our model so
-            // Alpine's next x-for re-render lands in the same order.
-            const [moved] = this.lines.splice(oldIdx, 1);
-            this.lines.splice(newIdx, 0, moved);
+        _handleReorder(payload) {
+            // d.2.3.c.2 — payload is { oldIndex, newIndex, newKeys }.
+            // newKeys is the live DOM key order captured at drop time;
+            // sorting the Alpine array to match is robust against
+            // Sortable.js's index-reporting races on fast drag-release.
+            // Fallback to index-splice if newKeys is unavailable (e.g.
+            // a future test harness that doesn't render dataset.rowKey).
+            const oldIdx = payload.oldIndex;
+            const newIdx = payload.newIndex;
+            const newKeys = payload.newKeys;
+
+            if (Array.isArray(newKeys) && newKeys.length === this.lines.length) {
+                const order = new Map();
+                newKeys.forEach((k, i) => order.set(k, i));
+                this.lines.sort((a, b) => order.get(a.key) - order.get(b.key));
+            } else {
+                const [moved] = this.lines.splice(oldIdx, 1);
+                this.lines.splice(newIdx, 0, moved);
+            }
             this._renumberDisplayOrder();
             this._notifyReorder();
         },
