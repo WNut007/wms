@@ -509,6 +509,23 @@
                                         <button type="button" class="wmsg-actions-item" @@click="duplicateRow(line.key)">
                                             <i class="ti ti-copy" aria-hidden="true"></i> Duplicate this row
                                         </button>
+                                        <div class="wmsg-actions-divider"></div>
+                                        @* d.2.3.c.1 — single-step Move Up / Move Down.
+                                           Useful in lists with 5-10 lines where Top /
+                                           Bottom is too coarse. Same DisplayOrder
+                                           semantics (allowed on locked rows). *@
+                                        <button type="button" class="wmsg-actions-item"
+                                                @@click="moveUp(line.key)"
+                                                :disabled="idx === 0"
+                                                :title="idx === 0 ? 'Already at top' : null">
+                                            <i class="ti ti-arrow-up" aria-hidden="true"></i> Move up
+                                        </button>
+                                        <button type="button" class="wmsg-actions-item"
+                                                @@click="moveDown(line.key)"
+                                                :disabled="idx === lines.length - 1"
+                                                :title="idx === lines.length - 1 ? 'Already at bottom' : null">
+                                            <i class="ti ti-arrow-down" aria-hidden="true"></i> Move down
+                                        </button>
                                         <button type="button" class="wmsg-actions-item" @@click="moveTop(line.key)" :disabled="idx === 0">
                                             <i class="ti ti-arrow-bar-to-up" aria-hidden="true"></i> Move to top
                                         </button>

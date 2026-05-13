@@ -188,6 +188,37 @@
                 // row) — saves a pointless reorder callback that would
                 // otherwise fire AJAX in the Edit flow for nothing.
                 if (evt.oldIndex === evt.newIndex) return;
+
+                // d.2.3.c.1 — revert Sortable's DOM mutation BEFORE
+                // calling opts.onEnd. With Alpine x-for `<template>`
+                // bindings, Sortable's DOM mutation + a subsequent
+                // array splice both try to be the source of truth for
+                // DOM order, and Alpine's keyed diffing has to
+                // reconcile them. Result is non-deterministic across
+                // Alpine versions + Sortable timing — bug surfaced as
+                // "drag visual works but POST carries stale DisplayOrder"
+                // in d.2.3.c smoke.
+                //
+                // Revert makes Alpine the sole source of truth: it
+                // sees the array change + re-renders DOM cleanly.
+                // Move-up / Move-down menu actions already worked
+                // because they only mutate the array — no DOM
+                // mutation to fight.
+                //
+                // Algorithm: if item moved DOWN (oldIndex < newIndex),
+                // re-insert before the child currently at oldIndex
+                // (which is the original next-sibling after the move).
+                // If moved UP, re-insert before children[oldIndex+1]
+                // or append if oldIndex was last; appendChild handles
+                // the null reference correctly.
+                var parent = evt.from;
+                if (evt.oldIndex < evt.newIndex) {
+                    parent.insertBefore(evt.item, parent.children[evt.oldIndex]);
+                } else {
+                    var ref = parent.children[evt.oldIndex + 1] || null;
+                    parent.insertBefore(evt.item, ref);
+                }
+
                 opts.onEnd({ oldIndex: evt.oldIndex, newIndex: evt.newIndex });
             }
         });

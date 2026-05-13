@@ -337,6 +337,31 @@ function poLineGrid(opts) {
             this._notifyReorder();
         },
 
+        // d.2.3.c.1 — Move Up / Move Down (single-step neighbor swap).
+        // Mirror of moveTop/moveBottom; useful in lists with 5-10 lines
+        // where Top/Bottom is too coarse. Same DisplayOrder semantics
+        // (allowed on locked rows — presentation-only).
+        moveUp(key) {
+            const idx = this.lines.findIndex(l => l.key === key);
+            if (idx <= 0) return;
+            // Swap with the row above (splice out + splice in at idx-1).
+            const [moved] = this.lines.splice(idx, 1);
+            this.lines.splice(idx - 1, 0, moved);
+            this.closeMenus();
+            this._renumberDisplayOrder();
+            this._notifyReorder();
+        },
+
+        moveDown(key) {
+            const idx = this.lines.findIndex(l => l.key === key);
+            if (idx === -1 || idx === this.lines.length - 1) return;
+            const [moved] = this.lines.splice(idx, 1);
+            this.lines.splice(idx + 1, 0, moved);
+            this.closeMenus();
+            this._renumberDisplayOrder();
+            this._notifyReorder();
+        },
+
         // ------- ⋯ menu -------
         toggleMenu(key) {
             this.openMenuKey = (this.openMenuKey === key) ? null : key;
